@@ -218,6 +218,10 @@ MAX_ATTACHMENTS_TOTAL_BYTES = int(
 # Maximum number of files per request
 MAX_ATTACHMENTS = int(os.getenv("SF_CLUSTER_MAX_ATTACHMENTS", "6"))
 
+# A request longer than the provider's input field: send instructions + history as an
+# attached context.txt instead of cutting them (providers that accept files). "0" = always cut.
+OVERFLOW_TO_FILE = os.getenv("SF_CLUSTER_OVERFLOW_FILE", "1") not in ("0", "false", "no")
+
 # Timeout for downloading a file from an external URL
 ATTACHMENT_FETCH_TIMEOUT = float(os.getenv("SF_CLUSTER_ATTACHMENT_TIMEOUT", "20"))
 

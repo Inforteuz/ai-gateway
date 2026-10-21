@@ -116,6 +116,9 @@ services:
       SF_CHROME_SANDBOX: ${SF_CHROME_SANDBOX:-1}
       # Site isolation: 1 = on (default), 0 = off to save memory
       SF_CHROME_SITE_ISOLATION: ${SF_CHROME_SITE_ISOLATION:-1}
+      # Requests longer than a provider's input field: instructions + history go as an attached
+      # context.txt instead of being cut (1, default) or are trimmed (0)
+      SF_CLUSTER_OVERFLOW_FILE: ${SF_CLUSTER_OVERFLOW_FILE:-1}
       SF_CLUSTER_LOG_LEVEL: ${SF_CLUSTER_LOG_LEVEL:-INFO}
       SF_CLUSTER_REQUEST_TIMEOUT: ${SF_CLUSTER_REQUEST_TIMEOUT:-60}
     volumes:

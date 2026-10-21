@@ -5,6 +5,8 @@ import asyncio
 import json
 import os
 import random
+import shutil
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -19,7 +21,7 @@ from . import settings as cfg
 from .adapters import get_adapter
 from .adapters.base_adapter import BaseAIAdapter
 from .circuit import exponential_cooldown
-from .compose import fit_prompt
+from .compose import OVERFLOW_FILE_NAME, fit_prompt, split_for_file
 
 log = logs.get("pool")
 
@@ -619,18 +621,62 @@ class WorkerTab:
                 prev = list(found)
         return urls
 
+    def _overflow_to_file(self, prompt_text: str, attachment_paths: Optional[List[str]],
+                          images_only: bool, want_images: bool) -> tuple[str, Optional[str]]:
+        """If the prompt is longer than the provider's input field and the provider takes files,
+        writes instructions + history to a private temp context.txt. Returns (text to send,
+        temp dir to delete afterwards or None)."""
+        limit = getattr(self.adapter, "MAX_INPUT_CHARS", 0)
+        if not (cfg.OVERFLOW_TO_FILE and limit and len(prompt_text) > limit) or images_only or want_images:
+            return prompt_text, None
+        if not getattr(getattr(self.adapter, "caps", None), "files", False):
+            return prompt_text, None
+        if len(attachment_paths or []) >= cfg.MAX_ATTACHMENTS:
+            return prompt_text, None
+        split = split_for_file(prompt_text, limit)
+        if split is None:
+            return prompt_text, None
+        text, content = split
+        tmpdir = tempfile.mkdtemp(prefix="ai-gateway-context-", dir=cfg.ATTACHMENT_DIR or None)
+        os.chmod(tmpdir, 0o700)
+        path = os.path.join(tmpdir, OVERFLOW_FILE_NAME)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(path, 0o600)
+        log.info("%s: request %d chars > %d, instructions + history (%d chars) sent as %s",
+                 self.model_name, len(prompt_text), limit, len(content), OVERFLOW_FILE_NAME)
+        return text, tmpdir
+
     async def execute_prompt(self, prompt_text: str, timeout: int = 45,
                              attachment_paths: Optional[List[str]] = None,
                              images_only: bool = False,
                              want_images: bool = False) -> tuple[Optional[str], List[tuple[str, str]]]:
-        """Execute the request. Returns (answer text, images)."""
+        """Execute the request. Returns (answer text, images).
+
+        An oversized prompt is not cut when the provider takes files: its long part goes as
+        an attached context.txt (see compose.split_for_file); the file is removed afterwards.
+        """
+        send_text, tmpdir = self._overflow_to_file(prompt_text, attachment_paths, images_only, want_images)
+        paths = attachment_paths
+        if tmpdir:
+            paths = [*(attachment_paths or []), os.path.join(tmpdir, OVERFLOW_FILE_NAME)]
+        try:
+            return await self._execute_prompt(prompt_text, send_text, timeout, paths, images_only, want_images)
+        finally:
+            if tmpdir:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+    async def _execute_prompt(self, prompt_text: str, send_text: str, timeout: int,
+                              attachment_paths: Optional[List[str]], images_only: bool,
+                              want_images: bool) -> tuple[Optional[str], List[tuple[str, str]]]:
+        """`prompt_text` is the full request (used to classify the answer), `send_text` what is typed."""
         await self._preflight_session()
         self.total_requests += 1
         self.last_used = time.time()
         kw = dict(attachment_paths=attachment_paths, images_only=images_only,
                   want_images=want_images)
         try:
-            raw, images = await self._run_once(prompt_text, timeout, **kw)
+            raw, images = await self._run_once(send_text, timeout, **kw)
         except websockets.exceptions.WebSocketException as e:
             # The tab may have been recreated by navigation, reload or crash. While
             # the page reloads it is normal for the tab to vanish from `/json` for
@@ -650,7 +696,7 @@ class WorkerTab:
                      self.model_name, self.browser_port)
             self.ws_url = fresh
             try:
-                raw, images = await self._run_once(prompt_text, timeout, **kw)
+                raw, images = await self._run_once(send_text, timeout, **kw)
             except websockets.exceptions.WebSocketException as e2:
                 self.last_error = f"ws:{type(e2).__name__}"
                 self._record_outcome(False, transient=True)
@@ -699,8 +745,9 @@ class WorkerTab:
             meta["_fallback_tried"] = True
             self.prefer_fallback_until = time.time() + cfg.FALLBACK_STICKY_SECONDS
             log.warning("%s: primary model busy (high demand), retrying on fallback model", self.model_name)
-            return await self.execute_prompt(prompt_text, timeout, attachment_paths=attachment_paths,
-                                             images_only=images_only, want_images=want_images)
+            # Same prepared text and attachments (incl. a context.txt, still on disk until execute_prompt ends)
+            return await self._execute_prompt(prompt_text, send_text, timeout, attachment_paths,
+                                              images_only, want_images)
 
         if kind != CLASS_OK:
             self.last_error = kind

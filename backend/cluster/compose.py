@@ -339,3 +339,39 @@ def fit_prompt(prompt: str, limit: int) -> str:
     if len(prompt) > limit:
         prompt = _cut_middle(prompt, limit, "\n[… qisqartirildi …]\n")
     return prompt
+
+
+# --- Overflow into an attached file -----------------------------------------------
+# Instead of cutting a request that does not fit the provider's input field, the long
+# part (system instructions + conversation history) is sent as an attached context.txt
+# and the typed message keeps only a short pointer, the attachments list, the tool
+# protocol and the current task. Nothing is lost; fit_prompt() remains the fallback
+# when the provider takes no files or even the tail alone is too long.
+OVERFLOW_FILE_NAME = "context.txt"
+OVERFLOW_NOTE = (
+    "[System]:\n"
+    f"The full system instructions and the conversation history are in the attached file "
+    f"{OVERFLOW_FILE_NAME}. Read the whole file first and follow its instructions as your system "
+    "prompt. Below are only the attached-files list and the tool protocol (if any) and the current task."
+)
+
+
+def split_for_file(prompt: str, limit: int) -> tuple[str, str] | None:
+    """Splits an oversized prompt into (text to type, context file content), or None.
+
+    None when there is nothing worth moving (no tail section, tiny head) or when the
+    remaining tail still does not fit `limit`.
+    """
+    if not limit or len(prompt) <= limit:
+        return None
+    starts = [i for i in (prompt.find(x) for x in _TAIL_HEADERS) if i > 0]
+    if not starts:
+        return None
+    cut = min(starts)
+    head, tail = prompt[:cut], prompt[cut:]
+    if len(head) < 500:
+        return None
+    text = OVERFLOW_NOTE + tail
+    if len(text) > limit:
+        return None
+    return text, head.strip() + "\n"

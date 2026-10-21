@@ -194,6 +194,7 @@ volumes and data: `docker compose down && docker compose up -d` (never add `-v`)
 | `GATEWAY_SUBNET`, `GATEWAY_PROXY_IP` | Docker network subnet and Caddy's fixed address (change together with `FORWARDED_ALLOW_IPS`) |
 | `SF_CHROME_SANDBOX` | `1` (default) = Chrome must run sandboxed, `0` = explicit opt-out, see Security notes |
 | `SF_CHROME_SITE_ISOLATION` | `1` (default) = site isolation on, `0` = off to save ~100-300 MB per instance |
+| `SF_CLUSTER_OVERFLOW_FILE` | `1` (default) = a request longer than the provider's input field (e.g. Gemini ~31 000 chars) sends instructions + history as an attached `context.txt` instead of cutting the oldest history; `0` = trim |
 
 Upstream API keys, OAuth secrets and similar values are stored in the database
 settings (write-only in the admin console), not in `.env`.
