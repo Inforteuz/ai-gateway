@@ -1,0 +1,10 @@
+.git
+.env
+Caddyfile
+backups
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.pyc
+backend/tests

@@ -1,0 +1,129 @@
+# AI Gateway - full stack. Normally configured by ./install.sh, which writes .env.
+#
+# Profiles (COMPOSE_PROFILES in .env):
+#   cluster - web-chat automation (Chrome instances + VNC), modes 1 and 2
+#   ollama  - local models in an Ollama container
+#   caddy   - public HTTPS with automatic certificates (skip it when another
+#             reverse proxy already owns ports 80/443)
+name: ${COMPOSE_PROJECT_NAME:-ai-gateway}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gateway
+      POSTGRES_USER: gateway_migrator
+      POSTGRES_PASSWORD: ${DB_MIGRATOR_PASSWORD:?run ./install.sh first}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway_migrator -d gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Creates the app role, applies schema migrations, then exits
+  migrate:
+    image: ${COMPOSE_PROJECT_NAME:-ai-gateway}-api:local
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    command: ["python", "bootstrap.py"]
+    environment:
+      SF_MIGRATE_DATABASE_URL: postgresql://gateway_migrator@db:5432/gateway
+      SF_MIGRATE_DATABASE_PASSWORD: ${DB_MIGRATOR_PASSWORD}
+      SF_DB_APP_ROLE: gateway_app
+      SF_DATABASE_PASSWORD: ${DB_APP_PASSWORD:?run ./install.sh first}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ${COMPOSE_PROJECT_NAME:-ai-gateway}-api:local
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      SF_DATABASE_URL: postgresql://gateway_app@db:5432/gateway
+      SF_DATABASE_PASSWORD: ${DB_APP_PASSWORD}
+      SF_DB_APP_ROLE: gateway_app
+      SF_SEED_DEFAULT_MODEL: "0"
+      SF_BRAND_NAME: ${SF_BRAND_NAME:-AI Gateway}
+      SF_ASSISTANT_NAME: ${SF_ASSISTANT_NAME:-}
+      SF_SITE_URL: ${SF_SITE_URL:-}
+      SF_API_URL: ${SF_API_URL:-}
+      SF_DEFAULT_LANG: ${SF_DEFAULT_LANG:-uz}
+      SF_COOKIE_SECURE: ${SF_COOKIE_SECURE:-1}
+      SF_UPSTREAM_URL: ${SF_UPSTREAM_URL:-http://ollama:11434}
+      SF_MAX_CONCURRENT: ${SF_MAX_CONCURRENT:-2}
+      SF_PER_KEY_CONCURRENT: ${SF_PER_KEY_CONCURRENT:-3}
+      SF_QUEUE_WAIT: ${SF_QUEUE_WAIT:-90}
+      SF_VNC_HOST: cluster
+      SF_VNC_PORT: "5900"
+      SF_VNC_PASSWORD: ${SF_VNC_PASSWORD:-}
+      SF_RECAPTCHA_SITE_KEY: ${SF_RECAPTCHA_SITE_KEY:-}
+      SF_RECAPTCHA_SECRET: ${SF_RECAPTCHA_SECRET:-}
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8310}:8310"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  cluster:
+    profiles: ["cluster"]
+    image: ${COMPOSE_PROJECT_NAME:-ai-gateway}-cluster:local
+    build:
+      context: .
+      dockerfile: docker/cluster/Dockerfile
+    restart: unless-stopped
+    # Stable hostname: Chrome ties its profile lock to it
+    hostname: gateway-cluster
+    shm_size: "1gb"
+    environment:
+      SF_CHROME_CHANNELS: ${SF_CHROME_CHANNELS:-}
+      SF_CLUSTER_API_KEY: ${CLUSTER_API_KEY:?run ./install.sh first}
+      SF_VNC_PASSWORD: ${SF_VNC_PASSWORD:?run ./install.sh first}
+      SF_BRAND_NAME: ${SF_BRAND_NAME:-AI Gateway}
+      SF_ASSISTANT_NAME: ${SF_ASSISTANT_NAME:-}
+      SF_CHROME_LANG: ${SF_CHROME_LANG:-en-US}
+      SF_CLUSTER_LOG_LEVEL: ${SF_CLUSTER_LOG_LEVEL:-INFO}
+      SF_CLUSTER_REQUEST_TIMEOUT: ${SF_CLUSTER_REQUEST_TIMEOUT:-60}
+    volumes:
+      - cluster-data:/data
+    ports:
+      # Optional raw VNC for an SSH tunnel; the admin panel has a built-in VNC viewer
+      - "127.0.0.1:${VNC_PORT:-15900}:5900"
+
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+
+  caddy:
+    profiles: ["caddy"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  db-data:
+  cluster-data:
+  ollama-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,6 @@
+# Optional per-instance proxies for the cluster (copy to the cluster volume as /data/proxies.txt).
+# Line N (ignoring comments) is used by Chrome instance N-1; "direct" means no proxy.
+# Format: host:port  or  host:port:username:password  (HTTP proxies)
+direct
+203.0.113.10:8080:user:password
+203.0.113.11:8080

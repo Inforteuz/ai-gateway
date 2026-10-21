@@ -1,0 +1,159 @@
+/* Compare page styles.
+ *
+ * Kept in a separate file: other work is happening on `styles.css`, so
+ * this page carries its own styles. Every selector uses the `cmp`
+ * prefix — it doesn't touch other pages. Colors, borders and spacing
+ * come only from existing variables, so light and dark mode
+ * work correctly on their own.
+ */
+
+.cmp-hero {
+  display: grid;
+  gap: 14px;
+  padding: clamp(32px, 6vw, 64px) 0 10px;
+  max-width: 46rem;
+}
+
+.cmp-hero .eyebrow {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.cmp-hero h1 {
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  letter-spacing: -0.035em;
+}
+
+.cmp-hero p { line-height: 1.6; }
+
+.cmp-sec { padding: clamp(28px, 4vw, 44px) 0 0; }
+
+/* --- Direction leaders ------------------------------------------------ */
+
+.cmp-leaders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.cmp-leader {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+
+.cmp-leader-cat {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg-subtle);
+}
+
+.cmp-leader b {
+  font-size: 1.04rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.cmp-leader-score { font-size: 0.9rem; color: var(--fg-muted); }
+
+.cmp-leader-tie {
+  font-size: 0.78rem;
+  color: var(--fg-subtle);
+  line-height: 1.4;
+}
+
+/* --- Middle notice ---------------------------------------------------- */
+
+/* The left border shows this block is a note, not an advertisement. */
+.cmp-warn {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 12px;
+  background: var(--bg-sunken);
+  padding: 20px 22px;
+  display: grid;
+  gap: 10px;
+  max-width: 56rem;
+}
+
+.cmp-warn b { font-size: 1rem; font-weight: 700; letter-spacing: -0.02em; }
+.cmp-warn p { color: var(--fg-muted); font-size: 0.92rem; line-height: 1.6; }
+
+/* --- External sources -------------------------------------------------- */
+
+.cmp-srcs { display: grid; gap: 20px; }
+
+.cmp-src-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.cmp-src-head h3 { font-size: 1.08rem; font-weight: 700; letter-spacing: -0.025em; }
+
+.cmp-meta {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+}
+
+.cmp-meta dt {
+  font-size: 0.76rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  margin-bottom: 3px;
+}
+
+.cmp-meta dd {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.cmp-table { min-width: 420px; }
+.cmp-table td:first-child { font-weight: 500; }
+
+.cmp-note {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.cmp-matrix tbody:first-of-type .cmp-group th {
+  padding-top: 0;
+}
+
+.cmp-group th {
+  background: transparent;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: left;
+  padding: 16px 12px 8px;
+  border-bottom: none;
+}
+
+/* By default a grid item stretches to fit the wide table inside it
+ * (`min-width: auto`), so on phones the whole page scrolls
+ * sideways. With `min-width: 0` the table scrolls within its own
+ * frame and the page stays put. */
+.cmp-srcs > * { min-width: 0; }
+.cmp-src .table-wrap { max-width: 100%; }

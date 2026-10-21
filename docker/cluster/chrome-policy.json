@@ -1,0 +1,8 @@
+{
+  "CommandLineFlagSecurityWarningsEnabled": false,
+  "PromotionalTabsEnabled": false,
+  "BrowserSignin": 1,
+  "SyncDisabled": true,
+  "MetricsReportingEnabled": false,
+  "DefaultBrowserSettingEnabled": false
+}

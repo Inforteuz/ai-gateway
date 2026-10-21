@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+backend/data/
+backend/dev.env
+.pytest_cache/
+docs/generated/
+
+# Secrets must never be committed.
+*.local.env
+backend/cluster/proxies.txt
+backend/cluster/proxies.json
+.DS_Store
+*.bak-*
+
+# Installer output (contains secrets)
+.env
+Caddyfile
+backups/
