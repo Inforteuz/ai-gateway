@@ -1,4 +1,3 @@
-import asyncio
 from typing import Optional
 
 from .. import cdp
@@ -24,6 +23,23 @@ class DeepAIAdapter(BaseAIAdapter):
     def __init__(self):
         super().__init__("deepai")
 
+    # A clean chat (measured): a conversation adds `#<uuid>` to the URL as soon as the
+    # message is sent (before any answer), answers render as `.outputBox`/`.markdownContainer`.
+    # A new chat is plain `/chat` with none of them; it is ready ~0.2 s after the click.
+    _FRESH_JS = """(() => {
+        const box = document.querySelector('#persistentChatbox');
+        return location.pathname.replace(/\\/$/, '') === '/chat' && !location.hash
+            && !document.querySelector('.markdownContainer, .outputBox')
+            && !!box && box.value === '';
+    })()"""
+
+    async def is_fresh_chat(self, ws) -> bool:
+        """Clean chat check for a pre-warmed page (no previous conversation can leak in)."""
+        try:
+            return bool(await cdp.evaluate(ws, self._FRESH_JS, timeout=5))
+        except Exception:
+            return False
+
     async def reset_chat(self, ws, timeout: float = 10.0) -> None:
         """Opens a new chat — every request goes into its own conversation."""
         js = """(() => {
@@ -33,11 +49,12 @@ class DeepAIAdapter(BaseAIAdapter):
         })()"""
         try:
             if await cdp.evaluate(ws, js, timeout=8):
-                await asyncio.sleep(1.0)
-                return
+                # Poll instead of a fixed 1 s: the new chat is usually ready in ~0.2 s
+                if await self.wait_until(ws, self._FRESH_JS, timeout=3.0):
+                    return
         except Exception:
             pass
-        # No button found — go to the home page
+        # No button found or the page did not become clean — go to the home page
         await self.goto(ws, "https://deepai.org/chat")
         await self.wait_for_input(ws, timeout=timeout, selector="#persistentChatbox")
 
@@ -56,17 +73,13 @@ class DeepAIAdapter(BaseAIAdapter):
         }})()"""
         if not await cdp.evaluate(ws, fill):
             return False
-        await asyncio.sleep(0.3)
+        # The page needs a moment to register the input: wait until the send button is
+        # visible (polled, usually immediate) instead of a fixed 0.3 s
+        await self.wait_until(ws, "(() => { const b = document.querySelector('#chatSubmitButton');"
+                                  " return !!b && b.offsetParent !== null && !b.disabled; })()", timeout=1.0)
 
-        # Send, then VERIFY that the text field was cleared
-        async def was_sent() -> bool:
-            await asyncio.sleep(0.8)
-            try:
-                return not await cdp.evaluate(
-                    ws, "((document.querySelector('#persistentChatbox') || {}).value || '').length",
-                    timeout=8)
-            except Exception:
-                return False
+        # Sent = the text field was cleared (polled every 0.1 s instead of a fixed 0.8 s)
+        empty_js = "((document.querySelector('#persistentChatbox') || {}).value || '').length === 0"
 
         await cdp.evaluate(ws, """(() => {
             const b = document.querySelector('#chatSubmitButton');
@@ -74,11 +87,11 @@ class DeepAIAdapter(BaseAIAdapter):
             b.click();
             return true;
         })()""")
-        if await was_sent():
+        if await self.wait_until(ws, empty_js, timeout=2.5):
             return True
 
         await cdp.key(ws, "Enter")
-        return await was_sent()
+        return await self.wait_until(ws, empty_js, timeout=2.5)
 
     async def read_response(self, ws, timeout: int = 40) -> Optional[str]:
         script = """(() => {

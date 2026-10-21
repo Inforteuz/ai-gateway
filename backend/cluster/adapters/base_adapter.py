@@ -864,6 +864,20 @@ class BaseAIAdapter(ABC):
 
         return self.clean_text(prev)
 
+    async def wait_until(self, ws, js: str, timeout: float, interval: float = 0.1) -> bool:
+        """Re-evaluates `js` every `interval` seconds until it is truthy or `timeout` passes.
+        Used instead of fixed sleeps: returns as soon as the page is ready."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if await cdp.evaluate(ws, js, timeout=5):
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(interval)
+
     def partial_text(self, text: str) -> str:
         """The answer-so-far as the final answer would look (live streaming). Adapters that
         post-process their final answer apply the same steps here."""
