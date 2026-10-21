@@ -526,6 +526,9 @@ class ChatGPTAdapter(BaseAIAdapter):
         await self._record_if_persisted(ws)
         return self.clean_text(self._strip_ui_noise(raw or ""))
 
+    def partial_text(self, text: str) -> str:
+        return self.clean_text(self._strip_ui_noise(text or ""))
+
     async def _record_if_persisted(self, ws, tries: int = 3) -> None:
         """If the chat GOT SAVED TO HISTORY, adds its ID to the registry.
 

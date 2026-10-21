@@ -13,7 +13,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import List, Optional, Sequence, Tuple
 
-from . import logs, metrics
+from . import logs, metrics, runmeta
 from . import self_heal
 from . import settings as cfg
 from .circuit import CircuitRegistry
@@ -75,6 +75,11 @@ def _is_busy(worker: WorkerTab) -> bool:
     """
     lock = worker.lock
     return lock.locked() or bool(getattr(lock, "_waiters", None))
+
+
+def _stream_committed() -> bool:
+    """True once live streaming has sent part of this request's answer to the client."""
+    return bool(runmeta.get().get("stream_committed"))
 
 
 class ClusterBalancer:
@@ -305,6 +310,8 @@ class ClusterBalancer:
 
         waited_busy = False
         for worker in candidates:
+            if _stream_committed():
+                break     # part of an answer already went to the client: another worker cannot continue it
             if time.time() < worker.cooldown_until:
                 continue
 
@@ -373,6 +380,10 @@ class ClusterBalancer:
                 # SPEED: prepare a clean chat in the background for the next request (skipped if queued)
                 if cfg.PREWARM_ENABLED and hasattr(worker, "prewarm"):
                     asyncio.get_event_loop().create_task(worker.prewarm())
+
+        if _stream_committed():
+            log.warning("dispatch stopped: answer already partly streamed, last=%s", last_error or "-")
+            raise UpstreamFailed("Model javobi yarmida uzildi. Qayta urinib ko'ring.")
 
         # Nobody answered. If the fault is transient (the worker is now in a short
         # cooldown), wait and retry once; only then return an error.

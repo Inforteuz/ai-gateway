@@ -365,6 +365,19 @@ REASONING_MIN_CHARS = int(os.getenv("SF_CLUSTER_REASONING_MIN_CHARS", "180"))
 # this loop, so the interval was cut down from 1 second.
 # Too small a value overloads the browser; 0.3-0.5 is a good range.
 POLL_INTERVAL = float(os.getenv("SF_CLUSTER_POLL_INTERVAL", "0.35"))
+# First look at the answer this soon after sending (live streaming shows the first words
+# early). The "answer finished" decision still waits for the adapter's initial delay, so a
+# placeholder shown before the provider's stop button appears is never taken as the answer.
+POLL_FIRST_DELAY = float(os.getenv("SF_CLUSTER_POLL_FIRST_DELAY", "0.3"))
+
+# Live streaming: for stream=true requests without tools / JSON format / images the text is
+# sent to the client while the provider is still writing it (instead of all at the end).
+# Such requests skip the structured-reasoning template (its answer part cannot be streamed).
+LIVE_STREAM = os.getenv("SF_CLUSTER_LIVE_STREAM", "1") not in ("0", "false", "no")
+# Nothing is sent until the text is this long and is not a service message (quota, login...)
+LIVE_STREAM_HOLD_CHARS = int(os.getenv("SF_CLUSTER_LIVE_STREAM_HOLD", "80"))
+# The newest characters are held back: the page may still re-render them (markdown, code labels)
+LIVE_STREAM_TAIL_CHARS = int(os.getenv("SF_CLUSTER_LIVE_STREAM_TAIL", "60"))
 
 # --- Per-port model map -------------------------------------------------------
 

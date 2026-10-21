@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from .. import cdp, logs
+from .. import cdp, logs, runmeta
 from .. import settings as cfg
 
 log = logs.get("adapter")
@@ -807,7 +807,13 @@ class BaseAIAdapter(ABC):
         Stability is measured in TIME, so changing the poll interval does not
         reduce reliability.
         """
-        await asyncio.sleep(initial_delay)
+        started = time.time()
+        # Start reading early (live streaming), but never decide "finished" before
+        # `initial_delay`: until the provider shows its stop button a placeholder can
+        # look like a stable, finished answer.
+        await asyncio.sleep(min(initial_delay, cfg.POLL_FIRST_DELAY))
+        done_not_before = started + initial_delay
+        on_progress = runmeta.get().get("on_progress")
         prev = ""
         stable_since = 0.0
         js_errors = 0
@@ -841,16 +847,27 @@ class BaseAIAdapter(ABC):
             if cur != prev:
                 prev = cur
                 stable_since = time.time()
+                if on_progress is not None:
+                    try:
+                        on_progress(self.partial_text(cur))
+                    except Exception as e:   # a broken listener must not break the request
+                        log.warning("progress listener failed: %s", type(e).__name__)
+                        on_progress = None
                 continue
 
             if not stable_since:
                 stable_since = time.time()
             stable_for = time.time() - stable_since
             need = need_done if not gen else need_generating
-            if need is not None and stable_for >= need:
+            if need is not None and stable_for >= need and time.time() >= done_not_before:
                 return self.clean_text(cur)
 
         return self.clean_text(prev)
+
+    def partial_text(self, text: str) -> str:
+        """The answer-so-far as the final answer would look (live streaming). Adapters that
+        post-process their final answer apply the same steps here."""
+        return self.clean_text(text)
 
     def clean_text(self, text: str) -> str:
         if not text:

@@ -352,6 +352,10 @@ class GeminiAdapter(BaseAIAdapter):
         raw = await self.poll_answer(ws, script, timeout=timeout, initial_delay=1.0)
         return _fix_code_labels(raw) if raw else raw
 
+    def partial_text(self, text: str) -> str:
+        text = self.clean_text(text)
+        return _fix_code_labels(text) if text else text
+
     # --- File attachment ------------------------------------------------------
 
     # On the account's first upload Google shows the "Создание контента на основе изображений и

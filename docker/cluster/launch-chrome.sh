@@ -94,6 +94,22 @@ if [ "${SF_CHROME_SITE_ISOLATION:-1}" = 0 ]; then
     echo "[chrome-$IDX] site isolation: off (SF_CHROME_SITE_ISOLATION=0)"
 fi
 
+# Analytics / tracking hosts are never resolved (less network, CPU and memory per tab).
+# Only third-party trackers: provider sites, their CDNs, captcha and images keep working.
+# Has no effect for an instance behind an upstream proxy (the proxy resolves names).
+# SF_CHROME_BLOCK_TRACKERS=0 turns it off.
+BLOCK_ARGS=()
+if [ "${SF_CHROME_BLOCK_TRACKERS:-1}" != 0 ]; then
+    rules=""
+    for h in google-analytics.com '*.google-analytics.com' googletagmanager.com '*.googletagmanager.com' \
+             '*.doubleclick.net' '*.hotjar.com' '*.hotjar.io' '*.clarity.ms' '*.segment.io' cdn.segment.com \
+             '*.mixpanel.com' '*.amplitude.com' connect.facebook.net '*.facebook.net' '*.fullstory.com' \
+             '*.intercomcdn.com' '*.newrelic.com' '*.nr-data.net'; do
+        rules="${rules:+$rules, }MAP $h ~NOTFOUND"
+    done
+    BLOCK_ARGS=(--host-resolver-rules="$rules")
+fi
+
 # 2x2 grid of 960x540 windows on the 1920x1080 display
 POS_X=$(( (IDX % 2) * 960 ))
 POS_Y=$(( ((IDX / 2) % 2) * 540 ))
@@ -123,6 +139,7 @@ POS_Y=$(( ((IDX / 2) % 2) * 540 ))
     --window-size=960,540 \
     --window-position=$POS_X,$POS_Y \
     "${PROXY_ARGS[@]}" \
+    "${BLOCK_ARGS[@]}" \
     "$START_URL" 2>"${SF_CHROME_STDERR:-/dev/null}" &
 CHROME_PID=$!
 

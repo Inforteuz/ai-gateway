@@ -28,7 +28,8 @@ from . import tools as tool_proto
 from . import settings as cfg
 from .balancer import ClusterBalancer, DispatchError
 from .compose import compile_prompt, mask_brand, tighten_filename_fences
-from .pool import ClusterPool
+from .live import LiveStream
+from .pool import CLASS_OK, ClusterPool, classify_response, is_degenerate_response
 from . import proxy_health
 from . import self_heal
 from . import memory_guard as mg
@@ -683,10 +684,19 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         store.__exit__(None, None, None)
         raise
 
+    # Live streaming (see cluster/live.py): only where the final text is the model's text as is
+    live: Optional[LiveStream] = None
+    if req.stream and cfg.LIVE_STREAM and not tool_names and not spec.is_json:
+        original_prompt = prompt_text
+        live = LiveStream(
+            finish=lambda t: tighten_filename_fences(mask_brand(t)),
+            classify=lambda t: (classify_response(t, original_prompt)[0] == CLASS_OK
+                                and not is_degenerate_response(t)))
+
     async def run(sse: bool):
         # `prompt_text` and `require` are reassigned below; without `nonlocal`
         # Python treats them as locals and raises UnboundLocalError on read.
-        nonlocal prompt_text, require
+        nonlocal prompt_text, require, live
         try:
             t_start = time.monotonic()
             run_meta = runmeta.start(allow_fallback=bool(req.sf_allow_fallback),
@@ -705,6 +715,10 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 want_images = False
             if want_images:
                 require = [*require, "image_gen"]
+                live = None
+            if live is not None:
+                run_meta["on_progress"] = live.update
+                live.meta = run_meta
 
             # Structured reasoning: for hard questions, plan first, then answer.
             # Not applied to requests with tool calling, image generation,
@@ -712,7 +726,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             # formats interfere and the model breaks both. Code and textual
             # demands like "JSON only" are excluded by `reasoning.should_use`.
             use_reasoning = (
-                cfg.REASONING_YAML and not tool_names and not want_images and not files
+                cfg.REASONING_YAML and live is None and not tool_names and not want_images and not files
                 and not spec.is_json
                 and (req.reasoning_effort or "").lower() != "none"
                 and reasoning.should_use(prompt_text, cfg.REASONING_MIN_CHARS))
@@ -824,6 +838,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                      bool(run_meta.get("fallback")),
                      ",".join(f"{k}:{v}" for k, v in (run_meta.get("phases") or {}).items()) or "-",
                      time.monotonic() - t_start, use_reasoning, spec.kind, len(calls))
+            if live is not None:
+                live.final_answer = answer
             return _completion_payload(
                 answer=answer, images=images, used_model=used_model, prompt_text=prompt_text,
                 stream=sse,
@@ -843,7 +859,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         if done and task.exception() is not None:
             raise _as_cluster_error(task.exception())
         return StreamingResponse(
-            _stream_with_keepalive(task, res_id, created_ts, requested),
+            _stream_with_keepalive(task, res_id, created_ts, requested, live),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     return await run(False)
@@ -901,23 +917,46 @@ def _sse_chunks(base: dict, calls: list, answer: str, usage: dict, extra: Option
     return out
 
 
-async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: str):
-    """Send keep-alives until `job` finishes, then stream the ready SSE chunks."""
+async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: str,
+                                 live: Optional[LiveStream] = None):
+    """Stream the answer. With `live`, text is sent while the provider writes it; otherwise
+    keep-alives are sent until `job` finishes and then the ready SSE chunks."""
     base = {"id": res_id, "object": "chat.completion.chunk",
             "created": created_ts, "model": model_hint}
     yield f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
 
+    def content(piece: str) -> str:
+        return f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'content': piece}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+
     task = job if isinstance(job, asyncio.Future) else asyncio.ensure_future(job)
     started = time.monotonic()
+    last_sent = started
     thinking_sent = False
     try:
         while True:
-            done, _ = await asyncio.wait({task}, timeout=KEEPALIVE_INTERVAL)
-            if done:
+            waits = {task}
+            changed = None
+            if live is not None:
+                changed = asyncio.ensure_future(live.changed.wait())
+                waits.add(changed)
+            done, _ = await asyncio.wait(waits, timeout=KEEPALIVE_INTERVAL,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            if changed is not None and not changed.done():
+                changed.cancel()
+            if live is not None:
+                live.changed.clear()
+                piece = live.next_piece()
+                if piece:
+                    last_sent = time.monotonic()
+                    yield content(piece)
+            if task in done:
                 break
+            if time.monotonic() - last_sent < KEEPALIVE_INTERVAL:
+                continue
+            last_sent = time.monotonic()
             yield ": thinking\n\n"
             waited = time.monotonic() - started
-            if waited >= THINKING_AFTER and not thinking_sent:
+            if waited >= THINKING_AFTER and not thinking_sent and not (live and live.committed):
                 thinking_sent = True
                 yield (f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': 'Javob tayyorlanmoqda...'}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
     except asyncio.CancelledError:
@@ -938,6 +977,15 @@ async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: 
         yield "data: [DONE]\n\n"
         return
 
+    if live is not None and live.committed and live.final_answer is not None and len(chunks) >= 3:
+        # Part of the answer is already out: send the rest, then the usual trailer
+        # (finish chunk with metadata, usage, [DONE]).
+        rest = live.remainder(live.final_answer)
+        for i in range(0, len(rest), 60):
+            yield content(rest[i:i + 60])
+        for b in chunks[-3:]:
+            yield b
+        return
     for b in chunks:
         yield b
 
