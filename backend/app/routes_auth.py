@@ -240,7 +240,7 @@ async def password_forgot(body: ForgotIn, request: Request, db: Database = Depen
         return FORGOT_RESPONSE
 
     # Never built from the Host header: a forged Host would send the victim a link to another site
-    base = ((s.get("site_base_url") or "").strip() or branding.SITE_URL).rstrip("/")
+    base = oauth.site_url(s)
     if not base:
         log.warning("password reset: site_base_url / SF_SITE_URL is not set, link not sent")
         return FORGOT_RESPONSE

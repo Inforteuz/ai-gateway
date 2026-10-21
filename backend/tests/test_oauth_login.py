@@ -115,6 +115,7 @@ def google_start(env):
     url = urlparse(r.headers["location"])
     q = parse_qs(url.query)
     assert f"{url.scheme}://{url.netloc}{url.path}" == oauth.GOOGLE_AUTH_URL
+    # From configuration (site_base_url set by configure_google), never from the request's Host header
     assert q["redirect_uri"] == ["http://testserver/portal/auth/google/callback"]
     assert q["code_challenge_method"] == ["S256"] and q["scope"] == ["openid email profile"]
     env.goauth["nonce"] = q["nonce"][0]
@@ -395,3 +396,12 @@ def test_google_cancelled_by_user(env):
     google_start(env)
     r = env.client.get("/portal/auth/google/callback", params={"error": "access_denied"}, follow_redirects=False)
     assert oauth_error(r) == "google_cancelled"
+
+
+def test_forged_host_header_does_not_reach_redirect_uri_or_links(env):
+    configure_google(env)
+    r = env.client.get("/portal/auth/google/start", headers={"Host": "evil.example"}, follow_redirects=False)
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    assert q["redirect_uri"] == ["http://testserver/portal/auth/google/callback"]   # configured, not evil.example
+    assert oauth.site_url({}) == "https://example.com"                                # SF_SITE_URL fallback
+    assert oauth.site_url({"site_base_url": "https://panel.example/"}) == "https://panel.example"

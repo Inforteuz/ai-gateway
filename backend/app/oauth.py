@@ -52,12 +52,20 @@ OAUTH_TTL = 600
 
 # --- settings -----------------------------------------------------------------
 
+def site_url(settings: dict) -> str:
+    """The site's external base URL (no trailing /), from configuration only.
+
+    Never derived from the request's Host header: a forged Host would put another site into
+    Google's redirect_uri, referral links or webhook URLs. Empty when nothing is configured.
+    """
+    from .config import DEFAULT_SETTINGS
+    return ((settings.get("site_base_url") or "").strip() or branding.SITE_URL
+            or DEFAULT_SETTINGS.get("site_base_url", "")).rstrip("/")
+
+
 def site_base(db, request=None) -> str:
-    """The site's external base URL (without a trailing /)."""
-    configured = (db.get_settings().get("site_base_url") or "").strip() or branding.SITE_URL
-    if configured:
-        return configured.rstrip("/")
-    return str(request.base_url).rstrip("/") if request is not None else ""
+    """`site_url` for callers holding a database (`request` is accepted for compatibility, not used)."""
+    return site_url(db.get_settings())
 
 
 def google_keys(db) -> tuple[str, str]:
