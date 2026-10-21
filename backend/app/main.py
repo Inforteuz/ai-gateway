@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import secrets
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import branding
+from . import billing, branding
 from . import gateway, monitor, routes_account, routes_admin, routes_auth, routes_instances, routes_monitor, routes_referral
 from . import topup_telegram
 from .vnc import TicketStore
@@ -24,12 +28,30 @@ from . import abuse
 from .ratelimit import SlidingWindow
 
 
+log = logging.getLogger("main")
+
+LEASE_INTERVAL = 20   # seconds; billing.LEASE_STALE_SECONDS must stay well above it
+
+
+async def _lease_loop(app: FastAPI) -> None:
+    """Heartbeat for this process's reservations + release of orphaned ones (dead process, expired)."""
+    from fastapi.concurrency import run_in_threadpool
+    while True:
+        await asyncio.sleep(LEASE_INTERVAL)
+        try:
+            n = await run_in_threadpool(billing.sweep_reservations, app.state.db, app.state.instance_id)
+            if n:
+                log.warning("released %d orphaned reservation(s)", n)
+        except Exception as e:
+            log.warning("reservation sweep failed: %s", type(e).__name__)
+
+
 def create_app(config: Config | None = None, http_client: httpx.AsyncClient | None = None) -> FastAPI:
     config = config or Config()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        tasks = [asyncio.create_task(gateway.janitor(app))]
+        tasks = [asyncio.create_task(gateway.janitor(app)), asyncio.create_task(_lease_loop(app))]
         if config.monitor_enabled:
             tasks.append(asyncio.create_task(monitor.loop(app)))
             # Cluster providers can fail independently — monitor them
@@ -40,6 +62,10 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
         finally:
             for t in tasks:
                 t.cancel()
+            try:
+                billing.unregister_instance(app.state.db, app.state.instance_id)
+            except Exception as e:
+                log.warning("could not unregister instance: %s", type(e).__name__)
             await app.state.notify_http.aclose()
             await app.state.ext_http.aclose()
             await app.state.cluster_http.aclose()
@@ -52,6 +78,10 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
     s = app.state
     s.config = config
     s.db = from_config(config)
+    # Identifies this process's reservations; orphans of dead processes are released, live ones are kept.
+    s.instance_id = f"{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(4)}"
+    billing.register_instance(s.db, s.instance_id)
+    billing.sweep_reservations(s.db, s.instance_id)
     s.http = http_client or httpx.AsyncClient(limits=httpx.Limits(max_connections=50, max_keepalive_connections=10))
     s.sem = asyncio.Semaphore(config.max_concurrent)
     s.ext_http = httpx.AsyncClient(limits=httpx.Limits(max_connections=40, max_keepalive_connections=8))

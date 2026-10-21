@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 
@@ -44,6 +45,8 @@ def make_upstream(state: dict) -> FastAPI:
         body = await request.json()
         state["last"] = body
         state["calls"] = state.get("calls", 0) + 1
+        if state.get("delay"):
+            await asyncio.sleep(state["delay"])   # keeps requests in flight for concurrency tests
         mode = state.get("mode", "ok")
         if mode == "500":
             return JSONResponse({"error": {"message": "boom"}}, status_code=500)
@@ -234,6 +237,15 @@ def add_key(env, user_id, *, free=0, rpm=None, monthly=None, name="test"):
             "INSERT INTO api_keys(user_id, name, prefix, last4, key_hash, free, rpm_limit, monthly_limit, created_at) VALUES (?,?,?,?,?,?,?,?,1)",
             (user_id, name, prefix, last4, digest, free, rpm, monthly))
     return raw, cur.lastrowid
+
+
+def reserve(env, uid, key_id, amount, *, request_id=None, model="model-1.0", tokens=0, monthly_limit=None,
+            max_concurrent=None, quota_limit=0, quota_models=None, owner=None, ttl=3600):
+    """billing.reserve with test defaults (this app process as the owner)."""
+    return billing.reserve(env.db, request_id=request_id or "req_" + secrets.token_hex(6), user_id=uid, key_id=key_id,
+                           model=model, amount=amount, tokens=tokens, free=False, monthly_limit=monthly_limit,
+                           owner=owner or env.app.state.instance_id, ttl=ttl, max_concurrent=max_concurrent,
+                           quota_limit=quota_limit, quota_models=quota_models)
 
 
 def bearer(key):

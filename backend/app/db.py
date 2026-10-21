@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -80,6 +80,8 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE topup_requests ADD COLUMN IF NOT EXISTS tg_chat_id TEXT",
         "ALTER TABLE topup_requests ADD COLUMN IF NOT EXISTS tg_message_id BIGINT",
     ],
+    # v5: reservations + app_instances (in-flight request accounting) — new tables, created in schema.sql.
+    5: [],
 }
 
 # Advisory lock key for the write queue ("SFDB"). Other processes on the same
@@ -393,8 +395,9 @@ class Database:
                     (m["id"], m["upstream_name"], m["display_name"], m["description"],
                      m["price_in_per_1m"], m["price_out_per_1m"], m["context_window"], now()),
                 )
-            # No request survives a restart: release all reserved amounts.
-            c.execute("UPDATE wallets SET held = 0 WHERE held <> 0")
+            # Reserved amounts are no longer zeroed here: other processes (CLI, a second
+            # replica) open the database too. The app releases orphaned reservations
+            # itself (billing.sweep_reservations) at startup and periodically.
 
     # -- connection ----------------------------------------------------------
     def conn(self) -> Conn | _AutoConn:

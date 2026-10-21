@@ -150,11 +150,7 @@ class Ticket:
         self.release_ext()
         if self.key_slot:
             self.key_slot = False
-            n = st.inflight.get(self.key["id"], 1) - 1
-            if n <= 0:
-                st.inflight.pop(self.key["id"], None)
-            else:
-                st.inflight[self.key["id"]] = n
+            _release_key_slot(st, self.key["id"])
         st.open_tickets.discard(self)
 
     async def finish(self, *, status_code: int, prompt_tokens: int = 0, completion_tokens: int = 0,
@@ -536,26 +532,62 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     price_in, price_out = (0, 0) if free_mode else (model["price_in_per_1m"], model["price_out_per_1m"])
     hold = billing.cost_for(est_prompt, price_in) + billing.cost_for(max_out, price_out)
 
-    # Concurrent requests per key
+    # Concurrent requests per key. The local counter is checked and taken with no await in between
+    # (atomic within this process); reserve() repeats the check in the database across processes.
     if state.inflight.get(key["id"], 0) >= cfg.per_key_concurrent:
         raise ApiError(429, "too_many_concurrent", f"Bir vaqtda {cfg.per_key_concurrent} tadan ortiq so'rov yuborib bo'lmaydi.",
                        "rate_limit_error", {"Retry-After": "2"})
+    state.inflight[key["id"]] = state.inflight.get(key["id"], 0) + 1
 
+    quota_limit = 0
+    if model["id"] in billing.free_limit_models(settings) and not key["free"]:
+        quota_limit = int(settings.get("free_daily_token_limit") or 0)
+        if quota_limit > 0 and await run_in_threadpool(billing.has_deposit, db, key["user_id"]):
+            quota_limit = 0
+    admitted = False
     try:
         reserved = await run_in_threadpool(
-            billing.reserve, db, user_id=key["user_id"], key_id=key["id"], amount=hold,
-            free=bool(key["free"]), monthly_limit=key["monthly_limit"])
+            billing.reserve, db, request_id=request_id, user_id=key["user_id"], key_id=key["id"], model=model["id"],
+            amount=hold, tokens=est_prompt + max_out, free=bool(key["free"]), monthly_limit=key["monthly_limit"],
+            owner=state.instance_id, ttl=reservation_ttl(cfg), max_concurrent=cfg.per_key_concurrent,
+            quota_limit=quota_limit, quota_models=billing.free_limit_models(settings))
+        admitted = True
+    except billing.FreeQuotaExceeded as e:
+        raise free_limit_error(e.quota)
     except billing.BillingError as e:
-        raise ApiError(e.status, e.code, e.message, "insufficient_quota" if e.status == 402 else "rate_limit_error")
+        headers = {"Retry-After": "2"} if e.code == "too_many_concurrent" else None
+        raise ApiError(e.status, e.code, e.message, "insufficient_quota" if e.status == 402 else "rate_limit_error", headers)
+    finally:
+        if not admitted:
+            _release_key_slot(state, key["id"])
+            # Cancelled while reserve() was running in its thread: the row may exist — drop it (idempotent).
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(billing.release, db, request_id=request_id, user_id=key["user_id"])
 
     ticket = Ticket(state=state, request_id=request_id, key=key, model_id=model["id"], endpoint=endpoint,
                     price_in=price_in, price_out=price_out, reserved=reserved,
                     stream=stream, ip=client_ip(request), t0=t0, est_prompt=est_prompt, reasoning=ctx["reasoning"],
                     free_mode=free_mode, reasoning_auto=ctx["reasoning_auto"])
-    state.inflight[key["id"]] = state.inflight.get(key["id"], 0) + 1
     ticket.key_slot = True
     state.open_tickets.add(ticket)
     return ticket, body, model, max_out, stream
+
+
+def reservation_ttl(cfg) -> int:
+    """How long a reservation may live: past the janitor's limit, so a live request is never expired."""
+    return janitor_limit(cfg) + 120
+
+
+def janitor_limit(cfg) -> int:
+    return max(cfg.upstream_read_timeout, cfg.max_stream_seconds) + cfg.queue_wait_seconds + 60
+
+
+def _release_key_slot(state, key_id: int) -> None:
+    n = state.inflight.get(key_id, 1) - 1
+    if n <= 0:
+        state.inflight.pop(key_id, None)
+    else:
+        state.inflight[key_id] = n
 
 
 def _target(state, model, settings: dict):
@@ -1063,7 +1095,7 @@ async def balance(request: Request):
 async def janitor(app) -> None:
     """Closes requests left open (e.g. the client disconnected before the stream started)."""
     state = app.state
-    limit = max(state.config.upstream_read_timeout, state.config.max_stream_seconds) + state.config.queue_wait_seconds + 60
+    limit = janitor_limit(state.config)
     while True:
         await asyncio.sleep(60)
         try:

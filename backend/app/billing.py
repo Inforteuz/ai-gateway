@@ -110,36 +110,126 @@ def ensure_wallet(c, user_id: int) -> None:
     c.execute("INSERT INTO wallets(user_id, balance, held, updated_at) VALUES (?,0,0,?) ON CONFLICT (user_id) DO NOTHING", (user_id, now()))
 
 
-def reserve(db: Database, *, user_id: int, key_id: int, amount: int, free: bool, monthly_limit: int | None) -> int:
-    """Reserves the worst-case amount. Returns the amount actually reserved (0 for a free key)."""
-    if free or amount <= 0:
-        return 0
+class FreeQuotaExceeded(BillingError):
+    """The free daily quota (completed + pending requests) is used up."""
+
+    def __init__(self, quota: "FreeQuota"):
+        super().__init__("free_daily_limit", "free daily quota exhausted", 429)
+        self.quota = quota
+
+
+# --- in-flight reservations ---------------------------------------------------------------------------------------
+# Every admitted request has one `reservations` row until it is settled or released. All checks
+# and the insert run inside `db.tx()` (global write lock), so parallel requests — also from other
+# processes — see each other. `wallets.held` stays a cached SUM(amount) per user.
+
+LEASE_STALE_SECONDS = 75     # an owner without a heartbeat for this long is considered dead
+
+
+def register_instance(db: Database, owner: str) -> None:
+    ts = now()
     with db.tx() as c:
-        w = c.execute("SELECT balance, held FROM wallets WHERE user_id=?", (user_id,)).fetchone()
-        if w is None:
-            raise BillingError("insufficient_balance", "Hisobingizda mablag' yo'q. Hisobni to'ldiring.")
-        available = w["balance"] - w["held"]
-        if available < amount:
-            raise BillingError(
-                "insufficient_balance",
-                "Hisobingizda mablag' yetarli emas. Hisobni to'ldiring yoki so'rovdagi max_tokens ni kamaytiring.",
-            )
-        if monthly_limit is not None:
-            spent = c.execute(
-                "SELECT COALESCE(SUM(cost),0) FROM usage_logs WHERE key_id=? AND created_at>=?",
-                (key_id, month_start_ts()),
-            ).fetchone()[0]
-            if spent + amount > monthly_limit:
-                raise BillingError("key_limit_reached", "Bu kalitning oylik limiti tugagan.", 429)
-        c.execute("UPDATE wallets SET held = held + ?, updated_at=? WHERE user_id=?", (amount, now(), user_id))
+        c.execute("INSERT INTO app_instances(owner, started_at, last_seen) VALUES (?,?,?) "
+                  "ON CONFLICT (owner) DO UPDATE SET last_seen=excluded.last_seen", (owner, ts, ts))
+
+
+def unregister_instance(db: Database, owner: str) -> None:
+    """Graceful shutdown: this owner's leftover reservations become orphans and are released at once."""
+    with db.tx() as c:
+        c.execute("DELETE FROM app_instances WHERE owner=?", (owner,))
+    sweep_reservations(db)
+
+
+def sweep_reservations(db: Database, owner: str | None = None) -> int:
+    """Heartbeat (when `owner` is given) + release of orphaned/expired reservations.
+
+    A reservation is dropped when it expired or its owner has not beaten for LEASE_STALE_SECONDS.
+    `held` is then recomputed from the remaining rows for every wallet that is out of sync, which
+    also clears amounts left by versions before v5 (they had no rows). Returns rows released.
+    """
+    ts = now()
+    with db.tx() as c:
+        if owner:
+            c.execute("INSERT INTO app_instances(owner, started_at, last_seen) VALUES (?,?,?) "
+                      "ON CONFLICT (owner) DO UPDATE SET last_seen=excluded.last_seen", (owner, ts, ts))
+        released = c.execute(
+            """DELETE FROM reservations r WHERE r.expires_at < ? OR NOT EXISTS (
+                   SELECT 1 FROM app_instances i WHERE i.owner = r.owner AND i.last_seen >= ?)""",
+            (ts, ts - LEASE_STALE_SECONDS)).rowcount
+        c.execute(
+            """UPDATE wallets w SET held = COALESCE(p.total, 0), updated_at = ?
+               FROM (SELECT w2.user_id, (SELECT SUM(amount) FROM reservations r WHERE r.user_id = w2.user_id) AS total
+                     FROM wallets w2) p
+               WHERE p.user_id = w.user_id AND w.held <> COALESCE(p.total, 0)""", (ts,))
+        c.execute("DELETE FROM app_instances WHERE last_seen < ?", (ts - 86400,))
+    return released
+
+
+def reserve(db: Database, *, request_id: str, user_id: int, key_id: int, model: str, amount: int, tokens: int,
+            free: bool, monthly_limit: int | None, owner: str, ttl: int,
+            max_concurrent: int | None = None, quota_limit: int = 0, quota_models: list[str] | None = None) -> int:
+    """Admits a request atomically and records its reservation. Returns the money actually held (0 for a free key).
+
+    Checked in one transaction, counting other in-flight requests:
+      * per-key concurrency (`max_concurrent`) — across all app processes;
+      * the free daily quota: completed + pending tokens of `quota_models` (when `quota_limit` > 0);
+      * the wallet: balance - held >= amount;
+      * the key's monthly limit: spent this month + pending holds of the key + amount.
+    """
+    money = 0 if (free or amount <= 0) else amount
+    ts = now()
+    with db.tx() as c:
+        if max_concurrent is not None:
+            active = c.execute("SELECT COUNT(*) FROM reservations WHERE key_id=?", (key_id,)).fetchone()[0]
+            if active >= max_concurrent:
+                raise BillingError("too_many_concurrent",
+                                   f"Bir vaqtda {max_concurrent} tadan ortiq so'rov yuborib bo'lmaydi.", 429)
+        if quota_limit > 0 and quota_models and model in quota_models:
+            used = free_tokens_used(db, user_id, quota_models, ts)
+            marks = ",".join("?" * len(quota_models))
+            pending = c.execute(f"SELECT COALESCE(SUM(tokens), 0) FROM reservations WHERE user_id=? AND model IN ({marks})",
+                                (user_id, *quota_models)).fetchone()[0]
+            # `>=`: a request is admitted while completed + pending tokens are below the limit, so at most
+            # the in-flight requests admitted before the limit was reached can cross it.
+            if used + pending >= quota_limit:
+                raise FreeQuotaExceeded(FreeQuota(quota_models, quota_limit, used + pending, next_day_ts(ts)))
+        if money:
+            w = c.execute("SELECT balance, held FROM wallets WHERE user_id=?", (user_id,)).fetchone()
+            if w is None:
+                raise BillingError("insufficient_balance", "Hisobingizda mablag' yo'q. Hisobni to'ldiring.")
+            if w["balance"] - w["held"] < money:
+                raise BillingError(
+                    "insufficient_balance",
+                    "Hisobingizda mablag' yetarli emas. Hisobni to'ldiring yoki so'rovdagi max_tokens ni kamaytiring.",
+                )
+            if monthly_limit is not None:
+                spent = c.execute("SELECT COALESCE(SUM(cost),0) FROM usage_logs WHERE key_id=? AND created_at>=?",
+                                  (key_id, month_start_ts(ts))).fetchone()[0]
+                pending = c.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE key_id=?",
+                                    (key_id,)).fetchone()[0]
+                if spent + pending + money > monthly_limit:
+                    raise BillingError("key_limit_reached", "Bu kalitning oylik limiti tugagan.", 429)
+            c.execute("UPDATE wallets SET held = held + ?, updated_at=? WHERE user_id=?", (money, ts, user_id))
+        c.execute("""INSERT INTO reservations(request_id, user_id, key_id, model, amount, tokens, owner, created_at, expires_at)
+                     VALUES (?,?,?,?,?,?,?,?,?)""",
+                  (request_id, user_id, key_id, model, money, max(0, tokens), owner, ts, ts + ttl))
+    return money
+
+
+def _drop_reservation(c, request_id: str, user_id: int, ts: int) -> int:
+    """Deletes the reservation and takes its amount out of `held`. Idempotent: 0 when already gone
+    (settled, or released by the sweeper, which then already recomputed `held`)."""
+    row = c.execute("DELETE FROM reservations WHERE request_id=? RETURNING amount", (request_id,)).fetchone()
+    amount = row[0] if row else 0
+    if amount:
+        c.execute("UPDATE wallets SET held = GREATEST(0, held - ?), updated_at=? WHERE user_id=?", (amount, ts, user_id))
     return amount
 
 
-def release(db: Database, *, user_id: int, amount: int) -> None:
-    if amount <= 0:
-        return
+def release(db: Database, *, request_id: str, user_id: int) -> None:
+    """Drops a reservation without charging (request never reached settle). Safe to call twice."""
     with db.tx() as c:
-        c.execute("UPDATE wallets SET held = GREATEST(0, held - ?), updated_at=? WHERE user_id=?", (amount, now(), user_id))
+        _drop_reservation(c, request_id, user_id, now())
 
 
 @dataclass
@@ -174,7 +264,10 @@ def settle(
     refined: str | None = None,
     refine_ms: int | None = None,
 ) -> Settled:
-    """Finalises a request: logs it, charges the wallet, releases the reserved amount."""
+    """Finalises a request: logs it, charges the wallet, releases its reservation. `reserved` is kept for
+    callers' bookkeeping; the amount released is the one stored in the reservation row (so a request whose
+    reservation was swept is not subtracted from `held` twice). A second settle of the same request_id fails
+    on the usage_logs unique constraint and rolls back entirely."""
     # Only successful (2xx) responses are charged. Even with `error` set (e.g. the client dropped the stream),
     # tokens the model has already produced are paid for.
     ok = 200 <= status_code < 300
@@ -190,12 +283,13 @@ def settle(
         )
         usage_id = cur.lastrowid
         ensure_wallet(c, user_id)
-        w = c.execute("SELECT balance, held FROM wallets WHERE user_id=?", (user_id,)).fetchone()
+        _drop_reservation(c, request_id, user_id, ts)
+        w = c.execute("SELECT balance FROM wallets WHERE user_id=?", (user_id,)).fetchone()
+        # The hold covers the worst case for the estimated prompt; if the provider reports more prompt tokens
+        # than estimated the balance may go slightly negative. Such a debt blocks the next paid request
+        # (balance - held < hold) until the user tops up.
         balance = w["balance"] - cost
-        c.execute(
-            "UPDATE wallets SET balance=?, held=?, updated_at=? WHERE user_id=?",
-            (balance, max(0, w["held"] - reserved), ts, user_id),
-        )
+        c.execute("UPDATE wallets SET balance=?, updated_at=? WHERE user_id=?", (balance, ts, user_id))
         if cost:
             c.execute(
                 """INSERT INTO ledger(user_id, kind, amount, balance_after, usage_id, note, created_at)

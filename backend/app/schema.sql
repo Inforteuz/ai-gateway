@@ -184,6 +184,31 @@ CREATE TABLE IF NOT EXISTS topup_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_topup_status ON topup_requests(status, id);
 
+-- One row per in-flight request (v5). Admission control reads it inside the write lock:
+-- per-key concurrency, the per-key monthly limit and the free daily quota all count
+-- pending requests, so parallel requests cannot overshoot. `wallets.held` is a cached
+-- SUM(amount) per user; rows of dead processes or past `expires_at` are swept.
+CREATE TABLE IF NOT EXISTS reservations (
+  request_id  TEXT PRIMARY KEY,
+  user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key_id      BIGINT REFERENCES api_keys(id) ON DELETE CASCADE,
+  model       TEXT NOT NULL,
+  amount      BIGINT NOT NULL DEFAULT 0,   -- money held in wallets.held for this request
+  tokens      BIGINT NOT NULL DEFAULT 0,   -- worst-case tokens (prompt estimate + max output)
+  owner       TEXT NOT NULL,               -- app process that admitted the request
+  created_at  BIGINT NOT NULL,
+  expires_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reservations_key ON reservations(key_id);
+CREATE INDEX IF NOT EXISTS idx_reservations_user ON reservations(user_id);
+
+-- Live app processes (heartbeat). Reservations of an owner that stopped beating are released.
+CREATE TABLE IF NOT EXISTS app_instances (
+  owner      TEXT PRIMARY KEY,
+  started_at BIGINT NOT NULL,
+  last_seen  BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

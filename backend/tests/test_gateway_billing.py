@@ -5,7 +5,7 @@ import httpx
 
 from app import billing
 from app.gateway import Ticket, _stream_body
-from .conftest import (CHAT, IN_PER_TOKEN, OUT_PER_TOKEN, SOM, add_key, add_user, bearer, wallet)
+from .conftest import (CHAT, IN_PER_TOKEN, OUT_PER_TOKEN, SOM, add_key, add_user, bearer, reserve, wallet)
 
 COST_11_7 = 11 * IN_PER_TOKEN + 7 * OUT_PER_TOKEN  # 320 000 micro-som = 0.32 som
 
@@ -186,13 +186,14 @@ def test_balance_and_models_endpoints(env):
 def test_reserve_cannot_overdraw(env):
     uid = add_user(env, balance_som=10)
     _, key_id = add_key(env, uid)
-    billing.reserve(env.db, user_id=uid, key_id=key_id, amount=6 * SOM, free=False, monthly_limit=None)
+    reserve(env, uid, key_id, 6 * SOM, request_id="req_a")
     try:
-        billing.reserve(env.db, user_id=uid, key_id=key_id, amount=6 * SOM, free=False, monthly_limit=None)
+        reserve(env, uid, key_id, 6 * SOM, request_id="req_b")
         assert False, "the second reserve should have been rejected"
     except billing.BillingError as e:
         assert e.code == "insufficient_balance"
-    billing.release(env.db, user_id=uid, amount=6 * SOM)
+    billing.release(env.db, request_id="req_a", user_id=uid)
+    billing.release(env.db, request_id="req_a", user_id=uid)   # idempotent
     assert wallet(env, uid) == (10 * SOM, 0)
 
 
@@ -223,8 +224,7 @@ def test_settle_is_atomic_and_finish_is_idempotent(env):
 def test_client_disconnect_mid_stream_bills_generated_tokens(env):
     uid = add_user(env, balance_som=100)
     _, key_id = add_key(env, uid)
-    with env.db.tx() as c:
-        c.execute("UPDATE wallets SET held=? WHERE user_id=?", (5 * SOM, uid))
+    reserve(env, uid, key_id, 5 * SOM, request_id="req_d")
     key = {"id": key_id, "user_id": uid, "free": 0}
     t = Ticket(state=env.app.state, request_id="req_d", key=key, model_id="model-1.0", endpoint="chat/completions",
                price_in=10_000 * SOM, price_out=30_000 * SOM, reserved=5 * SOM, stream=True, ip="1.1.1.1", t0=0.0, est_prompt=20)
@@ -269,7 +269,7 @@ def test_concurrent_reserves_never_overdraw(env):
     def worker():
         barrier.wait()
         try:
-            billing.reserve(env.db, user_id=uid, key_id=key_id, amount=3 * SOM, free=False, monthly_limit=None)
+            reserve(env, uid, key_id, 3 * SOM)
             ok.append(1)
         except billing.BillingError:
             fail.append(1)
