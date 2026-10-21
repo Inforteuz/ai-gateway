@@ -193,3 +193,24 @@ def test_poll_answer_reports_progress_and_waits_the_initial_delay(monkeypatch):
     assert out == "Salom dunyo" and seen[:3] == ["Thinking", "Salom", "Salom dunyo"]
     assert took >= 0.6                     # "done" is never decided before the initial delay
     assert seen.index("Thinking") == 0     # but the first look happened early
+
+
+def test_stream_preflight_ends_at_the_first_live_piece():
+    live = make_live()
+
+    async def job():
+        await asyncio.sleep(0.1)
+        live.update(ANSWER)              # first words ready after 0.1 s
+        await asyncio.sleep(5)           # the provider keeps writing for a long time
+        return []
+
+    async def run():
+        task = asyncio.ensure_future(job())
+        t0 = time.monotonic()
+        done = await S._preflight_live(task, live, 12)
+        took = time.monotonic() - t0
+        task.cancel()
+        return done, took
+
+    done, took = asyncio.run(run())
+    assert done == set() and took < 1.0   # headers go out at once, not after 12 s or at the end

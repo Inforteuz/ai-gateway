@@ -855,7 +855,12 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         # with the proper HTTP status, as for a non-streaming response, instead
         # of a stream that starts with 200 and carries the error as text.
         task = asyncio.ensure_future(run(True))
-        done, _ = await asyncio.wait({task}, timeout=cfg.STREAM_PREFLIGHT_SECONDS)
+        if live is None:
+            done, _ = await asyncio.wait({task}, timeout=cfg.STREAM_PREFLIGHT_SECONDS)
+        else:
+            # Live streaming: the preflight ends as soon as the first words may go out
+            # (waiting the full preflight would hold back an answer that is already arriving)
+            done = await _preflight_live(task, live, cfg.STREAM_PREFLIGHT_SECONDS)
         if done and task.exception() is not None:
             raise _as_cluster_error(task.exception())
         return StreamingResponse(
@@ -915,6 +920,22 @@ def _sse_chunks(base: dict, calls: list, answer: str, usage: dict, extra: Option
     out.append(f"data: {json.dumps({**base, 'choices': [], 'usage': usage})}\n\n")
     out.append("data: [DONE]\n\n")
     return out
+
+
+async def _preflight_live(task, live: LiveStream, limit: float) -> set:
+    """Wait until the task ends, the first live piece is ready, or `limit` seconds pass."""
+    deadline = time.monotonic() + limit
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0 or live.has_piece():
+            return {task} if task.done() else set()
+        changed = asyncio.ensure_future(live.changed.wait())
+        done, _ = await asyncio.wait({task, changed}, timeout=left, return_when=asyncio.FIRST_COMPLETED)
+        if not changed.done():
+            changed.cancel()
+        live.changed.clear()
+        if task in done:
+            return {task}
 
 
 async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: str,

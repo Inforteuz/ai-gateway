@@ -49,23 +49,32 @@ class LiveStream:
         self.latest = text or ""
         self.changed.set()
 
+    def has_piece(self) -> bool:
+        """Would next_piece() return text now? (does not consume it)"""
+        return bool(self._candidate()[1])
+
     def next_piece(self) -> str:
         """Text that may be sent now (possibly empty)."""
+        safe, piece = self._candidate()
+        if not piece:
+            return ""
+        self.emitted = safe
+        if self.meta is not None:
+            self.meta["stream_committed"] = True
+        return piece
+
+    def _candidate(self) -> tuple[str, str]:
         text = self.latest
         if not self.committed:
             if len(text) < self.hold or not self._is_answer(text):
-                return ""
+                return "", ""
         safe = self._finish(text)
         safe = safe[: max(0, len(safe) - self.tail)]
         cut = max(safe.rfind(" "), safe.rfind("\n"))
         safe = safe[: cut + 1] if cut >= 0 else ""
         if len(safe) <= len(self.emitted) or not safe.startswith(self.emitted):
-            return ""
-        piece = safe[len(self.emitted):]
-        self.emitted = safe
-        if self.meta is not None:
-            self.meta["stream_committed"] = True
-        return piece
+            return "", ""
+        return safe, safe[len(self.emitted):]
 
     def remainder(self, final: str) -> str:
         """What is left to send once the final answer is known."""
