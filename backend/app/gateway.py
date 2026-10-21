@@ -96,6 +96,14 @@ def free_limit_error(quota: billing.FreeQuota) -> ApiError:
     retry = max(1, quota.resets_at - now())
     hours, minutes = divmod(-(-retry // 60), 60)
     wait = f"{hours} soat {minutes} daqiqa" if hours else f"{minutes} daqiqa"
+    remaining = max(0, quota.limit - quota.used)
+    if quota.requested and remaining > 0:
+        return ApiError(
+            429, "free_daily_limit",
+            f"Bepul {', '.join(quota.models)} modelining bugungi limitidan {tokens(remaining)} token qoldi, bu so'rov "
+            f"esa {tokens(quota.requested)} tokengacha ishlatishi mumkin (prompt + max_tokens). max_tokens ni kamaytiring "
+            f"yoki limit Toshkent vaqti bilan 00:00 da yangilanishini kuting ({wait}dan keyin).",
+            "rate_limit_error", {"Retry-After": str(retry)})
     return ApiError(
         429, "free_daily_limit",
         f"Bepul {', '.join(quota.models)} modelining kunlik limiti tugadi: bugun {tokens(quota.used)} / "

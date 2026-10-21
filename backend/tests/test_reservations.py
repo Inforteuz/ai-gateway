@@ -70,10 +70,10 @@ def test_free_quota_counts_in_flight_tokens(env):
     uid = add_user(env)
     _, key = add_key(env, uid)
     res = parallel(10, lambda i: reserve(env, uid, key, 0, tokens=400, quota_limit=1000, quota_models=["model-1.0"]))
-    # Admitted while completed + pending < limit: 0, 400, 800 -> three requests, then the rest are refused.
-    assert codes(res) == ["free_daily_limit"] * 7 + ["ok"] * 3
+    # Strict: a request is admitted only if its 400 tokens still fit: 0+400, 400+400 -> two, 800+400 > 1000.
+    assert codes(res) == ["free_daily_limit"] * 8 + ["ok"] * 2
     refused = next(r for r in res if isinstance(r, billing.FreeQuotaExceeded))
-    assert refused.quota.used == 1200 and refused.quota.limit == 1000
+    assert refused.quota.used == 800 and refused.quota.limit == 1000 and refused.quota.requested == 400
 
 
 def test_free_quota_ignores_other_models_and_deposit_users(env):
@@ -84,12 +84,12 @@ def test_free_quota_ignores_other_models_and_deposit_users(env):
 
 
 def test_gateway_rejects_when_pending_tokens_fill_free_quota(env):
-    env.db.set_setting("free_daily_token_limit", "1000")
+    env.db.set_setting("free_daily_token_limit", "10000")
     env.db.set_setting("free_daily_limit_models", "model-1.0")
     uid = add_user(env)
     billing.credit(env.db, user_id=uid, amount=1000 * SOM, kind="bonus")     # a bonus is not a deposit: quota applies
     key, key_id = add_key(env, uid)
-    reserve(env, uid, key_id, 0, request_id="req_pending", tokens=1500)
+    reserve(env, uid, key_id, 0, request_id="req_pending", tokens=9000)     # the next request (~4100) does not fit
     r = env.client.post("/v1/chat/completions", json=CHAT, headers=bearer(key))
     assert r.status_code == 429 and r.json()["error"]["code"] == "free_daily_limit"
     billing.release(env.db, request_id="req_pending", user_id=uid)
@@ -230,3 +230,28 @@ def test_failed_request_is_not_charged_and_releases_hold(env):
                    endpoint="chat/completions", reserved=5 * SOM, free=False, price_in=10_000 * SOM,
                    price_out=30_000 * SOM, prompt_tokens=100, completion_tokens=100, status_code=502, stream=False)
     assert wallet(env, uid) == (100 * SOM, 0) and held_rows(env) == 0
+
+
+def test_free_quota_is_shared_by_all_keys_of_a_user_under_parallel_load(env):
+    """50 parallel requests through two API keys of one user: the daily quota holds."""
+    uid = add_user(env)
+    _, key_a = add_key(env, uid, name="a")
+    _, key_b = add_key(env, uid, name="b")
+    res = parallel(50, lambda i: reserve(env, uid, key_a if i % 2 else key_b, 0, tokens=300,
+                                         quota_limit=3000, quota_models=["model-1.0"]))
+    assert codes(res).count("ok") == 10                  # 10 x 300 = 3000 exactly
+    pending = env.db.scalar("SELECT SUM(tokens) FROM reservations WHERE user_id=?", (uid,))
+    assert pending == 3000
+
+
+def test_free_quota_resets_at_tashkent_midnight(env):
+    uid = add_user(env)
+    _, key = add_key(env, uid)
+    day = billing.day_start_ts()
+    with env.db.tx() as c:   # yesterday's usage, one second before Tashkent midnight
+        c.execute("""INSERT INTO usage_logs(request_id, user_id, model, endpoint, prompt_tokens, completion_tokens,
+                         status_code, created_at) VALUES ('req_y', ?, 'model-1.0', 'chat/completions', 500, 500, 200, ?)""",
+                  (uid, day - 1))
+    assert billing.free_tokens_used(env.db, uid, ["model-1.0"]) == 0
+    assert billing.free_tokens_used(env.db, uid, ["model-1.0"], ts=day - 1) == 1000
+    reserve(env, uid, key, 0, tokens=1000, quota_limit=1000, quota_models=["model-1.0"])   # today: full quota

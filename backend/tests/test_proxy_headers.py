@@ -5,12 +5,15 @@ from pathlib import Path
 
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-DOCKERFILE = Path(__file__).resolve().parents[2] / "docker" / "api" / "Dockerfile"
+ROOT = Path(__file__).resolve().parents[2]
+DOCKERFILE = ROOT / "docker" / "api" / "Dockerfile"
+COMPOSE = ROOT / "docker-compose.yml"
 
 
 def trusted_default() -> str:
-    m = re.search(r"FORWARDED_ALLOW_IPS=([^\s\\]+)", DOCKERFILE.read_text())
-    assert m, "FORWARDED_ALLOW_IPS must be set in the API image"
+    """The trusted proxy list a default Docker Compose install runs with."""
+    m = re.search(r"FORWARDED_ALLOW_IPS: \$\{FORWARDED_ALLOW_IPS:-([^}]+)\}", COMPOSE.read_text())
+    assert m, "docker-compose.yml must set FORWARDED_ALLOW_IPS for the api service"
     return m.group(1)
 
 
@@ -26,23 +29,42 @@ def client_seen(peer: str, xff: str | None) -> str:
     return seen["client"]
 
 
-def test_image_does_not_trust_every_ip():
-    assert "*" not in trusted_default()
+def test_only_exact_proxy_hops_are_trusted():
+    trusted = trusted_default().split(",")
+    assert trusted == ["127.0.0.1", "172.30.240.1", "172.30.240.10"]
+    assert not any("/" in t or t == "*" for t in trusted)            # no CIDR ranges, no wildcard
     assert "--forwarded-allow-ips=*" not in DOCKERFILE.read_text()
+    assert "FORWARDED_ALLOW_IPS=127.0.0.1\n" in DOCKERFILE.read_text()   # image default: loopback only
+    compose = COMPOSE.read_text()
+    assert "ipv4_address: ${GATEWAY_PROXY_IP:-172.30.240.10}" in compose
+    assert "subnet: ${GATEWAY_SUBNET:-172.30.240.0/24}" in compose
 
 
 def test_spoofed_header_from_direct_client_is_ignored():
     assert client_seen("203.0.113.50", "1.2.3.4") == "203.0.113.50"
 
 
-def test_header_from_docker_proxy_is_used():
-    # Caddy / host nginx reach the container from the Docker bridge
-    assert client_seen("172.18.0.1", "198.51.100.7") == "198.51.100.7"
+def test_spoofed_header_from_another_container_is_ignored():
+    # e.g. a compromised cluster/db container on the same Docker network
+    assert client_seen("172.30.240.5", "1.2.3.4") == "172.30.240.5"
+
+
+def test_header_from_caddy_is_used():
+    assert client_seen("172.30.240.10", "198.51.100.7") == "198.51.100.7"
+
+
+def test_header_from_host_proxy_is_used():
+    # nginx on the host -> 127.0.0.1:API_PORT -> container, seen from the network gateway
+    assert client_seen("172.30.240.1", "198.51.100.7") == "198.51.100.7"
 
 
 def test_client_supplied_prefix_cannot_override_real_address():
     # A proxy that appends: "<spoofed>, <real client>" -> the rightmost untrusted address wins
-    assert client_seen("172.18.0.1", "9.9.9.9, 198.51.100.7") == "198.51.100.7"
+    assert client_seen("172.30.240.10", "9.9.9.9, 198.51.100.7") == "198.51.100.7"
+
+
+def test_ipv6_client_spoofing_is_ignored():
+    assert client_seen("2001:db8::5", "1.2.3.4") == "2001:db8::5"
 
 
 # --- request body limit (chunked bodies have no Content-Length) -------------------------------------------------

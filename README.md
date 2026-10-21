@@ -161,12 +161,22 @@ It is encrypted with AES-256 (PBKDF2); the passphrase is asked for or taken from
 
 - **Keep copies off the server** (e.g. `rclone copy backups/ remote:gateway`), and keep the
   passphrase somewhere else - without it the backup cannot be restored.
+- **What it covers / RPO-RTO:** with a nightly job the worst-case data loss (RPO) is 24 h; a
+  restore on a prepared server takes roughly 10-20 minutes (RTO) plus re-checking provider
+  logins. `verify-backup` restores the dump into a scratch database and runs the billing
+  invariants there, so a backup is proven usable, not just readable.
 - **Schedule it**, e.g. nightly with cron:
   `15 3 * * * cd /opt/ai-gateway && BACKUP_PASSPHRASE=... ./manage.sh backup-full >> backups/cron.log 2>&1`
   (read the passphrase from a root-only file rather than writing it into crontab).
 - **New server:** clone the repo, `./manage.sh extract-env FILE`, review `.env`, then
   `docker compose up -d db && ./manage.sh restore-full FILE`.
 - `./manage.sh backup` / `restore` still exist for quick database-only dumps.
+
+### Upgrading
+
+`./manage.sh backup-full`, then `./manage.sh update`. Upgrading from a version without the fixed
+Docker subnet (before the security round 2) needs the network re-created once - this keeps all
+volumes and data: `docker compose down && docker compose up -d` (never add `-v`).
 
 ### Main `.env` settings
 
@@ -180,9 +190,10 @@ It is encrypted with AES-256 (PBKDF2); the passphrase is asked for or taken from
 | `SF_UPSTREAM_URL` | Ollama URL (`http://ollama:11434` for the bundled container) |
 | `API_BIND`, `API_PORT` | where the API is published on the host (default `127.0.0.1:8310`) |
 | `DB_*_PASSWORD`, `CLUSTER_API_KEY`, `SF_VNC_PASSWORD` | generated secrets |
-| `FORWARDED_ALLOW_IPS` | proxies whose `X-Forwarded-For` is trusted (default: loopback + private ranges) |
-| `SF_CHROME_SANDBOX` | `auto` (default), `1` or `0` - Chrome's sandbox, see Security notes |
-| `SF_CHROME_SITE_ISOLATION` | `1` = Chrome site isolation on (more RAM per instance) |
+| `FORWARDED_ALLOW_IPS` | proxies whose `X-Forwarded-For` is trusted (default: loopback, the host gateway `172.30.240.1`, Caddy `172.30.240.10`) |
+| `GATEWAY_SUBNET`, `GATEWAY_PROXY_IP` | Docker network subnet and Caddy's fixed address (change together with `FORWARDED_ALLOW_IPS`) |
+| `SF_CHROME_SANDBOX` | `1` (default) = Chrome must run sandboxed, `0` = explicit opt-out, see Security notes |
+| `SF_CHROME_SITE_ISOLATION` | `1` (default) = site isolation on, `0` = off to save ~100-300 MB per instance |
 
 Upstream API keys, OAuth secrets and similar values are stored in the database
 settings (write-only in the admin console), not in `.env`.
@@ -213,12 +224,21 @@ location / {
   Caddy, 80/443 are published. PostgreSQL, the cluster API and VNC stay on the internal
   Docker network (raw VNC is additionally published on `127.0.0.1` for SSH tunnels). Chrome's
   DevTools ports listen on `127.0.0.1` inside the cluster container only.
-- **Client IPs:** `X-Forwarded-For` is trusted only from `FORWARDED_ALLOW_IPS`. Your reverse
-  proxy must *replace* the header (`$remote_addr` in nginx; Caddy does this by default).
-  Anyone who can connect to the API port from the host itself counts as a proxy.
+- **Client IPs:** `X-Forwarded-For` is trusted only from two exact hops: the host's reverse proxy
+  (it reaches the container from the network gateway) and the bundled Caddy (fixed address).
+  Other containers and direct clients cannot spoof it. Your reverse proxy must *replace* the
+  header (`$remote_addr` in nginx; Caddy does this by default). Anyone who can connect to the API
+  port from the host itself counts as a proxy.
 - **Billing limits** (key monthly limit, free daily quota, per-key concurrency) count requests
   that are still running, atomically in the database, so parallel requests and several API
   processes cannot overshoot them. Holds of a crashed process are released within ~75 s.
+  The free daily quota is strict and shared by all keys of a user: a request is admitted only if
+  its worst case (prompt estimate + `max_tokens`) fits into what is left; `max_tokens` is never
+  changed silently. The day resets at 00:00 Asia/Tashkent (UTC+5). Paid requests charge the real
+  token usage; failed requests (upstream 4xx/5xx, timeouts) are not charged; a stream that breaks
+  midway is charged for the tokens already delivered. Every HTTP request is billed on its own
+  (no client idempotency keys, like OpenAI); a request id is settled at most once.
+  `./manage.sh check-integrity` verifies balance = ledger, held = reservations and usage = ledger.
 - **Request bodies** are capped also for chunked uploads (`SF_MAX_BODY`, `SF_MAX_MULTIMODAL_BODY`).
 - **Attachment URLs** sent by API clients are fetched only from public addresses: the name is
   resolved once, internal/metadata/CGNAT ranges are refused and redirects are not followed.
@@ -227,11 +247,13 @@ location / {
   sessions are dropped (protects against pre-registering someone else's address); the owner
   can set a new password via reset. Admin accounts keep their password.
 - **Containers** run without Linux capabilities they do not need (`cap_drop: ALL`,
-  `no-new-privileges`); the API container has a read-only filesystem.
-- **Chrome sandbox:** `SF_CHROME_SANDBOX=auto` uses Chrome's sandbox when the host allows it
-  (it needs unprivileged user namespaces; Ubuntu 24.04 blocks them by default through AppArmor)
-  and otherwise falls back to `--no-sandbox` with a warning in the logs. In that case the
-  container is the isolation boundary. Chrome profiles contain logged-in sessions: treat the
+  `no-new-privileges`, `pids_limit`); the API container has a read-only filesystem.
+- **Chrome sandbox (fail closed):** Chrome must run with its sandbox (`SF_CHROME_SANDBOX=1`).
+  The sandbox needs unprivileged user namespaces; Ubuntu 24.04 blocks them by default through
+  AppArmor. The installer tests this and, if it fails, offers two choices: allow them on the host
+  (`kernel.apparmor_restrict_unprivileged_userns=0`) or explicitly opt out (`SF_CHROME_SANDBOX=0`,
+  then the container is the only isolation). Without one of these Chrome does not start. Site
+  isolation is on by default. Chrome profiles contain logged-in sessions: treat the
   `cluster-data` volume and full backups like a password vault.
 - **Shared provider accounts:** every client's prompts go through the same provider accounts.
   Chats are opened in temporary mode where the provider supports it and cleaned up otherwise,

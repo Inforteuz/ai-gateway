@@ -85,6 +85,7 @@ class FreeQuota:
     limit: int
     used: int
     resets_at: int
+    requested: int = 0      # worst-case tokens of the refused request (0 = plain "quota used up")
 
     @property
     def exhausted(self) -> bool:
@@ -189,10 +190,13 @@ def reserve(db: Database, *, request_id: str, user_id: int, key_id: int, model: 
             marks = ",".join("?" * len(quota_models))
             pending = c.execute(f"SELECT COALESCE(SUM(tokens), 0) FROM reservations WHERE user_id=? AND model IN ({marks})",
                                 (user_id, *quota_models)).fetchone()[0]
-            # `>=`: a request is admitted while completed + pending tokens are below the limit, so at most
-            # the in-flight requests admitted before the limit was reached can cross it.
-            if used + pending >= quota_limit:
-                raise FreeQuotaExceeded(FreeQuota(quota_models, quota_limit, used + pending, next_day_ts(ts)))
+            # Strict: admitted only if its worst case (prompt estimate + max_tokens) still fits into what is
+            # left after completed and in-flight requests of the same user (all keys share one quota). The
+            # request's max_tokens is never changed silently; the error says how much is left. Real usage can
+            # still exceed the estimate slightly when the provider counts more prompt tokens than estimated.
+            if used + pending + max(0, tokens) > quota_limit:
+                raise FreeQuotaExceeded(FreeQuota(quota_models, quota_limit, used + pending, next_day_ts(ts),
+                                                  requested=max(0, tokens)))
         if money:
             w = c.execute("SELECT balance, held FROM wallets WHERE user_id=?", (user_id,)).fetchone()
             if w is None:

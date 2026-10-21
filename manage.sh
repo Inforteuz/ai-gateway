@@ -36,7 +36,8 @@ Usage: ./manage.sh <command> [args]
   restore file                   restore a database-only dump (stops the API meanwhile)
   backup-full [--live] [--with-ollama] [file]
                                  encrypted full backup: DB, .env, Caddyfile, Chrome sessions, TLS state
-  verify-backup file             decrypt and check a full backup without changing anything
+  verify-backup file             decrypt, check and test-restore a full backup into a scratch database
+  check-integrity                billing invariants on the live database (read-only report)
   restore-full file [--yes]      restore a full backup (asks for confirmation)
   extract-env file               fresh server: take .env from a full backup before restore-full
 EOF
@@ -67,6 +68,7 @@ set-password)
     api python -m app.cli set-password --email "$1"
     ;;
 add-model)    api python -m app.setup_cli add-model "$@" ;;
+check-integrity) api python -m app.integrity ;;
 list-models)  api python -m app.setup_cli list-models ;;
 set-setting)
     if [ $# -ge 2 ]; then api python -m app.setup_cli set-setting "$1" "$2"

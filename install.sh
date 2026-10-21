@@ -89,8 +89,13 @@ ok "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), Compose
 RECONFIG=n
 CUR_FREE=""; CUR_REG=""; CUR_EXT_BASE=""; CUR_MODELS=""
 if [ -f .env ]; then
-    RECONFIG=y
     set -a; . ./.env; set +a
+    # Reconfigure only after an install that went all the way through; an interrupted first install
+    # (e.g. stopped at the sandbox check) is simply resumed with its secrets kept.
+    # (.env files from versions without this marker count as completed)
+    [ "${INSTALL_COMPLETED:-1}" = 1 ] && RECONFIG=y || warn "Resuming an unfinished install (secrets in .env are kept)."
+fi
+if [ "$RECONFIG" = y ]; then
     warn "Existing installation found - reconfigure mode. Secrets, billing mode, sign-up policy, admin password,"
     warn "provider keys and model prices are kept unless you change them explicitly."
     # Current values from the running database (the admin panel may have changed them since the install)
@@ -316,9 +321,11 @@ API_BIND="$API_BIND"
 API_PORT="$API_PORT"
 VNC_PORT="${VNC_PORT:-15900}"
 ADMIN_EMAIL="$ADMIN_EMAIL"
+INSTALL_COMPLETED="${INSTALL_COMPLETED:-0}"
 
 SF_UPSTREAM_URL="$UPSTREAM_URL"
 SF_CHROME_CHANNELS="$CHANNELS"
+SF_CHROME_SANDBOX="${SF_CHROME_SANDBOX:-1}"
 
 DB_MIGRATOR_PASSWORD="$DB_MIGRATOR_PASSWORD"
 DB_APP_PASSWORD="$DB_APP_PASSWORD"
@@ -326,6 +333,9 @@ CLUSTER_API_KEY="$CLUSTER_API_KEY"
 SF_VNC_PASSWORD="$SF_VNC_PASSWORD"
 EOF
 chmod 600 .env
+# Re-load: the old .env was exported at the start, and docker compose prefers the shell environment
+# over .env, so without this the stack would start with the previous values.
+set -a; . ./.env; set +a
 ok ".env written"
 
 if [ "$CADDY" = y ]; then
@@ -350,6 +360,26 @@ umask 022
 # ---------------------------------------------------------------- start
 section "Building and starting (first build takes a few minutes)"
 docker compose build
+
+if { [ "$MODE" = 1 ] || [ "$MODE" = 2 ]; } && [ "${SF_CHROME_SANDBOX:-1}" != 0 ]; then
+    info "Checking that Chrome's sandbox works in this container..."
+    if docker compose run --rm --no-deps -T -u gateway --entrypoint /opt/gateway/bin/sandbox-probe.sh cluster \
+            </dev/null >/dev/null 2>&1; then
+        ok "Chrome sandbox works"
+    else
+        warn "Chrome's sandbox cannot start here: the host does not allow unprivileged user namespaces"
+        warn "(Ubuntu 24.04 blocks them by default via AppArmor). Options:"
+        say  "   a) allow them on the host, then re-run ./install.sh:"
+        say  "      echo 'kernel.apparmor_restrict_unprivileged_userns=0' > /etc/sysctl.d/60-userns.conf && sysctl --system"
+        say  "   b) run Chrome WITHOUT its sandbox; the container (no capabilities, no-new-privileges) is then"
+        say  "      the only isolation around the browser."
+        ask_yn NOSANDBOX "Choose b) and run Chrome without its sandbox?" n
+        [ "$NOSANDBOX" = y ] || die "Stopped. Enable the sandbox (option a) and re-run ./install.sh."
+        sed -i.bak 's/^SF_CHROME_SANDBOX=.*/SF_CHROME_SANDBOX="0"/' .env && rm -f .env.bak
+        export SF_CHROME_SANDBOX=0
+        warn "SF_CHROME_SANDBOX=0 written to .env (you can switch back to 1 any time)."
+    fi
+fi
 docker compose up -d
 info "Waiting for the API..."
 for i in $(seq 1 90); do
@@ -402,6 +432,8 @@ if [ -n "$OLLAMA_PULL" ]; then
         docker compose exec -T ollama ollama pull "$lm" </dev/null || warn "Pull failed for $lm; retry later: ./manage.sh ollama pull $lm"
     done
 fi
+
+sed -i.bak 's/^INSTALL_COMPLETED=.*/INSTALL_COMPLETED="1"/' .env && rm -f .env.bak
 
 # ---------------------------------------------------------------- summary
 section "Done"

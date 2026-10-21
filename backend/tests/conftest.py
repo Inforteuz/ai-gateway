@@ -52,6 +52,10 @@ def make_upstream(state: dict) -> FastAPI:
             return JSONResponse({"error": {"message": "boom"}}, status_code=500)
         if mode == "400":
             return JSONResponse({"error": {"message": "context length exceeded"}}, status_code=400)
+        if mode == "timeout":
+            raise httpx.ReadTimeout("provider did not answer in time")   # what the real transport raises
+        if mode == "429":
+            return JSONResponse({"error": {"message": "rate limited"}}, status_code=429, headers={"Retry-After": "7"})
         usage = state.get("usage", {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18})
         if state.get("starve") and body.get("reasoning_effort") not in (None, "none") and not body.get("stream"):
             # reasoning ate the whole budget: empty answer, finish_reason=length
@@ -68,6 +72,9 @@ def make_upstream(state: dict) -> FastAPI:
                 else:
                     for w in ["Sa", "lom"]:
                         yield "data: " + json.dumps({"model": "qwen3:14b", "system_fingerprint": "fp_ollama", "choices": [{"delta": {"content": w}}]}) + "\n\n"
+                        if state.get("break_stream"):
+                            # what httpx raises when the provider's connection drops mid-stream
+                            raise httpx.RemoteProtocolError("peer closed connection without sending complete message body")
                 if (body.get("stream_options") or {}).get("include_usage") and not state.get("no_usage"):
                     yield "data: " + json.dumps({"model": "qwen3:14b", "choices": [], "usage": usage}) + "\n\n"
                 yield "data: [DONE]\n\n"

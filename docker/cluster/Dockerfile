@@ -34,7 +34,7 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt websockets
 COPY backend/cluster ./cluster
 COPY docker/cluster/entrypoint.sh docker/cluster/launch-chrome.sh docker/cluster/heal-watch.sh \
-     docker/cluster/import_cookies.py /opt/gateway/bin/
+     docker/cluster/sandbox-probe.sh docker/cluster/import_cookies.py /opt/gateway/bin/
 RUN chmod +x /opt/gateway/bin/*.sh \
     && useradd --system --uid 10002 --create-home --home-dir /home/gateway gateway
 

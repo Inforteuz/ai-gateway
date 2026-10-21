@@ -50,17 +50,24 @@ def test_defaults():
 def test_within_limit_passes(free_env):
     uid, key = user_with_key(free_env)
     seed(free_env, uid, 249_000)
-    r = chat(free_env, key)
-    assert r.status_code == 200
+    r = free_env.client.post("/v1/chat/completions", json={**REQ, "max_tokens": 100}, headers=bearer(key))
+    assert r.status_code == 200          # worst case (prompt estimate + 100) fits into the 1 000 left
     assert free_env.up["calls"] == 1
 
 
-def test_crossing_request_allowed_then_blocked(free_env):
+def test_request_that_does_not_fit_is_refused_without_touching_max_tokens(free_env):
+    """Strict quota: the worst case (prompt estimate + max_tokens) must fit into what is left."""
     uid, key = user_with_key(free_env)
-    seed(free_env, uid, LIMIT - 10)           # 249 990
-    assert chat(free_env, key).status_code == 200   # +18 tokens: crosses the limit but is still allowed
-    assert billing.free_tokens_used(free_env.db, uid, [FREE]) == LIMIT + 8
+    seed(free_env, uid, LIMIT - 1000)
+    r = chat(free_env, key)                   # default max_tokens 4096 does not fit into 1 000
+    assert r.status_code == 429 and r.json()["error"]["code"] == "free_daily_limit"
+    assert "1 000 token qoldi" in r.json()["error"]["message"] and "max_tokens" in r.json()["error"]["message"]
+    assert free_env.up.get("calls", 0) == 0
 
+
+def test_used_up_quota_is_blocked(free_env):
+    uid, key = user_with_key(free_env)
+    seed(free_env, uid, LIMIT)
     r = chat(free_env, key)
     assert r.status_code == 429
     err = r.json()["error"]
@@ -69,7 +76,7 @@ def test_crossing_request_allowed_then_blocked(free_env):
     expected = billing.next_day_ts() - now()
     assert abs(int(r.headers["retry-after"]) - expected) <= 2
     assert 0 < int(r.headers["retry-after"]) <= 86400
-    assert free_env.up["calls"] == 1          # never reached the model
+    assert free_env.up.get("calls", 0) == 0   # never reached the model
 
 
 def test_blocked_request_never_falls_back_to_paid_model(free_env):

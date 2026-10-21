@@ -2,7 +2,8 @@
 # Full, encrypted backups of an AI Gateway installation (called by manage.sh).
 #
 #   backup-full  [--live] [--with-ollama] [FILE]   DB + .env/Caddyfile + Chrome sessions + TLS state
-#   verify-backup FILE                              decrypt, check checksums and the DB dump (changes nothing)
+#   verify-backup FILE                              decrypt, checksums, restore the DB into a scratch database
+#                                                   and run the billing invariants there (live data untouched)
 #   restore-full FILE [--yes]                       replace DB and volumes from a backup
 #   extract-env FILE                                write the backup's .env here (fresh server, before restore-full)
 #
@@ -11,6 +12,8 @@
 # Chrome profiles hold logged-in provider sessions; treat the backup like a password vault.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# DB_MIGRATOR_PASSWORD etc. (verify-backup connects to a scratch database with it)
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
 dc() { docker compose "$@"; }
 die() { echo "error: $*" >&2; exit 1; }
@@ -96,7 +99,23 @@ verify_backup() {
     local n
     n=$(dc exec -T db pg_restore --list < "$tmp/db.dump" | grep -c "TABLE DATA" || true)
     [ "$n" -gt 0 ] || die "database dump has no table data"
-    echo "OK: checksums match, database dump readable ($n tables with data)"
+    echo "checksums match, database dump readable ($n tables with data)"
+
+    # Semantic check: restore into a scratch database and run the billing invariants on it
+    echo "== restoring into scratch database gateway_verify for integrity checks"
+    dc exec -T db psql -q -v ON_ERROR_STOP=1 -U gateway_migrator -d postgres \
+        -c "DROP DATABASE IF EXISTS gateway_verify WITH (FORCE)" -c "CREATE DATABASE gateway_verify" >/dev/null
+    local status=0
+    dc exec -T db pg_restore -U gateway_migrator -d gateway_verify --no-owner --no-acl --exit-on-error \
+        < "$tmp/db.dump" || status=$?
+    if [ "$status" -eq 0 ]; then
+        dc run --rm --no-deps -T -e SF_DATABASE_URL=postgresql://gateway_migrator@db:5432/gateway_verify \
+            -e SF_DATABASE_PASSWORD="$DB_MIGRATOR_PASSWORD" -e SF_DB_APP_ROLE= -e SF_SEED_DEFAULT_MODEL=0 \
+            api python -m app.integrity </dev/null || status=$?
+    fi
+    dc exec -T db psql -q -U gateway_migrator -d postgres -c "DROP DATABASE IF EXISTS gateway_verify WITH (FORCE)" >/dev/null
+    [ "$status" -eq 0 ] || die "integrity check failed (see above)"
+    echo "OK: backup is complete and its billing data is consistent"
 }
 
 extract_env() {

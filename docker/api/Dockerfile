@@ -13,7 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     SF_STATIC_DIR=/app/web \
-    FORWARDED_ALLOW_IPS=127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16
+    FORWARDED_ALLOW_IPS=127.0.0.1
 WORKDIR /app
 
 COPY backend/requirements.txt ./requirements.txt
@@ -23,9 +23,9 @@ COPY backend/app ./app
 COPY docker/api/bootstrap.py ./bootstrap.py
 COPY --from=web /web/dist ./web
 
-# X-Forwarded-* is trusted only from FORWARDED_ALLOW_IPS (uvicorn reads it from the environment):
-# loopback and the private ranges Docker uses, where Caddy / the host's reverse proxy connect from.
-# The API port is published on 127.0.0.1 by default, so outside clients cannot reach it directly.
+# X-Forwarded-* is trusted only from FORWARDED_ALLOW_IPS (uvicorn reads it from the environment).
+# docker-compose.yml sets it to the exact proxy hops (host gateway + Caddy); the image default trusts
+# loopback only. The API port is published on 127.0.0.1 by default.
 RUN useradd --system --uid 10001 --home /app gateway
 USER gateway
 EXPOSE 8310

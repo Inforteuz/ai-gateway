@@ -361,6 +361,7 @@ class Database:
         # Writers must not hold pooled connections while queueing: take the in-process lock first.
         self._write_lock = threading.Lock()
         self.serial_tables: frozenset[str] = frozenset()
+        self._settings_cache: tuple[float, dict[str, str]] | None = None
         try:
             self._init(auto_migrate, app_role)
         except BaseException:
@@ -433,15 +434,29 @@ class Database:
         return default if row is None or row[0] is None else row[0]
 
     # -- settings --------------------------------------------------------------
+    # A request used to read the settings table ~8 times. They change rarely (admin panel), so reads
+    # outside a transaction are served from a short cache; set_setting() drops it at once in this
+    # process, other processes/replicas see a change within SETTINGS_TTL seconds.
+    SETTINGS_TTL = 2.0
+
     def get_settings(self) -> dict[str, str]:
-        return {r["key"]: r["value"] for r in self.all("SELECT key, value FROM settings")}
+        if self._tx.get() is None:
+            cached = self._settings_cache
+            if cached is not None and cached[0] > time.monotonic():
+                return dict(cached[1])
+        fresh = {r["key"]: r["value"] for r in self.all("SELECT key, value FROM settings")}
+        if self._tx.get() is None:
+            self._settings_cache = (time.monotonic() + self.SETTINGS_TTL, fresh)
+        return dict(fresh)
 
     def set_setting(self, key: str, value: str) -> None:
+        self._settings_cache = None
         with self.tx() as c:
             c.execute(
                 "INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, value),
             )
+        self._settings_cache = None
 
     def setting_int(self, key: str) -> int:
         row = self.one("SELECT value FROM settings WHERE key=?", (key,))

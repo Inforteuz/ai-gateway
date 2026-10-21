@@ -62,32 +62,36 @@ EOF
 fi
 [ ${#PROXY_ARGS[@]} -eq 0 ] && echo "[chrome-$IDX] direct connection"
 
-# Chrome sandbox: SF_CHROME_SANDBOX=auto (default) probes once whether the sandbox can start in this
-# container (it needs user namespaces, which some hosts/seccomp profiles forbid) and falls back to
-# --no-sandbox with a warning. "1" requires the sandbox, "0" always disables it.
+# Chrome sandbox (fail closed). SF_CHROME_SANDBOX=1 (default): the sandbox is required; if the host
+# does not allow it (no unprivileged user namespaces, e.g. Ubuntu 24.04 AppArmor default) Chrome is
+# NOT started and the reason is logged. SF_CHROME_SANDBOX=0 is an explicit, documented opt-out
+# (install.sh asks before writing it); "auto" uses the sandbox when available, else runs without.
 SANDBOX_ARGS=()
-case "${SF_CHROME_SANDBOX:-auto}" in
-    0|no|off) SANDBOX_ARGS=(--no-sandbox) ;;
-    1|yes|on) ;;
+case "${SF_CHROME_SANDBOX:-1}" in
+    0|no|off)
+        SANDBOX_ARGS=(--no-sandbox)
+        echo "[chrome-$IDX] sandbox: OFF (SF_CHROME_SANDBOX=0 set by the operator)" ;;
+    auto)
+        if /opt/gateway/bin/sandbox-probe.sh; then echo "[chrome-$IDX] sandbox: on"
+        else SANDBOX_ARGS=(--no-sandbox); echo "[chrome-$IDX] WARNING: sandbox unavailable, running without it (SF_CHROME_SANDBOX=auto)"; fi ;;
     *)
-        probe_dir="$(mktemp -d)"
-        if ! timeout 30 "$CHROME" --headless=new --no-first-run --user-data-dir="$probe_dir" --dump-dom about:blank \
-                >/dev/null 2>&1; then
-            SANDBOX_ARGS=(--no-sandbox)
-            echo "[chrome-$IDX] WARNING: Chrome sandbox unavailable here; running with --no-sandbox (see README, Security)"
+        if ! /opt/gateway/bin/sandbox-probe.sh; then
+            echo "[chrome-$IDX] ERROR: Chrome's sandbox cannot start in this container, so Chrome is not started." >&2
+            echo "[chrome-$IDX] Allow unprivileged user namespaces on the host, or opt out consciously with" >&2
+            echo "[chrome-$IDX] SF_CHROME_SANDBOX=0 in .env (see README, Security notes)." >&2
+            exit 1
         fi
-        rm -rf "$probe_dir" ;;
+        echo "[chrome-$IDX] sandbox: on" ;;
 esac
-[ ${#SANDBOX_ARGS[@]} -eq 0 ] && echo "[chrome-$IDX] sandbox: on"
 
-# Site isolation costs ~100-300 MB per instance. Off by default (only the provider's own site is
-# opened); SF_CHROME_SITE_ISOLATION=1 turns it back on.
+# Site isolation (default on). SF_CHROME_SITE_ISOLATION=0 saves ~100-300 MB per instance by keeping
+# all sites in fewer renderer processes; only the provider's own site is opened in each instance.
 DISABLED_FEATURES="TranslateUI,ChromeWhatsNewUI,SigninPromoTrigger,SyncConsent,PasswordManagerOnboarding"
-ISOLATION_ARGS=(--process-per-site --renderer-process-limit=2)
-if [ "${SF_CHROME_SITE_ISOLATION:-0}" = 1 ]; then
-    ISOLATION_ARGS=()
-else
+ISOLATION_ARGS=()
+if [ "${SF_CHROME_SITE_ISOLATION:-1}" = 0 ]; then
+    ISOLATION_ARGS=(--process-per-site --renderer-process-limit=2)
     DISABLED_FEATURES="site-per-process,IsolateOrigins,$DISABLED_FEATURES"
+    echo "[chrome-$IDX] site isolation: off (SF_CHROME_SITE_ISOLATION=0)"
 fi
 
 # 2x2 grid of 960x540 windows on the 1920x1080 display
