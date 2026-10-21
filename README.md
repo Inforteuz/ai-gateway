@@ -186,7 +186,8 @@ volumes and data: `docker compose down && docker compose up -d` (never add `-v`)
 | `SF_SITE_URL`, `SF_API_URL` | public URLs (used in links, docs and captcha checks) |
 | `SF_DEFAULT_LANG` | `uz`, `ru` or `en` |
 | `COMPOSE_PROFILES` | `cluster`, `ollama`, `caddy` - which optional services run |
-| `SF_CHROME_CHANNELS` | e.g. `gemini,qwen` - one Chrome instance per channel, in order (instance 0, 1, ...) |
+| `SF_CHROME_CHANNELS` | e.g. `gemini,qwen` - one Chrome instance per channel, in order (instance 0, 1, ...); a channel may repeat (`gemini,gemini,qwen`): each instance has its own profile and is a separate worker |
+| `SF_CLUSTER_RATE_LIMIT_COOLDOWN` | seconds a worker rests after the provider rate-limits it (default 900); healthy workers take the traffic meanwhile |
 | `SF_UPSTREAM_URL` | Ollama URL (`http://ollama:11434` for the bundled container) |
 | `API_BIND`, `API_PORT` | where the API is published on the host (default `127.0.0.1:8310`) |
 | `DB_*_PASSWORD`, `CLUSTER_API_KEY`, `SF_VNC_PASSWORD` | generated secrets |
@@ -256,6 +257,10 @@ location / {
   then the container is the only isolation). Without one of these Chrome does not start. Site
   isolation is on by default. Chrome profiles contain logged-in sessions: treat the
   `cluster-data` volume and full backups like a password vault.
+- **Worker states:** `/cluster/status` (admin panel → Instances) shows each worker as `ACTIVE`,
+  `BUSY`, `COOLDOWN` (resting after an error or rate limit; `cooldown_reason` says why) or
+  `EXHAUSTED` (provider quota used up until it renews). Respect each provider's terms when you
+  run several instances of one channel.
 - **Shared provider accounts:** every client's prompts go through the same provider accounts.
   Chats are opened in temporary mode where the provider supports it and cleaned up otherwise,
   but the provider still sees all prompts. Tell your users.

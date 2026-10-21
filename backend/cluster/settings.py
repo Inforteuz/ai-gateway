@@ -170,6 +170,9 @@ LOGIN_KEYWORDS = [
 
 # Worker cooldown after quota exhaustion (default 1 hour).
 QUOTA_COOLDOWN = int(os.getenv("SF_CLUSTER_QUOTA_COOLDOWN", "3600"))
+# The provider answered "too many requests" / rate limited: this worker rests for this long
+# (other healthy workers take the traffic meanwhile). Keeps the load on the provider low.
+RATE_LIMIT_COOLDOWN = int(os.getenv("SF_CLUSTER_RATE_LIMIT_COOLDOWN", "900"))
 
 # When login is required (operator must sign in manually): default 10 minutes
 LOGIN_COOLDOWN = int(os.getenv("SF_CLUSTER_LOGIN_COOLDOWN", "600"))

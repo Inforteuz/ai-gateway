@@ -143,6 +143,7 @@ class WorkerTab:
         self.adapter = adapter
         self.lock = asyncio.Lock()
         self.cooldown_until = 0.0
+        self.cooldown_reason = ""
         self.default_cooldown = cfg.MODEL_COOLDOWNS.get(model_name, 30)
         self.total_requests = 0
         self.failed_requests = 0
@@ -174,9 +175,21 @@ class WorkerTab:
     def is_available(self) -> bool:
         return time.time() >= self.cooldown_until and not self.lock.locked()
 
+    def state(self, now: Optional[float] = None) -> str:
+        """One-word state for monitoring: ACTIVE (free and healthy), BUSY (serving a request),
+        COOLDOWN (resting after an error/rate limit, or waiting for the operator: see
+        needs_attention) or EXHAUSTED (provider quota used up, rests until it renews)."""
+        now = time.time() if now is None else now
+        if self.lock.locked():
+            return "BUSY"
+        if now < self.cooldown_until:
+            return "EXHAUSTED" if self.needs_attention == "quota" else "COOLDOWN"
+        return "ACTIVE"
+
     def set_cooldown(self, seconds: Optional[int] = None, reason: str = "") -> None:
         sec = seconds if seconds is not None else self.default_cooldown
         self.cooldown_until = time.time() + sec
+        self.cooldown_reason = reason or "manual"
         log.warning(
             "cooldown model=%s port=%d tab=%s seconds=%d reason=%s",
             self.model_name, self.browser_port, self.short_tab, sec, reason or "manual",
@@ -769,7 +782,12 @@ class WorkerTab:
                 self.set_cooldown(cfg.PROVIDER_ERROR_COOLDOWN, reason=f"provider:{kw[:24]}")
                 raise RuntimeError(
                     f"{self.model_name}: provider temporarily not answering, try again")
-            # Temporary block (rate-limit / anti-bot)
+            # Rate limit: the worker rests for RATE_LIMIT_COOLDOWN, healthy workers take the traffic
+            if kind == CLASS_RATE_LIMIT:
+                self.set_cooldown(cfg.RATE_LIMIT_COOLDOWN, reason=f"rate_limit:{kw[:20]}")
+                raise RuntimeError(f"{self.model_name}: rate limited by the provider, resting "
+                                   f"{cfg.RATE_LIMIT_COOLDOWN // 60} min")
+            # Other temporary block (anti-bot keywords)
             self.set_cooldown(self.default_cooldown * 2, reason=f"kw:{kw[:20]}")
             raise RuntimeError(f"{self.model_name}: temporary block ({raw[:60]})")
 
@@ -861,6 +879,9 @@ class ClusterPool:
         return [
             {
                 "model": w.model_name,
+                "instance": w.browser_port - 9222,
+                "state": w.state(now),
+                "cooldown_reason": w.cooldown_reason if now < w.cooldown_until else None,
                 "browser_port": w.browser_port,
                 "tab_id": w.short_tab,
                 "available": w.is_available(),

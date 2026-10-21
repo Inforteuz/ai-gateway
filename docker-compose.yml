@@ -119,6 +119,8 @@ services:
       # Requests longer than a provider's input field: instructions + history go as an attached
       # context.txt instead of being cut (1, default) or are trimmed (0)
       SF_CLUSTER_OVERFLOW_FILE: ${SF_CLUSTER_OVERFLOW_FILE:-1}
+      # Seconds a worker rests after the provider rate-limits it (other healthy workers serve meanwhile)
+      SF_CLUSTER_RATE_LIMIT_COOLDOWN: ${SF_CLUSTER_RATE_LIMIT_COOLDOWN:-900}
       SF_CLUSTER_LOG_LEVEL: ${SF_CLUSTER_LOG_LEVEL:-INFO}
       SF_CLUSTER_REQUEST_TIMEOUT: ${SF_CLUSTER_REQUEST_TIMEOUT:-60}
     volumes:
