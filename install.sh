@@ -95,7 +95,8 @@ if [ -f .env ]; then
     warn "provider keys and model prices are kept unless you change them explicitly."
     # Current values from the running database (the admin panel may have changed them since the install)
     if docker compose ps --status running --services 2>/dev/null | grep -qx api; then
-        cur() { docker compose exec -T api python -m app.setup_cli "$@" 2>/dev/null | tr -d '\r'; }
+        # </dev/null: `docker compose exec` would otherwise swallow the installer's own input
+        cur() { docker compose exec -T api python -m app.setup_cli "$@" </dev/null 2>/dev/null | tr -d '\r'; }
         CUR_FREE=$(cur get-setting free_mode); CUR_REG=$(cur get-setting registration_open)
         CUR_EXT_BASE=$(cur get-setting external_base_url); CUR_MODELS=$(cur model-ids | tr '\n' ' ')
     else
@@ -352,14 +353,15 @@ docker compose build
 docker compose up -d
 info "Waiting for the API..."
 for i in $(seq 1 90); do
-    if docker compose exec -T api python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8310/portal/health', timeout=3)" >/dev/null 2>&1; then
+    if docker compose exec -T api python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8310/portal/health', timeout=3)" </dev/null >/dev/null 2>&1; then
         ok "API is up"; break
     fi
     [ "$i" = 90 ] && { docker compose logs --tail 50 migrate api; die "API did not start, see the logs above."; }
     sleep 2
 done
 
-run_api() { docker compose exec -T api "$@"; }
+run_api() { docker compose exec -T api "$@" </dev/null; }          # never reads the installer's stdin
+run_api_in() { docker compose exec -T api "$@"; }                # value piped in (secrets)
 
 section "Configuring"
 if [ "$SET_ADMIN" = y ]; then
@@ -381,12 +383,12 @@ set_flag registration_open "$REG" "$CUR_REG"
 set_flag free_mode "$FREE" "$CUR_FREE"
 if [ "$MODE" = 1 ] || [ "$MODE" = 2 ]; then
     run_api python -m app.setup_cli set-setting cluster_base_url "http://cluster:8800/v1" >/dev/null
-    printf '%s' "$CLUSTER_API_KEY" | run_api python -m app.setup_cli set-setting cluster_api_key >/dev/null
+    printf '%s' "$CLUSTER_API_KEY" | run_api_in python -m app.setup_cli set-setting cluster_api_key >/dev/null
     ok "Cluster connected"
 fi
 if [ "$MODE" = 3 ]; then
     run_api python -m app.setup_cli set-setting external_base_url "$EXT_BASE" >/dev/null
-    printf '%s' "$EXT_KEY" | run_api python -m app.setup_cli set-setting external_api_key >/dev/null   # empty keeps the stored key
+    printf '%s' "$EXT_KEY" | run_api_in python -m app.setup_cli set-setting external_api_key >/dev/null   # empty keeps the stored key
     ok "External API configured"
 fi
 for m in "${MODELS[@]+"${MODELS[@]}"}"; do
@@ -397,7 +399,7 @@ done
 if [ -n "$OLLAMA_PULL" ]; then
     for lm in $OLLAMA_PULL; do
         info "Pulling $lm into Ollama (can take a while)..."
-        docker compose exec -T ollama ollama pull "$lm" || warn "Pull failed for $lm; retry later: ./manage.sh ollama pull $lm"
+        docker compose exec -T ollama ollama pull "$lm" </dev/null || warn "Pull failed for $lm; retry later: ./manage.sh ollama pull $lm"
     done
 fi
 

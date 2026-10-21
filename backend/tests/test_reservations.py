@@ -187,3 +187,46 @@ def test_cli_process_does_not_touch_holds(env):
     other = from_config(env.cfg)
     other.close()
     assert wallet(env, uid) == (100 * SOM, 5 * SOM)
+
+
+# --- AG-10: settle edge cases -------------------------------------------------------------------------------------
+def test_usage_above_hold_makes_debt_and_blocks_next_paid_request(env):
+    """The provider may report more prompt tokens than estimated: the real cost is charged (no
+    under-billing), the balance can go below zero, and the next paid request is refused until top-up."""
+    uid = add_user(env, balance_som=2)
+    key, key_id = add_key(env, uid)
+    reserve(env, uid, key_id, 1 * SOM, request_id="req_big")
+    billing.settle(env.db, request_id="req_big", user_id=uid, key_id=key_id, model="model-1.0",
+                   endpoint="chat/completions", reserved=1 * SOM, free=False, price_in=10_000 * SOM,
+                   price_out=0, prompt_tokens=500, completion_tokens=0, status_code=200, stream=False)
+    balance, held = wallet(env, uid)
+    assert balance == 2 * SOM - 500 * 10_000 and balance < 0 and held == 0
+    r = env.client.post("/v1/chat/completions", json=CHAT, headers=bearer(key))
+    assert r.status_code == 402 and r.json()["error"]["code"] == "insufficient_balance"
+
+
+def test_double_settle_is_rejected_and_charges_once(env):
+    uid = add_user(env, balance_som=100)
+    _, key_id = add_key(env, uid)
+    reserve(env, uid, key_id, 5 * SOM, request_id="req_twice")
+    args = dict(request_id="req_twice", user_id=uid, key_id=key_id, model="model-1.0", endpoint="chat/completions",
+                reserved=5 * SOM, free=False, price_in=0, price_out=30_000 * SOM, prompt_tokens=0,
+                completion_tokens=100, status_code=200, stream=False)
+    billing.settle(env.db, **args)
+    try:
+        billing.settle(env.db, **args)
+        assert False, "second settle must fail"
+    except Exception:
+        pass
+    assert wallet(env, uid) == (97 * SOM, 0)
+    assert env.db.scalar("SELECT COUNT(*) FROM ledger WHERE user_id=? AND kind='usage'", (uid,)) == 1
+
+
+def test_failed_request_is_not_charged_and_releases_hold(env):
+    uid = add_user(env, balance_som=100)
+    _, key_id = add_key(env, uid)
+    reserve(env, uid, key_id, 5 * SOM, request_id="req_502")
+    billing.settle(env.db, request_id="req_502", user_id=uid, key_id=key_id, model="model-1.0",
+                   endpoint="chat/completions", reserved=5 * SOM, free=False, price_in=10_000 * SOM,
+                   price_out=30_000 * SOM, prompt_tokens=100, completion_tokens=100, status_code=502, stream=False)
+    assert wallet(env, uid) == (100 * SOM, 0) and held_rows(env) == 0

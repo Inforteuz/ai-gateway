@@ -127,7 +127,7 @@ with your own domain and model names.
 ./manage.sh logs api          # follow logs (api, cluster, db, caddy, ollama)
 ./manage.sh add-model --id my-fast --provider local --upstream qwen3:8b --price-in 0 --price-out 0
 ./manage.sh list-models
-./manage.sh backup            # pg_dump -> backups/*.sql.gz
+./manage.sh backup-full       # encrypted: DB + .env + Chrome sessions + TLS state
 ./manage.sh update            # git pull + rebuild + restart, data is kept
 ./manage.sh help
 ```
@@ -138,6 +138,35 @@ Per-instance proxies for the Chrome cluster (optional): see
 
 Everything else (prices, users, limits, Google/Telegram login, reCAPTCHA,
 fallbacks, fast path for trivial messages) is configured in the admin console.
+
+### Reconfiguring
+
+Re-running `./install.sh` on an installed server is a reconfigure: current values are the
+defaults, and it never silently changes the billing mode, the sign-up policy, the admin
+password, stored provider keys or existing model prices. Switching a paid service to free
+mode asks you to type `FREE`; a new admin password needs `./install.sh --reset-admin-password`.
+
+### Backups and restore
+
+```bash
+./manage.sh backup-full                    # backups/gateway-full-<date>.tar.enc (+ .sha256)
+./manage.sh verify-backup FILE             # decrypt + checksums + DB dump check, changes nothing
+./manage.sh restore-full FILE              # asks for confirmation, replaces DB and volumes
+```
+
+A full backup holds the database (`pg_dump`), `.env`, `Caddyfile`, the Chrome profiles
+(logged-in provider sessions) and Caddy's certificates; add `--with-ollama` for local models.
+It is encrypted with AES-256 (PBKDF2); the passphrase is asked for or taken from
+`BACKUP_PASSPHRASE`. The cluster is paused for a moment so Chrome's files are consistent.
+
+- **Keep copies off the server** (e.g. `rclone copy backups/ remote:gateway`), and keep the
+  passphrase somewhere else - without it the backup cannot be restored.
+- **Schedule it**, e.g. nightly with cron:
+  `15 3 * * * cd /opt/ai-gateway && BACKUP_PASSPHRASE=... ./manage.sh backup-full >> backups/cron.log 2>&1`
+  (read the passphrase from a root-only file rather than writing it into crontab).
+- **New server:** clone the repo, `./manage.sh extract-env FILE`, review `.env`, then
+  `docker compose up -d db && ./manage.sh restore-full FILE`.
+- `./manage.sh backup` / `restore` still exist for quick database-only dumps.
 
 ### Main `.env` settings
 
@@ -151,6 +180,9 @@ fallbacks, fast path for trivial messages) is configured in the admin console.
 | `SF_UPSTREAM_URL` | Ollama URL (`http://ollama:11434` for the bundled container) |
 | `API_BIND`, `API_PORT` | where the API is published on the host (default `127.0.0.1:8310`) |
 | `DB_*_PASSWORD`, `CLUSTER_API_KEY`, `SF_VNC_PASSWORD` | generated secrets |
+| `FORWARDED_ALLOW_IPS` | proxies whose `X-Forwarded-For` is trusted (default: loopback + private ranges) |
+| `SF_CHROME_SANDBOX` | `auto` (default), `1` or `0` - Chrome's sandbox, see Security notes |
+| `SF_CHROME_SITE_ISOLATION` | `1` = Chrome site isolation on (more RAM per instance) |
 
 Upstream API keys, OAuth secrets and similar values are stored in the database
 settings (write-only in the admin console), not in `.env`.
@@ -177,12 +209,35 @@ location / {
 
 ## Security notes
 
-- Only the API port (bound to `127.0.0.1` unless Caddy serves it) and, with Caddy,
-  80/443 are published. PostgreSQL, the cluster API and VNC stay on the internal
-  Docker network (raw VNC is additionally published on `127.0.0.1` for SSH tunnels).
-- API keys are stored as hashes; the full key is shown once.
+- **Network:** only the API port (bound to `127.0.0.1` unless Caddy serves it) and, with
+  Caddy, 80/443 are published. PostgreSQL, the cluster API and VNC stay on the internal
+  Docker network (raw VNC is additionally published on `127.0.0.1` for SSH tunnels). Chrome's
+  DevTools ports listen on `127.0.0.1` inside the cluster container only.
+- **Client IPs:** `X-Forwarded-For` is trusted only from `FORWARDED_ALLOW_IPS`. Your reverse
+  proxy must *replace* the header (`$remote_addr` in nginx; Caddy does this by default).
+  Anyone who can connect to the API port from the host itself counts as a proxy.
+- **Billing limits** (key monthly limit, free daily quota, per-key concurrency) count requests
+  that are still running, atomically in the database, so parallel requests and several API
+  processes cannot overshoot them. Holds of a crashed process are released within ~75 s.
+- **Request bodies** are capped also for chunked uploads (`SF_MAX_BODY`, `SF_MAX_MULTIMODAL_BODY`).
+- **Attachment URLs** sent by API clients are fetched only from public addresses: the name is
+  resolved once, internal/metadata/CGNAT ranges are refused and redirects are not followed.
+- **Accounts:** API keys and sessions are stored as hashes. When someone signs in with Google
+  for an email that already has a self-registered password account, that password and all its
+  sessions are dropped (protects against pre-registering someone else's address); the owner
+  can set a new password via reset. Admin accounts keep their password.
+- **Containers** run without Linux capabilities they do not need (`cap_drop: ALL`,
+  `no-new-privileges`); the API container has a read-only filesystem.
+- **Chrome sandbox:** `SF_CHROME_SANDBOX=auto` uses Chrome's sandbox when the host allows it
+  (it needs unprivileged user namespaces; Ubuntu 24.04 blocks them by default through AppArmor)
+  and otherwise falls back to `--no-sandbox` with a warning in the logs. In that case the
+  container is the isolation boundary. Chrome profiles contain logged-in sessions: treat the
+  `cluster-data` volume and full backups like a password vault.
+- **Shared provider accounts:** every client's prompts go through the same provider accounts.
+  Chats are opened in temporary mode where the provider supports it and cleaned up otherwise,
+  but the provider still sees all prompts. Tell your users.
 - The database app role has no DELETE on financial tables; the ledger is append-only.
-- Prompt and answer texts are not stored, only token counts and metadata.
+- Prompt and answer texts are not stored by the gateway, only token counts and metadata.
 
 ## Development
 

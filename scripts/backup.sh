@@ -21,7 +21,8 @@ VOLUMES=(cluster-data caddy-data caddy-config)
 
 passphrase() {   # passphrase confirm|once
     if [ -n "${BACKUP_PASSPHRASE:-}" ]; then printf '%s' "$BACKUP_PASSPHRASE"; return; fi
-    local a b
+    local a="" b=""
+    { : </dev/tty; } 2>/dev/null || die "no terminal: set BACKUP_PASSPHRASE"
     read -r -s -p "Backup passphrase: " a </dev/tty; echo >&2
     if [ "$1" = confirm ]; then
         read -r -s -p "Repeat passphrase: " b </dev/tty; echo >&2
@@ -47,7 +48,7 @@ backup_full() {
     umask 077
 
     echo "== database (pg_dump, custom format)"
-    dc exec -T db pg_dump -U gateway_migrator -d gateway -Fc --no-owner > "$tmp/db.dump"
+    dc exec -T db pg_dump -U gateway_migrator -d gateway -Fc --no-owner --no-acl > "$tmp/db.dump"
     cp .env "$tmp/env"; [ -f Caddyfile ] && cp Caddyfile "$tmp/Caddyfile"
 
     local vols=("${VOLUMES[@]}"); [ "$ollama" = y ] && vols+=(ollama-data)
@@ -127,16 +128,25 @@ restore_full() {
 
     dc stop api cluster caddy >/dev/null 2>&1 || true
     dc up -d db >/dev/null
-    for i in $(seq 30); do dc exec -T db pg_isready -U gateway_migrator -d postgres >/dev/null 2>&1 && break; sleep 1; done
+    # Wait for the compose healthcheck: a fresh volume restarts PostgreSQL once after initdb,
+    # so an early pg_isready can answer for the temporary init server.
+    local i
+    for i in $(seq 90); do
+        [ "$(docker inspect -f '{{.State.Health.Status}}' "$(dc ps -q db)" 2>/dev/null)" = healthy ] && break
+        sleep 2
+    done
+    [ "$i" -lt 90 ] || die "database did not become healthy"
     echo "== database"
     dc exec -T db psql -q -v ON_ERROR_STOP=1 -U gateway_migrator -d postgres \
         -c "DROP DATABASE IF EXISTS gateway WITH (FORCE)" -c "CREATE DATABASE gateway"
-    dc exec -T db pg_restore -U gateway_migrator -d gateway --no-owner --exit-on-error < "$tmp/db.dump"
+    dc exec -T db pg_restore -U gateway_migrator -d gateway --no-owner --no-acl --exit-on-error < "$tmp/db.dump"
+    # Let compose create containers and volumes (with its labels) before filling the volumes
+    dc up --no-start >/dev/null 2>&1 || true
     for f in "$tmp"/volumes/*.tgz; do
         [ -f "$f" ] || continue
         local v; v=$(basename "$f" .tgz)
         echo "== volume $v"
-        docker volume create "$(project)_$v" >/dev/null
+        volume_exists "$v" || docker volume create "$(project)_$v" >/dev/null
         docker run --rm -v "$(project)_$v:/v" -v "$tmp/volumes:/in:ro" "$TAR_IMAGE" \
             sh -c 'find /v -mindepth 1 -delete && tar xzf "/in/$0.tgz" -C /v' "$v"
     done
