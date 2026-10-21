@@ -29,7 +29,7 @@ import time
 from typing import Any
 from urllib.parse import urlencode
 
-from . import abuse
+from . import abuse, branding, security
 from .common import ApiError, create_user
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -54,7 +54,7 @@ OAUTH_TTL = 600
 
 def site_base(db, request=None) -> str:
     """The site's external base URL (without a trailing /)."""
-    configured = (db.get_settings().get("site_base_url") or "").strip()
+    configured = (db.get_settings().get("site_base_url") or "").strip() or branding.SITE_URL
     if configured:
         return configured.rstrip("/")
     return str(request.base_url).rstrip("/") if request is not None else ""
@@ -258,15 +258,26 @@ def link_or_create(db, *, provider: str, external_id: str, email: str, name: str
             raise ApiError(403, "account_suspended",
                            "Hisobingiz to'xtatilgan. Administrator bilan bog'laning.", "permission_error")
         updates, args = [], []
+        revoke_sessions = False
         if not row[column]:
             updates.append(f"{column}=?")
             args.append(external_id)
+            # Pre-registration takeover guard: password sign-up never proves email ownership, so someone
+            # may have registered this address first. Google has verified it, so on the FIRST link the
+            # password and all existing sessions of a normal account are dropped (the owner can set a new
+            # password via reset). Admin accounts are created by the operator, not by self sign-up.
+            if provider == "google" and row["role"] != "admin" and row["password_hash"] != security.NO_PASSWORD:
+                updates.append("password_hash=?")
+                args.append(security.NO_PASSWORD)
+                revoke_sessions = True
         if name and not (row["name"] or "").strip():
             updates.append("name=?")
             args.append(name[:80])
         if updates:
             with db.tx() as c:
                 c.execute(f"UPDATE users SET {', '.join(updates)} WHERE id=?", (*args, row["id"]))
+                if revoke_sessions:
+                    c.execute("DELETE FROM sessions WHERE user_id=?", (row["id"],))
         return row["id"], 0, False
 
     # New account. All password-registration limits apply here as well,

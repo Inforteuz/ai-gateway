@@ -2,8 +2,13 @@
 # AI Gateway installer: asks a few questions, writes .env, builds and starts the
 # Docker Compose stack, creates the admin account and the public models.
 #
-#   ./install.sh            interactive install (re-run it to reconfigure)
+#   ./install.sh                        interactive install; re-run it to reconfigure
+#   ./install.sh --reset-admin-password also sets a new admin password (re-run only)
 #   ./install.sh --help
+#
+# Re-running never silently changes billing (free mode), the sign-up policy, the admin
+# password, stored provider keys or existing model prices: current values are the defaults
+# and risky changes need an explicit confirmation.
 #
 # Nothing secret is printed except the generated admin password at the very end.
 set -euo pipefail
@@ -62,9 +67,14 @@ choose() {
 rand() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "${1:-32}"; }
 slug() { echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9.]+/-/g; s/^-+|-+$//g'; }
 
-if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0
-fi
+RESET_ADMIN_PW=n
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --reset-admin-password) RESET_ADMIN_PW=y ;;
+        *) die "Unknown option: $arg (see --help)" ;;
+    esac
+done
 
 # ---------------------------------------------------------------- preflight
 section "AI Gateway installer"
@@ -76,10 +86,24 @@ mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo
 ok "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), Compose $(docker compose version --short 2>/dev/null)"
 [ "$mem_mb" -gt 0 ] && say "  RAM: ${mem_mb} MB ${D}(each Chrome instance needs ~0.6-1 GB)${N}"
 
+RECONFIG=n
+CUR_FREE=""; CUR_REG=""; CUR_EXT_BASE=""; CUR_MODELS=""
 if [ -f .env ]; then
-    warn "An existing .env was found. Its secrets (DB passwords, keys) are kept; other answers are asked again."
+    RECONFIG=y
     set -a; . ./.env; set +a
+    warn "Existing installation found - reconfigure mode. Secrets, billing mode, sign-up policy, admin password,"
+    warn "provider keys and model prices are kept unless you change them explicitly."
+    # Current values from the running database (the admin panel may have changed them since the install)
+    if docker compose ps --status running --services 2>/dev/null | grep -qx api; then
+        cur() { docker compose exec -T api python -m app.setup_cli "$@" 2>/dev/null | tr -d '\r'; }
+        CUR_FREE=$(cur get-setting free_mode); CUR_REG=$(cur get-setting registration_open)
+        CUR_EXT_BASE=$(cur get-setting external_base_url); CUR_MODELS=$(cur model-ids | tr '\n' ' ')
+    else
+        warn "The stack is not running, so current settings cannot be read; settings stored in the database will"
+        warn "only be changed where you confirm it."
+    fi
 fi
+[ "$RESET_ADMIN_PW" = y ] && [ "$RECONFIG" = n ] && die "--reset-admin-password is for an existing installation."
 
 # ---------------------------------------------------------------- branding
 section "1. Branding"
@@ -93,7 +117,7 @@ DEFAULT_LANG=${LANGS[$((LANG_N - 1))]}
 
 # ---------------------------------------------------------------- network
 section "2. How will people reach it?"
-choose NET "Choose" "1" \
+choose NET "Choose" "${NET_MODE:-1}" \
     "Public domain with automatic HTTPS (Caddy on ports 80/443)" \
     "Behind my own reverse proxy (nginx, Traefik...) - expose a local port" \
     "Local test only (http://localhost)"
@@ -136,6 +160,25 @@ choose MODE "Choose" "${INSTALL_MODE:-1}" "Web-chat automation" "Session import 
 MODELS=()          # "id|provider|upstream|display|price_in|price_out|context"
 CHANNELS=""
 EXT_BASE=""; EXT_KEY=""
+ASK_MODELS=y
+if [ "$RECONFIG" = y ]; then
+    [ -n "$CUR_MODELS" ] && say "  ${D}Existing models: $CUR_MODELS${N}"
+    ask_yn ASK_MODELS "Add or redefine public models now? (no = keep the existing ones and their prices)" n
+fi
+# Asks for one public model; an id that already exists is only overwritten after confirmation.
+ask_model() {   # ask_model PROVIDER UPSTREAM DEFAULT_ID DEFAULT_NAME DEFAULT_CTX
+    local mid mname pin pout ctx="$5" over
+    ask mid "  Public model id clients will use" "$3"
+    if [ -n "$CUR_MODELS" ] && [[ " $CUR_MODELS " == *" $mid "* ]]; then
+        ask_yn over "  Model '$mid' already exists. Overwrite its name, prices and settings?" n
+        [ "$over" = y ] || { say "  ${D}kept '$mid' as it is${N}"; return; }
+    fi
+    ask mname "  Display name" "$4"
+    ask pin "  Price per 1M input tokens (0 = free)" "0"
+    ask pout "  Price per 1M output tokens (0 = free)" "0"
+    [ "$1" = cluster ] || ask ctx "  Context window (tokens)" "$5"
+    MODELS+=("$mid|$1|$2|$mname|$pin|$pout|$ctx")
+}
 if [ "$MODE" = 1 ] || [ "$MODE" = 2 ]; then
     say ""
     say "Available channels: ${B}gemini qwen deepseek chatgpt zai grok deepai${N}"
@@ -146,24 +189,30 @@ if [ "$MODE" = 1 ] || [ "$MODE" = 2 ]; then
     for ch in $CHANNELS; do
         case " gemini qwen deepseek chatgpt zai grok deepai genspark chatbotapp chatbotchatapp " in *" $ch "*) ;; *) die "Unknown channel: $ch";; esac
         n=$((n + 1))
+        [ "$ASK_MODELS" = y ] || continue
         say ""
         say "${B}Model for channel '$ch'${N}"
-        ask mid "  Public model id clients will use" "$(slug "$ASSISTANT")-$n"
-        ask mname "  Display name" "$ASSISTANT $n"
-        ask pin "  Price per 1M input tokens (0 = free)" "0"
-        ask pout "  Price per 1M output tokens (0 = free)" "0"
-        MODELS+=("$mid|cluster|$ch|$mname|$pin|$pout|128000")
+        ask_model cluster "$ch" "$(slug "$ASSISTANT")-$n" "$ASSISTANT $n" 128000
     done
 fi
 if [ "$MODE" = 3 ]; then
     say ""
-    ask EXT_BASE "Upstream base URL (OpenAI-compatible, ends with /v1)" "${EXT_BASE:-https://api.openai.com/v1}"
-    ask_secret EXT_KEY "Upstream API key (hidden)"
-    [ -n "$EXT_KEY" ] || die "An API key for the upstream is required."
-    info "Fetching the upstream model list..."
-    remote_models=$(curl -fsS -m 15 -H "Authorization: Bearer $EXT_KEY" "${EXT_BASE%/}/models" 2>/dev/null \
-        | python3 -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin).get("data", [])[:40]))' 2>/dev/null || true)
-    if [ -n "$remote_models" ]; then say "  ${D}Upstream offers: $remote_models${N}"; else warn "Could not list upstream models (that is fine, type the names yourself)."; fi
+    ask EXT_BASE "Upstream base URL (OpenAI-compatible, ends with /v1)" "${CUR_EXT_BASE:-https://api.openai.com/v1}"
+    if [ "$RECONFIG" = y ]; then
+        ask_secret EXT_KEY "Upstream API key (hidden, empty = keep the stored key)"
+    else
+        ask_secret EXT_KEY "Upstream API key (hidden)"
+        [ -n "$EXT_KEY" ] || die "An API key for the upstream is required."
+    fi
+fi
+if [ "$MODE" = 3 ] && [ "$ASK_MODELS" = y ]; then
+    remote_models=""
+    if [ -n "$EXT_KEY" ]; then
+        info "Fetching the upstream model list..."
+        remote_models=$(curl -fsS -m 15 -H "Authorization: Bearer $EXT_KEY" "${EXT_BASE%/}/models" 2>/dev/null \
+                    | python3 -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin).get("data", [])[:40]))' 2>/dev/null || true)
+    fi
+    if [ -n "$remote_models" ]; then say "  ${D}Upstream offers: $remote_models${N}"; else warn "Upstream models not listed (that is fine, type the names yourself)."; fi
     ask ext_list "Upstream model names to resell (space separated)" "$(echo "$remote_models" | awk '{print $1}')"
     [ -n "$ext_list" ] || die "At least one model is required."
     n=0
@@ -171,18 +220,13 @@ if [ "$MODE" = 3 ]; then
         n=$((n + 1))
         say ""
         say "${B}Public name for upstream model '$um'${N}"
-        ask mid "  Public model id" "$(slug "$ASSISTANT")-$n"
-        ask mname "  Display name" "$ASSISTANT $n"
-        ask pin "  Price per 1M input tokens (0 = free)" "0"
-        ask pout "  Price per 1M output tokens (0 = free)" "0"
-        ask ctx "  Context window (tokens)" "128000"
-        MODELS+=("$mid|external|$um|$mname|$pin|$pout|$ctx")
+        ask_model external "$um" "$(slug "$ASSISTANT")-$n" "$ASSISTANT $n" 128000
     done
 fi
 
 # ---------------------------------------------------------------- ollama
 section "4. Local models (Ollama)"
-choose OLL "Use local models?" "1" \
+choose OLL "Use local models?" "${OLLAMA_CHOICE:-1}" \
     "No" \
     "Yes - run Ollama in Docker on this server (CPU)" \
     "Yes - run Ollama in Docker with an NVIDIA GPU" \
@@ -193,33 +237,46 @@ if [ "$OLL" = 4 ]; then
     say "${D}Ollama on this host: http://host.docker.internal:11434 (make it listen on 0.0.0.0 or the docker bridge).${N}"
     ask UPSTREAM_URL "Ollama URL" "${SF_UPSTREAM_URL:-http://host.docker.internal:11434}"
 fi
-if [ "$OLL" != 1 ]; then
+if [ "$OLL" != 1 ] && [ "$ASK_MODELS" = y ]; then
     ask local_list "Ollama model names to offer (space separated, e.g. qwen3:8b llama3.2:3b)" "qwen3:8b"
     n=0
     for lm in $local_list; do
         n=$((n + 1))
         say ""
         say "${B}Public name for local model '$lm'${N}"
-        ask mid "  Public model id" "$(slug "$ASSISTANT")-local-$n"
-        ask mname "  Display name" "$ASSISTANT Local $n"
-        ask pin "  Price per 1M input tokens (0 = free)" "0"
-        ask pout "  Price per 1M output tokens (0 = free)" "0"
-        ask ctx "  Context window Ollama is configured for (tokens)" "16384"
-        MODELS+=("$mid|local|$lm|$mname|$pin|$pout|$ctx")
+        ask_model local "$lm" "$(slug "$ASSISTANT")-local-$n" "$ASSISTANT Local $n" 16384
     done
     [ "$OLL" = 2 ] || [ "$OLL" = 3 ] && OLLAMA_PULL="$local_list"
 fi
-[ ${#MODELS[@]} -gt 0 ] || die "No models configured - choose at least one source."
+[ ${#MODELS[@]} -gt 0 ] || [ "$RECONFIG" = y ] || die "No models configured - choose at least one source."
 
 # ---------------------------------------------------------------- accounts
 section "5. Admin account and access"
-ask ADMIN_EMAIL "Admin e-mail (used to log in)" "${ADMIN_EMAIL:-admin@${SITE_DOMAIN:-example.com}}"
-ask_secret ADMIN_PASSWORD "Admin password (empty = generate one)"
-GENERATED_PW=n
-if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD="$(rand 20)"; GENERATED_PW=y; fi
-[ ${#ADMIN_PASSWORD} -ge 10 ] || die "Password must be at least 10 characters."
-ask_yn REG "Allow anyone to sign up on the site?" n
-ask_yn FREE "Free mode (no balances or charging, everything costs 0)?" y
+GENERATED_PW=n; SET_ADMIN=n; ADMIN_PASSWORD=""
+if [ "$RECONFIG" = n ] || [ "$RESET_ADMIN_PW" = y ]; then
+    SET_ADMIN=y
+    ask ADMIN_EMAIL "Admin e-mail (used to log in)" "${ADMIN_EMAIL:-admin@${SITE_DOMAIN:-example.com}}"
+    ask_secret ADMIN_PASSWORD "Admin password (empty = generate one)"
+    if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD="$(rand 20)"; GENERATED_PW=y; fi
+    [ ${#ADMIN_PASSWORD} -ge 10 ] || die "Password must be at least 10 characters."
+else
+    say "  Admin account ${B}${ADMIN_EMAIL:-?}${N} is kept (new password: ./install.sh --reset-admin-password)."
+fi
+
+yn_of() { [ "$1" = 1 ] && echo y || echo n; }
+if [ "$RECONFIG" = y ] && [ -z "$CUR_FREE" ]; then
+    # Database not readable: leave both settings untouched
+    REG=keep; FREE=keep
+    say "  ${D}Sign-up policy and free mode are left as they are (change them in the admin panel).${N}"
+else
+    ask_yn REG "Allow anyone to sign up on the site?" "$( [ -n "$CUR_REG" ] && yn_of "$CUR_REG" || echo n )"
+    ask_yn FREE "Free mode (no balances or charging, everything costs 0)?" "$( [ -n "$CUR_FREE" ] && yn_of "$CUR_FREE" || echo y )"
+    if [ "$CUR_FREE" = 0 ] && [ "$FREE" = y ]; then
+        warn "This switches a PAID service to free mode: every request will cost 0 from now on."
+        read -r -p "Type FREE to confirm: " confirm_free || true
+        [ "$confirm_free" = FREE ] || { FREE=n; say "  ${D}kept paid mode${N}"; }
+    fi
+fi
 
 # ---------------------------------------------------------------- write config
 section "Writing configuration"
@@ -242,6 +299,8 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ai-gateway}"
 COMPOSE_PROFILES="$(IFS=,; echo "${PROFILES[*]:-}")"
 COMPOSE_FILE="$COMPOSE_FILES"
 INSTALL_MODE="$MODE"
+NET_MODE="$NET"
+OLLAMA_CHOICE="$OLL"
 
 SF_BRAND_NAME="$BRAND"
 SF_ASSISTANT_NAME="$ASSISTANT"
@@ -274,6 +333,9 @@ if [ "$CADDY" = y ]; then
       cat <<EOF
 $hosts {
 	encode gzip
+	request_body {
+		max_size 30MB
+	}
 	reverse_proxy api:8310 {
 		flush_interval -1
 	}
@@ -300,13 +362,23 @@ done
 run_api() { docker compose exec -T api "$@"; }
 
 section "Configuring"
-if run_api python -m app.cli create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" >/dev/null 2>&1; then
-    ok "Admin account created"
-else
-    run_api python -m app.cli set-password --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" >/dev/null && ok "Admin password updated"
+if [ "$SET_ADMIN" = y ]; then
+    if run_api python -m app.cli create-admin --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" >/dev/null 2>&1; then
+        ok "Admin account created"
+    elif [ "$RESET_ADMIN_PW" = y ]; then
+        run_api python -m app.cli set-password --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" >/dev/null && ok "Admin password updated"
+    else
+        die "Could not create the admin account $ADMIN_EMAIL (it may already exist: use --reset-admin-password)."
+    fi
 fi
-run_api python -m app.setup_cli set-setting registration_open "$( [ "$REG" = y ] && echo 1 || echo 0 )" >/dev/null
-run_api python -m app.setup_cli set-setting free_mode "$( [ "$FREE" = y ] && echo 1 || echo 0 )" >/dev/null
+set_flag() {   # set_flag KEY y|n|keep CURRENT
+    [ "$2" = keep ] && return
+    local v; v=$([ "$2" = y ] && echo 1 || echo 0)
+    [ "$v" = "$3" ] && return
+    run_api python -m app.setup_cli set-setting "$1" "$v" >/dev/null && ok "$1 = $v"
+}
+set_flag registration_open "$REG" "$CUR_REG"
+set_flag free_mode "$FREE" "$CUR_FREE"
 if [ "$MODE" = 1 ] || [ "$MODE" = 2 ]; then
     run_api python -m app.setup_cli set-setting cluster_base_url "http://cluster:8800/v1" >/dev/null
     printf '%s' "$CLUSTER_API_KEY" | run_api python -m app.setup_cli set-setting cluster_api_key >/dev/null
@@ -314,10 +386,10 @@ if [ "$MODE" = 1 ] || [ "$MODE" = 2 ]; then
 fi
 if [ "$MODE" = 3 ]; then
     run_api python -m app.setup_cli set-setting external_base_url "$EXT_BASE" >/dev/null
-    printf '%s' "$EXT_KEY" | run_api python -m app.setup_cli set-setting external_api_key >/dev/null
+    printf '%s' "$EXT_KEY" | run_api python -m app.setup_cli set-setting external_api_key >/dev/null   # empty keeps the stored key
     ok "External API configured"
 fi
-for m in "${MODELS[@]}"; do
+for m in "${MODELS[@]+"${MODELS[@]}"}"; do
     IFS='|' read -r mid prov up mname pin pout ctx <<< "$m"
     run_api python -m app.setup_cli add-model --id "$mid" --provider "$prov" --upstream "$up" \
         --display "$mname" --price-in "$pin" --price-out "$pout" --context "$ctx"

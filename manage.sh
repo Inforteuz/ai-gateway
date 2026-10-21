@@ -2,6 +2,8 @@
 # Day-to-day operations for an installed AI Gateway. Run ./manage.sh help
 set -euo pipefail
 cd "$(dirname "$0")"
+# extract-env runs on a fresh checkout (no .env yet) to start a restore
+if [ "${1:-}" = extract-env ]; then shift; exec scripts/backup.sh extract-env "$@"; fi
 [ -f .env ] || { echo "No .env found - run ./install.sh first." >&2; exit 1; }
 
 dc() { docker compose "$@"; }
@@ -30,8 +32,13 @@ Usage: ./manage.sh <command> [args]
   vnc                            how to open the provider browsers
 
   ollama <args>                  run the ollama CLI in the Ollama container (e.g. ollama pull qwen3:8b)
-  backup [file]                  dump the database (default: backups/gateway-<date>.sql.gz)
-  restore file                   restore a database dump (stops the API meanwhile)
+  backup [file]                  database only (default: backups/gateway-<date>.sql.gz)
+  restore file                   restore a database-only dump (stops the API meanwhile)
+  backup-full [--live] [--with-ollama] [file]
+                                 encrypted full backup: DB, .env, Caddyfile, Chrome sessions, TLS state
+  verify-backup file             decrypt and check a full backup without changing anything
+  restore-full file [--yes]      restore a full backup (asks for confirmation)
+  extract-env file               fresh server: take .env from a full backup before restore-full
 EOF
 }
 
@@ -121,6 +128,7 @@ restore)
     gunzip -c "$1" | dc exec -T db psql -q -U gateway_migrator -d gateway
     dc up -d migrate api
     ;;
+backup-full|verify-backup|restore-full) exec scripts/backup.sh "$cmd" "$@" ;;
 help|-h|--help) usage ;;
 *) usage; exit 2 ;;
 esac

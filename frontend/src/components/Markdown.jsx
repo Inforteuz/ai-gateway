@@ -15,26 +15,47 @@ hljs.registerLanguage('sh', bash)
 hljs.registerLanguage('json', json)
 hljs.registerLanguage('sql', sql)
 
-// Safety: strip HTML tags
-const renderer = new marked.Renderer()
-const linkRenderer = renderer.link
-renderer.link = (href, title, text) => {
-  const html = linkRenderer.call(renderer, href, title, text)
-  return html.replace(/^<a /, '<a target="_blank" rel="nofollow noopener noreferrer" ')
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
+// Only these URL schemes may appear in links/images (no javascript:, vbscript:, data:text/html...)
+const safeUrl = (href, { image = false } = {}) => {
+  const url = String(href || '').trim()
+  if (/^(https?:|mailto:)/i.test(url) || /^[/#?.]/.test(url)) return url
+  if (image && /^data:image\/(png|jpe?g|gif|webp);/i.test(url)) return url
+  return ''
 }
 
-marked.setOptions({
-  renderer,
-  highlight: (code, lang) => {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return hljs.highlight(code, { language: lang }).value
-      } catch {}
-    }
-    return code
-  },
-  langPrefix: 'hljs language-',
+// Markdown here can come from model answers (Samples page), so raw HTML is never passed through:
+// it is shown as text. Links open in a new tab without referrer/opener.
+marked.use({
   breaks: true,
+  renderer: {
+    html(token) {
+      return escapeHtml(token.text)
+    },
+    link(token) {
+      const text = this.parser.parseInline(token.tokens)
+      const href = safeUrl(token.href)
+      if (!href) return text
+      const title = token.title ? ` title="${escapeHtml(token.title)}"` : ''
+      return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="nofollow noopener noreferrer">${text}</a>`
+    },
+    image(token) {
+      const src = safeUrl(token.href, { image: true })
+      if (!src) return escapeHtml(token.text)
+      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(token.text)}" loading="lazy">`
+    },
+    code(token) {
+      const lang = (token.lang || '').split(/\s/)[0]
+      let body = escapeHtml(token.text)
+      if (lang && hljs.getLanguage(lang)) {
+        try { body = hljs.highlight(token.text, { language: lang }).value } catch {}
+      }
+      const cls = lang ? ` class="hljs language-${escapeHtml(lang)}"` : ' class="hljs"'
+      return `<pre><code${cls}>${body}</code></pre>\n`
+    },
+  },
 })
 
 export function Markdown({ children }) {

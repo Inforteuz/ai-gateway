@@ -16,14 +16,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+import http.client
 import ipaddress
 import mimetypes
 import os
 import re
 import socket
+import ssl
 import tempfile
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
@@ -156,20 +157,7 @@ class AttachmentStore:
         return self.add_bytes(data, mime, name)
 
     def add_url(self, url: str, name: str = "") -> Attachment:
-        _assert_public_url(url)
-        req = urllib.request.Request(url, headers={"User-Agent": "ai-gateway/1.0"})
-        try:
-            with urllib.request.urlopen(req, timeout=cfg.ATTACHMENT_FETCH_TIMEOUT) as resp:
-                declared = resp.headers.get("Content-Length")
-                if declared and int(declared) > cfg.MAX_ATTACHMENT_BYTES:
-                    raise AttachmentError(f"Fayl juda katta: {int(declared) // 1024} KB")
-                # Read 1 byte past the limit to detect oversize
-                data = resp.read(cfg.MAX_ATTACHMENT_BYTES + 1)
-                mime = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
-        except AttachmentError:
-            raise
-        except Exception as e:
-            raise AttachmentError(f"Faylni yuklab bo'lmadi: {type(e).__name__}") from e
+        data, mime = _fetch_public(url, cfg.MAX_ATTACHMENT_BYTES, cfg.ATTACHMENT_FETCH_TIMEOUT)
         if not mime:
             mime = mimetypes.guess_type(url)[0] or "application/octet-stream"
         return self.add_bytes(data, mime, name or os.path.basename(urllib.parse.urlparse(url).path))
@@ -184,12 +172,19 @@ def _safe_name(name: str, fallback_ext: str) -> str:
     return base[:64]
 
 
-def _assert_public_url(url: str) -> None:
-    """Check that the URL points to the public internet.
+def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    # is_global excludes private, loopback, link-local (incl. 169.254.169.254 metadata), CGNAT 100.64/10,
+    # reserved and documentation ranges
+    return ip.is_global and not ip.is_multicast
 
-    Internal addresses (loopback, 10.x, 192.168.x, link-local, the metadata
-    service 169.254.169.254) are rejected; otherwise a user could make our
-    server send requests to internal services (SSRF).
+
+def _resolve_public(url: str) -> tuple[urllib.parse.ParseResult, str]:
+    """Checks the URL and resolves its host ONCE. Returns the parsed URL and the IP to connect to.
+
+    Every address the name resolves to must be public, and the connection is then made to that
+    checked address (no second lookup, so DNS rebinding cannot swap in an internal one).
     """
     parts = urllib.parse.urlparse(url)
     if parts.scheme not in ("http", "https"):
@@ -198,14 +193,53 @@ def _assert_public_url(url: str) -> None:
     if not host:
         raise AttachmentError("Havolada host yo'q")
     try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, ValueError) as e:
         raise AttachmentError(f"Hostni aniqlab bo'lmadi: {host}") from e
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_private or ip.is_loopback or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
-            raise AttachmentError("Ichki tarmoq manzillariga ruxsat yo'q")
+    ips = [ipaddress.ip_address(info[4][0]) for info in infos]
+    if not ips or not all(_is_public_ip(ip) for ip in ips):
+        raise AttachmentError("Ichki tarmoq manzillariga ruxsat yo'q")
+    return parts, str(ips[0])
+
+
+def _fetch_public(url: str, limit: int, timeout: float) -> tuple[bytes, str]:
+    """GET a public URL with SSRF protection: pinned IP, no redirects, size limit. Returns (body, mime)."""
+    parts, ip = _resolve_public(url)
+    https = parts.scheme == "https"
+    port = parts.port or (443 if https else 80)
+    host = parts.hostname or ""
+    try:
+        sock = socket.create_connection((ip, port), timeout=timeout)
+        if https:
+            ctx = ssl.create_default_context()
+            conn: http.client.HTTPConnection = http.client.HTTPSConnection(host, port, timeout=timeout, context=ctx)
+            conn.sock = ctx.wrap_socket(sock, server_hostname=host)   # certificate is checked for the real host
+        else:
+            conn = http.client.HTTPConnection(host, port, timeout=timeout)
+            conn.sock = sock
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        try:
+            conn.request("GET", path, headers={"User-Agent": "ai-gateway/1.0", "Accept": "*/*"})
+            resp = conn.getresponse()
+            if 300 <= resp.status < 400:
+                # Redirects are not followed: the target could be an internal address
+                raise AttachmentError("Havola boshqa manzilga yo'naltiradi; to'g'ridan-to'g'ri havolani yuboring")
+            if resp.status != 200:
+                raise AttachmentError(f"Faylni yuklab bo'lmadi: HTTP {resp.status}")
+            declared = resp.getheader("Content-Length")
+            if declared and declared.isdigit() and int(declared) > limit:
+                raise AttachmentError(f"Fayl juda katta: {int(declared) // 1024} KB")
+            # Read 1 byte past the limit so add_bytes() detects oversize
+            data = resp.read(limit + 1)
+            mime = (resp.getheader("Content-Type") or "").split(";")[0].strip()
+            return data, mime
+        finally:
+            conn.close()
+    except AttachmentError:
+        raise
+    except Exception as e:
+        raise AttachmentError(f"Faylni yuklab bo'lmadi: {type(e).__name__}") from e
 
 
 def parse_message_content(content: Any, store: AttachmentStore) -> ParsedContent:

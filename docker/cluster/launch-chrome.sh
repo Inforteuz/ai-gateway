@@ -62,15 +62,43 @@ EOF
 fi
 [ ${#PROXY_ARGS[@]} -eq 0 ] && echo "[chrome-$IDX] direct connection"
 
+# Chrome sandbox: SF_CHROME_SANDBOX=auto (default) probes once whether the sandbox can start in this
+# container (it needs user namespaces, which some hosts/seccomp profiles forbid) and falls back to
+# --no-sandbox with a warning. "1" requires the sandbox, "0" always disables it.
+SANDBOX_ARGS=()
+case "${SF_CHROME_SANDBOX:-auto}" in
+    0|no|off) SANDBOX_ARGS=(--no-sandbox) ;;
+    1|yes|on) ;;
+    *)
+        probe_dir="$(mktemp -d)"
+        if ! timeout 30 "$CHROME" --headless=new --no-first-run --user-data-dir="$probe_dir" --dump-dom about:blank \
+                >/dev/null 2>&1; then
+            SANDBOX_ARGS=(--no-sandbox)
+            echo "[chrome-$IDX] WARNING: Chrome sandbox unavailable here; running with --no-sandbox (see README, Security)"
+        fi
+        rm -rf "$probe_dir" ;;
+esac
+[ ${#SANDBOX_ARGS[@]} -eq 0 ] && echo "[chrome-$IDX] sandbox: on"
+
+# Site isolation costs ~100-300 MB per instance. Off by default (only the provider's own site is
+# opened); SF_CHROME_SITE_ISOLATION=1 turns it back on.
+DISABLED_FEATURES="TranslateUI,ChromeWhatsNewUI,SigninPromoTrigger,SyncConsent,PasswordManagerOnboarding"
+ISOLATION_ARGS=(--process-per-site --renderer-process-limit=2)
+if [ "${SF_CHROME_SITE_ISOLATION:-0}" = 1 ]; then
+    ISOLATION_ARGS=()
+else
+    DISABLED_FEATURES="site-per-process,IsolateOrigins,$DISABLED_FEATURES"
+fi
+
 # 2x2 grid of 960x540 windows on the 1920x1080 display
 POS_X=$(( (IDX % 2) * 960 ))
 POS_Y=$(( ((IDX / 2) % 2) * 540 ))
 
-# Memory-saving flags: fewer renderer processes, no site isolation (only trusted
-# provider sites are opened), small disk cache, software GL.
+# Small disk cache and software GL keep memory low. The DevTools port listens on 127.0.0.1
+# inside the container only; nothing outside the container can reach it.
 # Chrome stderr (dbus noise in containers) is dropped; set SF_CHROME_STDERR=/dev/stderr to debug.
 "$CHROME" \
-    --no-sandbox \
+    "${SANDBOX_ARGS[@]}" \
     --remote-debugging-port=$((9222 + IDX)) \
     --remote-debugging-address=127.0.0.1 \
     --user-data-dir="$PROFILE_DIR" \
@@ -82,9 +110,8 @@ POS_Y=$(( ((IDX / 2) % 2) * 540 ))
     --disable-dev-shm-usage \
     --password-store=basic \
     --disable-blink-features=AutomationControlled \
-    --process-per-site \
-    --renderer-process-limit=2 \
-    --disable-features=site-per-process,IsolateOrigins,TranslateUI,ChromeWhatsNewUI,SigninPromoTrigger,SyncConsent,PasswordManagerOnboarding \
+    "${ISOLATION_ARGS[@]}" \
+    --disable-features="$DISABLED_FEATURES" \
     --disable-gpu-shader-disk-cache \
     --disk-cache-size=33554432 \
     --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader \

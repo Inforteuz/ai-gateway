@@ -6,6 +6,7 @@ Standalone run: `python -m cluster.server` (or `python -m backend.cluster.server
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import time
 import uuid
@@ -111,7 +112,7 @@ def _auth(authorization: Optional[str] = Header(None)) -> None:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="API kalit berilmagan")
     token = authorization[7:].strip()
-    if token != expected:
+    if not hmac.compare_digest(token.encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="API kalit noto'g'ri")
 
 

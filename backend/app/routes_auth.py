@@ -239,7 +239,11 @@ async def password_forgot(body: ForgotIn, request: Request, db: Database = Depen
         log.warning("password reset: Telegram bot is not configured")
         return FORGOT_RESPONSE
 
-    base = (s.get("site_base_url") or "").rstrip("/") or str(request.base_url).rstrip("/")
+    # Never built from the Host header: a forged Host would send the victim a link to another site
+    base = ((s.get("site_base_url") or "").strip() or branding.SITE_URL).rstrip("/")
+    if not base:
+        log.warning("password reset: site_base_url / SF_SITE_URL is not set, link not sent")
+        return FORGOT_RESPONSE
     link = f"{base}/reset-password?token={token}"
     try:
         r = await request.app.state.notify_http.post(

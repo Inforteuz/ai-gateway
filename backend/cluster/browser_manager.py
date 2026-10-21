@@ -1,5 +1,6 @@
 import os
 import time
+import re
 import subprocess
 import urllib.request
 import json
@@ -87,7 +88,7 @@ class BrowserClusterManager:
         # Attach the proxy
         if inst.proxy:
             cmd.append(f"--proxy-server={inst.proxy}")
-            print(f"Browser #{inst.instance_id} starting with proxy: {inst.proxy}")
+            print(f"Browser #{inst.instance_id} starting with proxy: {re.sub(r'//[^@/]*@', '//***@', inst.proxy)}")
 
         # For a headless server environment (no X11)
         if os.getenv("HEADLESS_SERVER", "false").lower() == "true":

@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from . import audit, topups
+from . import audit, branding, topups
 from .billing import TASHKENT
 from .common import ApiError, csrf_guard, require_admin
 from .db import Database
@@ -270,7 +270,7 @@ async def webhook_status(request: Request):
     token = bot_token(s)
     if not token:
         return out
-    base = (s.get("site_base_url") or "").rstrip("/") or str(request.base_url).rstrip("/")
+    base = ((s.get("site_base_url") or "").strip() or branding.SITE_URL).rstrip("/") or str(request.base_url).rstrip("/")
     out["expected_url"] = base + WEBHOOK_PATH
     me = await call(request.app, token, "getMe", {})
     info = await call(request.app, token, "getWebhookInfo", {})

@@ -51,12 +51,17 @@ class ProxyPool:
         if not url:
             self.last_error = "no_url"
             return 0
+        if not url.lower().startswith("https://"):
+            self.last_error = "https_required"
+            return 0
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "ai-gateway-cluster/2.0"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except Exception as e:
-            self.last_error = f"fetch_failed: {type(e).__name__}: {e}"
+            # Not str(e): it can contain the list URL, and such URLs usually carry an access token
+            status = getattr(e, "code", None)
+            self.last_error = f"fetch_failed: {type(e).__name__}" + (f" HTTP {status}" if status else "")
             log.error("proxy fetch failed: %s", self.last_error)
             return 0
 

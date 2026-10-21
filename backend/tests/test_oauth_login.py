@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, parse_qsl, urlparse
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -298,9 +299,33 @@ def test_google_links_to_existing_account_with_same_email(env):
     assert logged_in(env)["id"] == uid and count_users(env) == 1
     assert env.db.one("SELECT google_sub FROM users WHERE id=?", (uid,))["google_sub"] == "google-sub-1"
     assert balance(env, uid) == 0   # linking is not a signup, no bonus
-    # Password login still works after linking
+    # Pre-registration takeover guard: the password set before Google verified the email no longer works
     logout(env)
     assert env.client.post("/portal/auth/login", json={"email": "existing@example.com", "password": "parol-12345"},
+                           headers=CSRF).status_code == 401
+
+
+def test_google_link_revokes_sessions_of_a_pre_registered_account(env):
+    """Someone registered the victim's email with their own password before the victim used Google."""
+    attacker = TestClient(env.app)
+    uid = add_user(env, email="victim@example.com", password="attacker-pass-1")
+    open_signup(env)
+    assert attacker.post("/portal/auth/login", json={"email": "victim@example.com", "password": "attacker-pass-1"},
+                         headers=CSRF).status_code == 200
+    configure_google(env, claims={"email": "victim@example.com"})
+    assert google_login(env).headers["location"] == "/app" and logged_in(env)["id"] == uid
+    assert attacker.get("/portal/auth/me").json()["user"] is None          # attacker's session is gone
+    assert attacker.post("/portal/auth/login", json={"email": "victim@example.com", "password": "attacker-pass-1"},
+                         headers=CSRF).status_code == 401
+
+
+def test_google_link_keeps_admin_password(env):
+    add_user(env, email="boss@example.com", role="admin")
+    open_signup(env)
+    configure_google(env, claims={"email": "boss@example.com"})
+    assert google_login(env).headers["location"] == "/app"
+    logout(env)
+    assert env.client.post("/portal/auth/login", json={"email": "boss@example.com", "password": "parol-12345"},
                            headers=CSRF).status_code == 200
 
 

@@ -25,7 +25,7 @@ RUN set -eux; arch="$(dpkg --print-architecture)"; \
     fi; \
     rm -rf /var/lib/apt/lists/*
 
-# Hide the "unsupported command-line flag" infobar (we run with --no-sandbox inside the container)
+# Hide the "unsupported command-line flag" infobar (shown when the sandbox has to be disabled)
 COPY docker/cluster/chrome-policy.json /etc/opt/chrome/policies/managed/gateway.json
 COPY docker/cluster/chrome-policy.json /etc/chromium/policies/managed/gateway.json
 

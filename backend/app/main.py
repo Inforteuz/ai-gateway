@@ -25,6 +25,7 @@ from .common import ApiError
 from .config import Config
 from .db import from_config
 from . import abuse
+from .bodylimit import BodySizeLimit
 from .ratelimit import SlidingWindow
 
 
@@ -115,9 +116,14 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("X-Frame-Options", "DENY")
         if request.url.path.startswith("/portal"):
             response.headers.setdefault("Cache-Control", "no-store")
         return response
+
+    # Outermost: caps request bodies also when they arrive chunked (no Content-Length)
+    app.add_middleware(BodySizeLimit, api_limit=max(config.max_body_bytes, config.max_multimodal_bytes),
+                       default_limit=config.max_body_bytes)
 
     @app.exception_handler(ApiError)
     async def api_error(_: Request, exc: ApiError):
