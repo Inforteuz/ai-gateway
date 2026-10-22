@@ -801,6 +801,138 @@ class WorkerTab:
         return raw, images
 
 
+class DeepSeekDirectWorker(WorkerTab):
+    """Direct, browserless worker for DeepSeek using HTTP API and PoW challenge solver."""
+
+    def __init__(self, token: Optional[str] = None):
+        adapter = get_adapter("deepseek")
+        super().__init__(
+            browser_port=0,
+            tab_id="direct",
+            model_name="deepseek",
+            ws_url="",
+            adapter=adapter,
+        )
+        self.token = (token or cfg.DEEPSEEK_USER_TOKEN).strip()
+        self._client: Optional[Any] = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            from .deepseek_direct import DeepSeekDirectClient
+            self._client = DeepSeekDirectClient(self.token)
+        return self._client
+
+    async def prewarm(self) -> None:
+        """Prewarm: no-op for direct worker."""
+        return None
+
+    def is_available(self) -> bool:
+        return time.time() >= self.cooldown_until and not self.lock.locked()
+
+    async def probe_session(self) -> tuple[bool, str]:
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, self.client.get_user_info)
+            return True, "ok"
+        except Exception as e:
+            return False, f"auth:{e}"
+
+    async def execute_prompt(
+        self,
+        prompt_text: str,
+        timeout: int = 40,
+        attachment_paths: Optional[List[str]] = None,
+        images_only: bool = False,
+        want_images: bool = False,
+    ) -> Tuple[str, List[tuple[str, str]]]:
+        self.total_requests += 1
+        self.last_used = time.time()
+        self._mark_request()
+        meta = runmeta.get()
+        phases = meta.setdefault("phases", {})
+        t_mark = [time.monotonic()]
+
+        def mark(name: str) -> None:
+            now = time.monotonic()
+            phases[name] = round(phases.get(name, 0.0) + now - t_mark[0], 2)
+            t_mark[0] = now
+
+        req_model = (meta.get("upstream_model") or "").lower()
+        effort = (meta.get("effort") or "").lower()
+        thinking = (
+            "reasoner" in req_model
+            or "r1" in req_model
+            or effort in ("low", "medium", "high")
+        )
+
+        loop = asyncio.get_event_loop()
+
+        # 1. Upload attachments if any
+        ref_file_ids: List[str] = []
+        if attachment_paths:
+            for p in attachment_paths:
+                fid = await loop.run_in_executor(None, self.client.upload_file, p)
+                ref_file_ids.append(fid)
+            mark("upload_files")
+
+        # 2. Create isolated session
+        session_id = await loop.run_in_executor(None, self.client.create_chat_session)
+        mark("new_chat")
+
+        on_progress = meta.get("on_progress")
+        accumulated_text = ""
+
+        try:
+            import queue
+            q: queue.Queue = queue.Queue()
+            DONE = object()
+
+            def produce():
+                try:
+                    for chunk in self.client.stream_chat(
+                        prompt=prompt_text,
+                        ref_file_ids=ref_file_ids,
+                        thinking=thinking,
+                        session_id=session_id,
+                    ):
+                        q.put(chunk)
+                except Exception as ex:
+                    q.put(ex)
+                finally:
+                    q.put(DONE)
+
+            loop.run_in_executor(None, produce)
+
+            while True:
+                item = await loop.run_in_executor(None, q.get)
+                if item is DONE:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                if isinstance(item, dict):
+                    if item.get("type") == "content":
+                        accumulated_text += item.get("text", "")
+                        if on_progress is not None:
+                            on_progress(accumulated_text)
+
+            mark("answer")
+            self._record_outcome(True)
+            self.last_finished = time.time()
+            return accumulated_text, []
+        except Exception as e:
+            self._record_outcome(False)
+            self.last_error = str(e)
+            raise
+        finally:
+            if cfg.DEEPSEEK_AUTO_CLEANUP and session_id:
+                try:
+                    await loop.run_in_executor(None, self.client.delete_chat_session, session_id)
+                    mark("cleanup")
+                except Exception as ex:
+                    log.warning("deepseek_direct: chat seansini o'chirishda xatolik: %s", ex)
+
+
 class ChallengeDetected(RuntimeError):
     """The provider showed a bot check (captcha); the request is not sent."""
 
@@ -852,6 +984,9 @@ class ClusterPool:
                 model = cfg.PORT_MODEL_OVERRIDE.get(port) or detect_model_from_url(tab.get("url", ""))
                 if not model:
                     continue
+                # If direct API token is configured, skip Chrome deepseek tab in favor of direct worker
+                if model == "deepseek" and cfg.DEEPSEEK_USER_TOKEN:
+                    continue
                 adapter = get_adapter(model)
                 if not adapter:
                     continue
@@ -867,19 +1002,30 @@ class ClusterPool:
                 else:
                     discovered.append(WorkerTab(port, tab_id, model, ws_url, adapter))
 
+        # Direct browserless DeepSeek integration
+        if cfg.DEEPSEEK_USER_TOKEN:
+            existing_direct = next((w for w in self.workers if isinstance(w, DeepSeekDirectWorker)), None)
+            if existing_direct:
+                discovered.append(existing_direct)
+            else:
+                discovered.append(DeepSeekDirectWorker(cfg.DEEPSEEK_USER_TOKEN))
+
         before, self.workers = len(self.workers), discovered
         log.info("scan complete workers=%d ports_up=%d/%d (was %d)",
                  len(discovered), len(self.ports) - len(self.scan_errors), len(self.ports), before)
 
     def workers_for_model(self, model_name: str) -> List[WorkerTab]:
-        return [w for w in self.workers if w.model_name == model_name.lower()]
+        m = (model_name or "").lower()
+        if m in cfg.DEEPSEEK_MODEL_ALIASES:
+            m = "deepseek"
+        return [w for w in self.workers if w.model_name == m]
 
     def summary(self) -> List[Dict[str, Any]]:
         now = time.time()
         return [
             {
                 "model": w.model_name,
-                "instance": w.browser_port - 9222,
+                "instance": (w.browser_port - 9222) if w.browser_port else 0,
                 "state": w.state(now),
                 "cooldown_reason": w.cooldown_reason if now < w.cooldown_until else None,
                 "browser_port": w.browser_port,
@@ -919,6 +1065,14 @@ class ClusterPool:
             if time.time() < w.cooldown_until and not w.needs_attention:
                 continue
             key = f"{w.model_name}:{w.browser_port}"
+
+            if isinstance(w, DeepSeekDirectWorker):
+                async with w.lock:
+                    healthy, reason = await w.probe_session()
+                w.apply_probe(healthy, reason)
+                if not healthy:
+                    problems[key] = reason
+                continue
 
             # IMPORTANT: take the lock; otherwise the probe connects to the same tab
             # as a real request and the CDP replies get mixed up.

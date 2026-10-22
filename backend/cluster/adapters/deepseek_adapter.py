@@ -33,6 +33,11 @@ class DeepSeekAdapter(BaseAIAdapter):
     def __init__(self):
         super().__init__("deepseek")
 
+    def get_direct_client(self, token: Optional[str] = None):
+        """Returns DeepSeekDirectClient instance."""
+        from ..deepseek_direct import DeepSeekDirectClient
+        return DeepSeekDirectClient(token or cfg.DEEPSEEK_USER_TOKEN)
+
     async def send_prompt(self, ws, prompt_text: str) -> bool:
         focus = """(() => {
             const el = document.querySelector('textarea[placeholder*="DeepSeek" i]')

@@ -82,6 +82,20 @@ PROXY_HEALTH_INTERVAL = int(os.getenv("SF_CLUSTER_PROXY_HEALTH_INTERVAL", "300")
 # Rescan when the last scan is older than this
 SCAN_REFRESH_INTERVAL = int(os.getenv("SF_CLUSTER_SCAN_INTERVAL", "30"))
 
+# DeepSeek direct browserless API token (.env: DEEPSEEK_USER_TOKEN)
+DEEPSEEK_USER_TOKEN = os.getenv("DEEPSEEK_USER_TOKEN", "").strip()
+# Automatically clean up temporary chat sessions after request
+DEEPSEEK_AUTO_CLEANUP = os.getenv("SF_DEEPSEEK_AUTO_CLEANUP", "1").strip().lower() in ("1", "true", "yes")
+
+# DeepSeek model aliases
+DEEPSEEK_MODEL_ALIASES = {
+    "deepseek",
+    "deepseek-chat",
+    "deepseek-v3",
+    "deepseek-reasoner",
+    "deepseek-r1",
+}
+
 # Per-model cooldown times (seconds)
 MODEL_COOLDOWNS = {
     "deepseek": 30,

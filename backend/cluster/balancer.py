@@ -107,6 +107,9 @@ class ClusterBalancer:
             # No failover to ANOTHER model (the user knows exactly what they asked for).
             target = self.pool.workers_for_model(model_req)
             others = []
+        elif model_req in cfg.DEEPSEEK_MODEL_ALIASES:
+            target = self.pool.workers_for_model("deepseek")
+            others = []
         else:
             # "auto" or unknown model: all workers allowed (failover inside)
             target = list(self.pool.workers)
@@ -199,8 +202,12 @@ class ClusterBalancer:
     def _matching(self, requested_model: Optional[str], require: Sequence[str]) -> List[WorkerTab]:
         """Workers matching model and capabilities, REGARDLESS of busy/cooldown state."""
         model_req = (requested_model or "auto").lower()
-        ws = (self.pool.workers_for_model(model_req)
-              if model_req in cfg.DEFAULT_PRIORITY_ORDER else list(self.pool.workers))
+        if model_req in cfg.DEEPSEEK_MODEL_ALIASES:
+            ws = self.pool.workers_for_model("deepseek")
+        elif model_req in cfg.DEFAULT_PRIORITY_ORDER:
+            ws = self.pool.workers_for_model(model_req)
+        else:
+            ws = list(self.pool.workers)
         return [w for w in ws if self.circuits.allow(w.model_name)
                 and all(getattr(w.adapter.caps, c, False) for c in require)]
 
@@ -209,8 +216,12 @@ class ClusterBalancer:
         if not require:
             return []
         model_req = (requested_model or "auto").lower()
-        workers = (self.pool.workers_for_model(model_req)
-                   if model_req in cfg.DEFAULT_PRIORITY_ORDER else list(self.pool.workers))
+        if model_req in cfg.DEEPSEEK_MODEL_ALIASES:
+            workers = self.pool.workers_for_model("deepseek")
+        elif model_req in cfg.DEFAULT_PRIORITY_ORDER:
+            workers = self.pool.workers_for_model(model_req)
+        else:
+            workers = list(self.pool.workers)
         if not workers:
             return []   # no instance: that is "unavailable", not "unsupported"
         return [c for c in require
@@ -340,6 +351,9 @@ class ClusterBalancer:
 
             tried += 1
             try:
+                meta = runmeta.get()
+                if requested_model.lower() in cfg.DEEPSEEK_MODEL_ALIASES:
+                    meta["upstream_model"] = requested_model.lower()
                 try:
                     log.info(
                         "dispatch model=%s port=%d tab=%s requested=%s health=%.2f",
@@ -357,7 +371,8 @@ class ClusterBalancer:
                         latency = (time.monotonic() - t0) * 1000
                         self.circuits.record_success(worker.model_name)
                         self.metrics.record_success(worker.model_name, latency)
-                        return (worker.adapter.clean_text(ans or ""), worker.model_name,
+                        resp_model = requested_model if requested_model.lower() in cfg.DEEPSEEK_MODEL_ALIASES else worker.model_name
+                        return (worker.adapter.clean_text(ans or ""), resp_model,
                                 worker, images)
                     last_error = f"{worker.model_name}: empty answer"
                     self.circuits.record_failure(worker.model_name)
