@@ -40,6 +40,8 @@ class _Adapter:
 def _tab(adapter):
     tab = object.__new__(pool_mod.WorkerTab)
     tab.adapter, tab.model_name = adapter, "gemini"
+    # The account (model + browser port) owns the request lock and the pacing clock
+    tab.browser_port, tab.last_finished = 9231, 0.0
     return tab
 
 

@@ -360,11 +360,30 @@ def test_reopen_failure_keeps_blank_tab_and_blocks(guard):
     assert mg.EVENTS[-1]["kind"] == "reopen_failed" and not w.lock.locked()
 
 
-def test_multi_tab_instance_is_refused(guard):
-    pool = make_pool(make_worker(), WorkerTab(9222, "tab2", "chatgpt", "ws://y", ChatGPTAdapter()))
-    guard.mem = {0: 1000}
-    assert run(mg.run_once(pool, set())) == [] and guard.ops == []
-    assert "bir nechta" in mg.EVENTS[-1]["summary"]
+def test_multi_tab_instance_recycles_one_idle_tab(guard):
+    """Double buffering: one port may hold several tabs of the same provider.
+
+    They are recycled ONE AT A TIME — the idle, least recently used tab — so the
+    tab that is answering right now keeps its chat.
+    """
+    busy, idle = make_worker(), make_worker()
+    busy.tab_id, idle.tab_id = "tabBusy", "tabIdle"
+    busy.last_used, idle.last_used = 10.0, 5.0
+    pool = make_pool(busy, idle)
+    guard.mem = {0: 1100, 1: 300}
+
+    async def scenario():
+        await busy.lock.acquire()          # this tab is serving a request
+        try:
+            return await mg.run_once(pool, set())
+        finally:
+            busy.lock.release()
+
+    events = run(scenario())
+    assert guard.ops == [("create", "about:blank"), ("close", "tabIdle"),
+                         ("create", "https://chatgpt.com/?temporary-chat=true"), ("close", "blank")]
+    assert events[0]["ok"] is True and idle.tab_id == "new2"
+    assert busy.tab_id == "tabBusy" and busy.checks == []     # the serving tab is untouched
 
 
 def test_state_survives_restart(guard):

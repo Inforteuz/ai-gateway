@@ -125,8 +125,10 @@ class ClusterBalancer:
 
         # Sort by health score + request count
         def _key(w: WorkerTab) -> tuple:
-            # Healthiest first, then least used, then last-used time
-            return (-w.health_score, w.total_requests, w.last_used)
+            # A tab holding a ready clean chat first: it saves the whole new-chat
+            # wait. Then healthiest, least used, oldest.
+            warm = 0 if getattr(w, 'warm_since', 0.0) else 1
+            return (warm, -w.health_score, w.total_requests, w.last_used)
 
         available = [w for w in target if w.is_available()]
         available.sort(key=_key)

@@ -22,6 +22,22 @@ HIGH_DEMAND = ("Oops! There was an issue connecting to Qwen3.7-Plus.\n"
                "The service is currently experiencing high demand. Please try again later.")
 
 
+@pytest.fixture(autouse=True)
+def no_pacing(monkeypatch):
+    """These tests are about variant choice, not about the gap between requests.
+
+    The account-wide state is module level, so it is cleared as well: every `_run`
+    starts its own event loop and an `asyncio.Lock` must not travel between loops.
+    """
+    monkeypatch.setattr(ccfg, "MIN_REQUEST_GAP", 0.0)
+    monkeypatch.setattr(ccfg, "REQUEST_JITTER", 0.0)
+    P._ACCOUNT_LOCKS.clear()
+    P._ACCOUNT_FINISHED.clear()
+    yield
+    P._ACCOUNT_LOCKS.clear()
+    P._ACCOUNT_FINISHED.clear()
+
+
 class _Adapter:
     name = "qwen"
 
@@ -40,7 +56,7 @@ def _worker(answers, fallback=True):
     w.model_name, w.browser_port, w.adapter = "qwen", 9223, _Adapter(fallback)
     w.total_requests, w.last_used, w.cooldown_until, w.prefer_fallback_until = 0, 0, 0.0, 0.0
     w._last_variant, w.last_error, w.needs_attention, w.default_cooldown = None, None, None, 30
-    w.warm_since = 0.0
+    w.warm_since, w.last_finished = 0.0, 0.0
     w.last_probe = {"ok": True}   # session already checked (the pre-check is skipped)
     w.seen = []
 

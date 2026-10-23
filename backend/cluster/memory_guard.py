@@ -426,8 +426,12 @@ async def recover(pool: ClusterPool, port: int, *, auto: bool, lock_wait: float 
     workers = [w for w in pool.workers if w.browser_port == port]
     if not workers:
         raise Skip("no_tab", "Provayder tabi topilmadi.")
-    if len(workers) > 1:
-        raise Skip("multi_tab", "Instansiyada bir nechta provayder tabi bor — VNC orqali ortiqchasini yoping.")
+    # Several tabs of one provider is the double-buffered setup (one answers while
+    # the other prepares a clean chat), so recycle them ONE AT A TIME: take an idle
+    # tab, least recently used first. A Chrome restart would take the other tab
+    # down with it, so that route stays closed while more than one tab is open.
+    multi_tab = len(workers) > 1
+    workers.sort(key=lambda x: (x.lock.locked(), x.last_used))
     w = workers[0]
     url = _HOME_URLS.get(w.model_name)
     if not url:
@@ -460,7 +464,7 @@ async def recover(pool: ClusterPool, port: int, *, auto: bool, lock_wait: float 
         old_id = w.tab_id
         old_pid = before.pid if before else None
         notes: List[str] = []
-        if restart_allowed(instance, model):
+        if restart_allowed(instance, model) and not multi_tab:
             err = await _restart_chrome(pool, w, port, url, old_pid, notes)
             if err:
                 st.last_result = {"ts": int(time.time()), "ok": False, "summary": err}

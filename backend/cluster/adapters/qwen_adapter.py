@@ -29,6 +29,12 @@ class QwenAdapter(BaseAIAdapter):
     FILE_INPUT = '#filesUpload, input[type="file"]'
     UPLOAD_METHODS = ("paste", "drop")
 
+    # Qwen's composer silently refuses a very large paste and the request then
+    # fails with "could not type into the input field". Measured: ~112k characters
+    # still go through, ~150k do not. Above this the oldest history is trimmed
+    # (the account takes no files, so there is no context.txt fallback here).
+    MAX_INPUT_CHARS = 100000
+
     # Measured (live test):
     #   vision=True     — recognised the image correctly (13 s): "a blue circle on a red background";
     #   files=False     — a document (txt) could not be attached: `setFileInputFiles`,

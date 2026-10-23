@@ -38,6 +38,11 @@ CDP_MAX_MESSAGE = int(os.getenv("SF_CLUSTER_CDP_MAX_MESSAGE", str(48 * 1024 * 10
 # own limit and weaken account protection by the number of tabs, which is
 # exactly what we want to prevent.
 _ACCOUNT_HOURLY: Dict[tuple, List[float]] = {}
+# One request at a time per account, and one shared pacing clock for it.
+# Several tabs of one account exist for double buffering (one answers while
+# the other prepares a clean chat), never to send in parallel.
+_ACCOUNT_LOCKS: Dict[tuple, asyncio.Lock] = {}
+_ACCOUNT_FINISHED: Dict[tuple, float] = {}
 
 
 # Response classes, to tell rate-limit/quota/login states apart
@@ -325,6 +330,11 @@ class WorkerTab:
         """Key identifying the account: one provider in one browser = one account."""
         return (self.model_name, self.browser_port)
 
+    @property
+    def account_lock(self) -> asyncio.Lock:
+        """Shared by every tab of this account: they never send at the same time."""
+        return _ACCOUNT_LOCKS.setdefault(self.account_key, asyncio.Lock())
+
     def hourly_count(self) -> int:
         """Number of requests sent from this ACCOUNT in the last hour."""
         cutoff = time.time() - 3600
@@ -358,8 +368,11 @@ class WorkerTab:
                 f"use another worker")
 
         gap = cfg.MIN_REQUEST_GAP + random.random() * cfg.REQUEST_JITTER
-        waited = time.time() - self.last_finished
-        if self.last_finished and waited < gap:
+        # The gap belongs to the ACCOUNT: with several tabs open the provider
+        # would otherwise see one message per tab back to back.
+        last = max(self.last_finished, _ACCOUNT_FINISHED.get(self.account_key, 0.0))
+        waited = time.time() - last
+        if last and waited < gap:
             await asyncio.sleep(gap - waited)
 
     async def prewarm(self) -> None:
@@ -594,6 +607,7 @@ class WorkerTab:
                 mark("answer")
 
             self.last_finished = time.time()
+            _ACCOUNT_FINISHED[self.account_key] = self.last_finished
             return text, images
 
     async def _wait_for_images(self, ws, timeout: int) -> List[str]:
@@ -674,7 +688,9 @@ class WorkerTab:
         if tmpdir:
             paths = [*(attachment_paths or []), os.path.join(tmpdir, OVERFLOW_FILE_NAME)]
         try:
-            return await self._execute_prompt(prompt_text, send_text, timeout, paths, images_only, want_images)
+            async with self.account_lock:
+                return await self._execute_prompt(prompt_text, send_text, timeout, paths,
+                                                  images_only, want_images)
         finally:
             if tmpdir:
                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -683,6 +699,10 @@ class WorkerTab:
                               attachment_paths: Optional[List[str]], images_only: bool,
                               want_images: bool) -> tuple[Optional[str], List[tuple[str, str]]]:
         """`prompt_text` is the full request (used to classify the answer), `send_text` what is typed."""
+        # Keep a human-like gap between two requests on the same account and
+        # honour the hourly cap. Raises when the cap is reached, and the balancer
+        # then moves the request to another worker.
+        await self._pace()
         await self._preflight_session()
         self.total_requests += 1
         self.last_used = time.time()
@@ -918,6 +938,8 @@ class DeepSeekDirectWorker(WorkerTab):
 
             mark("answer")
             self._record_outcome(True)
+            # No account clock here: this worker has no browser tab to share an
+            # account with, so there is nothing to pace against.
             self.last_finished = time.time()
             return accumulated_text, []
         except Exception as e:
