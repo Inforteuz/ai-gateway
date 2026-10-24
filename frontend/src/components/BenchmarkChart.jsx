@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useState } from 'react'
 import { useT } from '../i18n/index.jsx'
 
@@ -19,6 +20,7 @@ const RADIUS = 4          // bar tip corner radius
 
 /** Bar: rounded tip, square base (flush with the baseline). */
 function Bar({ x, y, w, h, fill, opacity = 1 }) {
+  useLocaleRefresh()
   if (h <= 0) return null
   const r = Math.min(RADIUS, w / 2, h)
   const d = `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y}`
@@ -32,6 +34,7 @@ function Bar({ x, y, w, h, fill, opacity = 1 }) {
  * Single series, so no legend is needed: the heading says it all.
  */
 export function OverallChart({ items, highlight }) {
+  useLocaleRefresh()
   const [hover, setHover] = useState(null)
   const t = useT()
   if (!items?.length) return null
@@ -56,7 +59,7 @@ export function OverallChart({ items, highlight }) {
               <line x1={pad.left} y1={y} x2={W - pad.right} y2={y}
                     stroke="var(--border)" strokeWidth="1" />
               <text x={pad.left - 8} y={y + 4} textAnchor="end"
-                    fontSize="11" fill="var(--fg-subtle)">{v}</text>
+                    fontSize="11" fill="var(--fg-subtle)">{tr(v)}</text>
             </g>
           )
         })}
@@ -83,10 +86,10 @@ export function OverallChart({ items, highlight }) {
                 {Math.round(m.ratio * 100)}
               </text>
               <text x={x + bar / 2} y={H - pad.bottom + 18} textAnchor="middle"
-                    fontSize="11" fill="var(--fg-muted)">{m.id}</text>
+                    fontSize="11" fill="var(--fg-muted)">{tr(m.id)}</text>
               <text x={x + bar / 2} y={H - pad.bottom + 32} textAnchor="middle"
                     fontSize="10" fill="var(--fg-subtle)">
-                {m.correct}/{m.total}
+                {tr(m.correct)}/{tr(m.total)}
               </text>
             </g>
           )
@@ -104,6 +107,7 @@ export function OverallChart({ items, highlight }) {
  * More than two series, so a legend is required.
  */
 export function CategoryChart({ items, categories, highlight }) {
+  useLocaleRefresh()
   const [hover, setHover] = useState(null)
   const t = useT()
   if (!items?.length || !categories?.length) return null
@@ -126,7 +130,7 @@ export function CategoryChart({ items, categories, highlight }) {
               <line x1={pad.left} y1={y} x2={W - pad.right} y2={y}
                     stroke="var(--border)" strokeWidth="1" />
               <text x={pad.left - 8} y={y + 4} textAnchor="end"
-                    fontSize="11" fill="var(--fg-subtle)">{v}</text>
+                    fontSize="11" fill="var(--fg-subtle)">{tr(v)}</text>
             </g>
           )
         })}
@@ -155,7 +159,7 @@ export function CategoryChart({ items, categories, highlight }) {
                   textAnchor="middle" fontSize="11"
                   fill={m.id === highlight ? 'var(--fg)' : 'var(--fg-muted)'}
                   fontWeight={m.id === highlight ? 600 : 400}>
-              {m.id}
+              {tr(m.id)}
             </text>
           </g>
         ))}
@@ -173,7 +177,7 @@ export function CategoryChart({ items, categories, highlight }) {
               <rect x={x} y={y - 8} width="10" height="10" rx="2"
                     fill={`var(--viz-${ci + 1})`}
                     opacity={hover && hover !== k ? 0.3 : 1} />
-              <text x={x + 16} y={y + 1} fontSize="11" fill="var(--fg-muted)">{k}</text>
+              <text x={x + 16} y={y + 1} fontSize="11" fill="var(--fg-muted)">{tr(k)}</text>
             </g>
           )
         })}

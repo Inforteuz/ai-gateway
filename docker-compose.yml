@@ -71,7 +71,8 @@ services:
       SF_COOKIE_SECURE: ${SF_COOKIE_SECURE:-1}
       SF_UPSTREAM_URL: ${SF_UPSTREAM_URL:-http://ollama:11434}
       SF_MAX_CONCURRENT: ${SF_MAX_CONCURRENT:-2}
-      SF_PER_KEY_CONCURRENT: ${SF_PER_KEY_CONCURRENT:-3}
+      SF_EXT_CONCURRENT: ${SF_EXT_CONCURRENT:-10}
+      SF_PER_KEY_CONCURRENT: ${SF_PER_KEY_CONCURRENT:-10}
       SF_QUEUE_WAIT: ${SF_QUEUE_WAIT:-90}
       SF_VNC_HOST: cluster
       SF_VNC_PORT: "5900"
@@ -146,7 +147,7 @@ services:
     volumes:
       - cluster-data:/data
     ports:
-      # Optional raw VNC for an SSH tunnel; the admin panel has a built-in VNC viewer
+      # Optional raw VNC for an SSH tunnel; the admin panel has a built-in VNC viewer.
       # One screen per instance: instance N is on the Nth port of this range.
       - "127.0.0.1:${VNC_PORTS:-15900-15909}:5900-5909"
 

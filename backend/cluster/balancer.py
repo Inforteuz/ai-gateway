@@ -66,6 +66,15 @@ class UpstreamFailed(DispatchError):
     status, code, retry_after = 502, "upstream_failed", 10
 
 
+def _circuit_key(worker: WorkerTab) -> str:
+    # A broken account must never open the circuit of healthy sibling accounts.
+    return f"{worker.model_name}:{worker.browser_port}"
+
+
+def _dispatch_lock(worker: WorkerTab):
+    return getattr(worker, "dispatch_lock", worker.lock)
+
+
 def _is_busy(worker: WorkerTab) -> bool:
     """The lock is held OR has waiters.
 
@@ -73,8 +82,9 @@ def _is_busy(worker: WorkerTab) -> bool:
     woken up. An `acquire()` at that moment joins the end of the FIFO queue
     and waits indefinitely, so waiters are counted too.
     """
-    lock = worker.lock
-    return lock.locked() or bool(getattr(lock, "_waiters", None))
+    lock = _dispatch_lock(worker)
+    return (lock.locked() or bool(getattr(lock, "_waiters", None))
+            or worker.lock.locked() or bool(getattr(worker.lock, "_waiters", None)))
 
 
 def _stream_committed() -> bool:
@@ -116,7 +126,7 @@ class ClusterBalancer:
             others = []
 
         # Circuit breaker check: skip models whose circuit is open
-        target = [w for w in target if self.circuits.allow(w.model_name)]
+        target = [w for w in target if self.circuits.get(_circuit_key(w)).is_available()]
 
         # Capability filter (vision / files / image_gen)
         if require:
@@ -130,9 +140,9 @@ class ClusterBalancer:
             warm = 0 if getattr(w, 'warm_since', 0.0) else 1
             return (warm, -w.health_score, w.total_requests, w.last_used)
 
-        available = [w for w in target if w.is_available()]
+        available = [w for w in target if w.is_available() and not _is_busy(w)]
         available.sort(key=_key)
-        busy_but_fresh = [w for w in target if not w.is_available() and time.time() >= w.cooldown_until]
+        busy_but_fresh = [w for w in target if w not in available and time.time() >= w.cooldown_until]
         busy_but_fresh.sort(key=_key)
         backup = [w for w in others if w.is_available()]
         backup.sort(key=_key)
@@ -210,7 +220,7 @@ class ClusterBalancer:
             ws = self.pool.workers_for_model(model_req)
         else:
             ws = list(self.pool.workers)
-        return [w for w in ws if self.circuits.allow(w.model_name)
+        return [w for w in ws if self.circuits.get(_circuit_key(w)).is_available()
                 and all(getattr(w.adapter.caps, c, False) for c in require)]
 
     def missing_caps(self, requested_model: Optional[str], require: Sequence[str]) -> list[str]:
@@ -262,7 +272,12 @@ class ClusterBalancer:
 
         # 1) Try to recover the port that failed during the request right away
         for port in sorted(failed_ports or ()):
-            recovered = await loop.run_in_executor(None, self_heal.fast_recover, port)
+            try:
+                recovered = await asyncio.wait_for(loop.run_in_executor(None, self_heal.fast_recover, port),
+                                               timeout=max(0.001, min(cfg.HEAL_WAIT_SECONDS,
+                                                   deadline - time.monotonic() if deadline else cfg.HEAL_WAIT_SECONDS)))
+            except asyncio.TimeoutError:
+                return False
             if recovered:
                 try:
                     await self.pool.scan(force=True)
@@ -322,35 +337,48 @@ class ClusterBalancer:
         failed_ports: set[int] = set()
 
         waited_busy = False
-        for worker in candidates:
+        # One bounded queue slot per request, and reselect across ALL accounts on
+        # every wakeup. Waiting on one tab's FIFO can strand idle sibling accounts.
+        queue_deadline = time.monotonic() + min(cfg.QUEUE_WAIT_SECONDS, max(0, self._remaining(t0) - 1))
+        attempted = set()
+        while self._remaining(t0) > 0:
             if _stream_committed():
-                break     # part of an answer already went to the client: another worker cannot continue it
-            if time.time() < worker.cooldown_until:
+                break
+            candidates = [w for w in self.pick_candidates(requested_model, require)
+                          if id(w) not in attempted and time.time() >= w.cooldown_until]
+            if not candidates:
+                break
+            worker = next((w for w in candidates if not _is_busy(w)), None)
+            if worker is None:
+                waited_busy = True
+                async with self._queue_slot(requested_model):
+                    while time.monotonic() < queue_deadline:
+                        await asyncio.sleep(min(0.05, max(0, queue_deadline - time.monotonic())))
+                        ready = [w for w in self.pick_candidates(requested_model, require)
+                                 if id(w) not in attempted and time.time() >= w.cooldown_until
+                                 and not _is_busy(w)]
+                        if ready:
+                            worker = ready[0]
+                            break
+                if worker is None:
+                    break
+            dispatch_lock = _dispatch_lock(worker)
+            await dispatch_lock.acquire()
+            tab_held = False
+            try:
+                if dispatch_lock is not worker.lock:
+                    await asyncio.wait_for(worker.lock.acquire(), timeout=max(0.001, self._remaining(t0)))
+                    tab_held = True
+            except BaseException:
+                dispatch_lock.release()
+                raise
+            if not self.circuits.allow(_circuit_key(worker)):
+                if tab_held:
+                    worker.lock.release()
+                dispatch_lock.release()
+                attempted.add(id(worker))
                 continue
-
-            # Busy worker. If another FREE candidate exists, wait briefly and move
-            # to it. If this is the only candidate, wait IN THE QUEUE. Giving up
-            # after a fixed 2 seconds would make the second of two parallel
-            # requests to a single-instance model fail with an immediate 503.
-            # `lock.acquire()` is FIFO: first come, first served.
-            if _is_busy(worker):
-                other_free = any(
-                    w is not worker and not _is_busy(w) and time.time() >= w.cooldown_until
-                    for w in candidates)
-                budget = (WAIT_FOR_LOCK_SECONDS if other_free
-                          else min(cfg.QUEUE_WAIT_SECONDS, self._remaining(t0) - 5))
-                if budget <= 0:
-                    waited_busy = True
-                    continue
-                async with self._queue_slot(worker.model_name):
-                    try:
-                        await asyncio.wait_for(worker.lock.acquire(), timeout=budget)
-                    except asyncio.TimeoutError:
-                        waited_busy = True
-                        continue
-            else:
-                await worker.lock.acquire()
-
+            attempted.add(id(worker))
             tried += 1
             try:
                 meta = runmeta.get()
@@ -367,33 +395,38 @@ class ClusterBalancer:
                             prompt_text, timeout=timeout_per_worker,
                             attachment_paths=attachment_paths,
                             images_only=images_only, want_images=want_images),
-                        timeout=float(timeout_per_worker + 15),
+                        timeout=max(0.001, min(float(timeout_per_worker + 15), self._remaining(t0))),
                     )
                     if (ans and ans.strip()) or images:
                         latency = (time.monotonic() - t0) * 1000
-                        self.circuits.record_success(worker.model_name)
+                        self.circuits.record_success(_circuit_key(worker))
                         self.metrics.record_success(worker.model_name, latency)
                         resp_model = requested_model if requested_model.lower() in cfg.DEEPSEEK_MODEL_ALIASES else worker.model_name
                         return (worker.adapter.clean_text(ans or ""), resp_model,
                                 worker, images)
                     last_error = f"{worker.model_name}: empty answer"
-                    self.circuits.record_failure(worker.model_name)
+                    self.circuits.record_failure(_circuit_key(worker))
                     self.metrics.record_failure(worker.model_name)
+                except asyncio.CancelledError:
+                    self.circuits.get(_circuit_key(worker)).release_probe()
+                    raise
                 except asyncio.TimeoutError:
                     failed_ports.add(worker.browser_port)
                     worker.set_cooldown(30, reason="timeout")
                     last_error = f"{worker.model_name} (port {worker.browser_port}): timeout"
                     log.warning(last_error)
-                    self.circuits.record_failure(worker.model_name)
+                    self.circuits.record_failure(_circuit_key(worker))
                     self.metrics.record_failure(worker.model_name)
                 except Exception as e:
                     failed_ports.add(worker.browser_port)
                     last_error = f"{worker.model_name}: {e}"
                     log.warning("worker_failed %s", last_error)
-                    self.circuits.record_failure(worker.model_name)
+                    self.circuits.record_failure(_circuit_key(worker))
                     self.metrics.record_failure(worker.model_name)
             finally:
-                worker.lock.release()
+                if tab_held:
+                    worker.lock.release()
+                dispatch_lock.release()
                 # SPEED: prepare a clean chat in the background for the next request (skipped if queued)
                 if cfg.PREWARM_ENABLED and hasattr(worker, "prewarm"):
                     asyncio.get_event_loop().create_task(worker.prewarm())

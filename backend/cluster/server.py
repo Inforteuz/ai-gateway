@@ -38,6 +38,24 @@ from .proxies import auto_refresh as proxy_auto_refresh, get_pool as get_proxy_p
 log = logs.get("server")
 
 
+async def _prewarm_qwen_workers(pool: ClusterPool) -> None:
+    """Open a clean Qwen temporary chat before the first request after restart.
+
+    Qwen's first navigation to a temporary chat can take around ten seconds. The
+    regular post-request prewarm hides this cost after the first answer, so do one
+    startup prewarm as well to keep it out of the first user's request latency.
+    """
+    for worker in list(pool.workers):
+        if worker.model_name != "qwen" or not worker.is_available():
+            continue
+        try:
+            await asyncio.wait_for(worker.prewarm(), timeout=35)
+        except asyncio.TimeoutError:
+            log.warning("Qwen startup prewarm timed out; continuing startup")
+        except Exception as exc:
+            log.warning("Qwen startup prewarm failed: %s", exc)
+
+
 class ChatMessage(BaseModel):
     role: str
     # OpenAI multimodal: `content` may be a string OR an array of parts
@@ -78,9 +96,10 @@ class ClusterError(Exception):
     """
 
     def __init__(self, status: int, code: str, message: str,
-                 retry_after: Optional[int] = None) -> None:
+                 retry_after: Optional[int] = None, details: Optional[dict] = None) -> None:
         super().__init__(message)
         self.status, self.code, self.message, self.retry_after = status, code, message, retry_after
+        self.details = details or {}
 
 
 def _as_cluster_error(e: BaseException) -> ClusterError:
@@ -97,7 +116,7 @@ def _as_cluster_error(e: BaseException) -> ClusterError:
 
 def _error_body(err: ClusterError) -> dict:
     kind = "invalid_request_error" if err.status < 500 else "server_error"
-    return {"error": {"message": err.message, "type": kind, "code": err.code}}
+    return {"error": {"message": err.message, "type": kind, "code": err.code, "details": err.details}}
 
 
 def _error_response(err: ClusterError) -> JSONResponse:
@@ -275,6 +294,9 @@ async def lifespan(app: FastAPI):
     if cfg.PROXY_LIST_URL and cfg.PROXY_REFRESH_INTERVAL:
         tasks.append(asyncio.create_task(proxy_auto_refresh(cfg.PROXY_LIST_URL, cfg.PROXY_REFRESH_INTERVAL)))
     await app.state.pool.scan(force=True)
+    # Complete the slow first Qwen temporary-chat navigation before serving requests.
+    # The worker method skips itself when disabled, busy, unhealthy, or queued.
+    await _prewarm_qwen_workers(app.state.pool)
     try:
         yield
     finally:
@@ -352,7 +374,7 @@ async def cluster_probe(request: Request):
     """Check sessions right away (without sending a prompt)."""
     pool: ClusterPool = request.app.state.pool
     await pool.scan(force=True)
-    problems = await pool.probe_sessions()
+    problems = await pool.probe_sessions(force=True)
     return {
         "checked": len(pool.workers),
         "problems": problems,
@@ -629,8 +651,11 @@ async def list_models(request: Request):
     await pool.scan(force=False)
     now = int(time.time())
     data = []
-    for model_name in cfg.DEFAULT_PRIORITY_ORDER:
-        workers = pool.workers_for_model(model_name)
+    model_names = list(dict.fromkeys([*cfg.DEFAULT_PRIORITY_ORDER, "deepseek-chat", "deepseek-reasoner",
+                                     "deepseek-v3", "deepseek-r1"]))
+    for model_name in model_names:
+        channel = "deepseek" if model_name in cfg.DEEPSEEK_MODEL_ALIASES else model_name
+        workers = pool.workers_for_model(channel)
         available = sum(1 for w in workers if w.is_available())
         data.append({
             "id": model_name,
@@ -679,7 +704,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             req.messages, store, req.tools, req.tool_choice)
     except attach.AttachmentError as e:
         store.__exit__(None, None, None)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ClusterError(400, e.code, str(e), details=e.details) from e
     except BaseException:
         store.__exit__(None, None, None)
         raise
@@ -718,6 +743,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 live = None
             if live is not None:
                 run_meta["on_progress"] = live.update
+                run_meta["on_reasoning"] = live.update_reasoning
                 live.meta = run_meta
 
             # Structured reasoning: for hard questions, plan first, then answer.
@@ -763,6 +789,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                     log.info("cache hit model=%s hits=%d", hit.model or requested, hit.hits)
                     return _completion_payload(
                         answer=hit.answer, images=hit.images, used_model=hit.model or requested,
+                        reasoning_content=hit.reasoning_content,
                         prompt_text=prompt_text, stream=sse, fingerprint="cache", cached=True, tool_names=tool_names,
                         sse_parts=sse, res_id=res_id, created_ts=created_ts)
 
@@ -831,7 +858,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             # should be answered by the primary model once it frees up.
             fallback = bool(run_meta.get("fallback")) or bool(run_meta.get("force_variant"))
             if cache is not None and cache_key and not fallback and _cacheable(answer, images, calls, spec):
-                cache.put(cache_key, answer, images, model=used_model)
+                cache.put(cache_key, answer, images, model=used_model,
+                          reasoning_content=run_meta.get("reasoning_content", ""))
 
             log.info("answer model=%s upstream=%s effort=%s fallback=%s phases=%s time=%.1fs reasoning=%s format=%s tool_calls=%d",
                      used_model, run_meta.get("upstream_model") or "-", run_meta.get("upstream_effort") or "-",
@@ -842,6 +870,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 live.final_answer = answer
             return _completion_payload(
                 answer=answer, images=images, used_model=used_model, prompt_text=prompt_text,
+                reasoning_content=run_meta.get("reasoning_content", ""),
                 stream=sse,
                 fingerprint=f"{worker.browser_port}-{worker.short_tab}", cached=False,
                 tool_names=tool_names, calls=calls, sse_parts=sse, res_id=res_id,
@@ -900,9 +929,12 @@ KEEPALIVE_INTERVAL = 8.0
 THINKING_AFTER = 24.0
 
 
-def _sse_chunks(base: dict, calls: list, answer: str, usage: dict, extra: Optional[dict] = None) -> list[str]:
+def _sse_chunks(base: dict, calls: list, answer: str, usage: dict, extra: Optional[dict] = None,
+                reasoning_content: str = "") -> list[str]:
     """Turn the answer into SSE `data:` chunks (everything after the role delta)."""
     out: list[str] = []
+    if reasoning_content:
+        out.append(f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': reasoning_content}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
     if calls:
         # Tool calls are not split into chunks: agents expect complete JSON
         out.append(f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'tool_calls': calls}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
@@ -966,6 +998,10 @@ async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: 
                 changed.cancel()
             if live is not None:
                 live.changed.clear()
+                trace = live.next_reasoning()
+                if trace:
+                    last_sent = time.monotonic()
+                    yield f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': trace}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
                 piece = live.next_piece()
                 if piece:
                     last_sent = time.monotonic()
@@ -1017,6 +1053,7 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
                         calls: Optional[List[dict]] = None,
                         sse_parts: bool = False,
                         fallback: bool = False,
+                        reasoning_content: str = "",
                         res_id: Optional[str] = None,
                         created_ts: Optional[int] = None):
     """Build the OpenAI-compatible response (same for the cache and normal path).
@@ -1033,7 +1070,7 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
 
     # Image cost comes from a fixed per-image token count, NOT the base64 length:
     # measured, a 1 MB PNG inside markdown counted as 544,000 "tokens".
-    text_tokens = int(len(answer or "") / cfg.CHARS_PER_TOKEN)
+    text_tokens = int((len(answer or "") + len(reasoning_content)) / cfg.CHARS_PER_TOKEN)
     if images:
         md = "\n\n".join(f"![rasm {i + 1}](data:{mime};base64,{b64})"
                           for i, (mime, b64) in enumerate(images))
@@ -1058,7 +1095,7 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
     if stream:
         base = {"id": res_id, "object": "chat.completion.chunk",
                 "created": created_ts, "model": used_model}
-        chunks = _sse_chunks(base, calls, answer, usage, sf_meta)
+        chunks = _sse_chunks(base, calls, answer, usage, sf_meta, reasoning_content)
         # The keep-alive path streams the chunks itself (the role delta has
         # already been sent), so only the list is returned.
         if sse_parts:
@@ -1083,9 +1120,9 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
         "images": [{"b64_json": b64, "mime_type": mime} for mime, b64 in images] or None,
         "choices": [{
             "index": 0,
-            "message": ({"role": "assistant", "content": answer or None,
-                         "tool_calls": calls} if calls
-                        else {"role": "assistant", "content": answer}),
+            "message": {"role": "assistant", "content": answer or (None if calls else ""),
+                        **({"tool_calls": calls} if calls else {}),
+                        **({"reasoning_content": reasoning_content} if reasoning_content else {})},
             "finish_reason": "tool_calls" if calls else "stop",
         }],
         "usage": usage,
@@ -1201,7 +1238,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
             files = [await asyncio.to_thread(attach._ingest, store, src, f"image-{i + 1}")
                      for i, src in enumerate(sources)]
         except attach.AttachmentError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise ClusterError(400, e.code, str(e), details=e.details) from e
         if not all(a.is_image for a in files):
             raise HTTPException(status_code=400, detail="`image` faqat rasm bo'lishi kerak")
         t_start = time.monotonic()

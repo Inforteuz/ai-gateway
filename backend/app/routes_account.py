@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel, Field
 
-from . import security
+from . import attribution, security
 from .billing import MICRO, free_quota, month_start_ts, TASHKENT
 from . import catalog, monitor, topup_telegram
 from .common import ApiError, csrf_guard, get_db, require_user
@@ -326,21 +326,25 @@ def usage_out(r) -> dict:
         "status_code": r["status_code"], "stream": bool(r["stream"]), "estimated": bool(r["estimated"]),
         "latency_ms": r["latency_ms"], "ttfb_ms": r["ttfb_ms"], "error": r["error"], "category": r["category"],
         "reasoning": r["reasoning"],
+        "attribution": attribution.unpack(r["attribution"]) if "attribution" in r.keys() else {},
         "reason": error_label(r["error"], r["status_code"]) if r["category"] else None,
     }
 
 
 @router.get("/usage")
 def usage(user=Depends(require_user), db: Database = Depends(get_db), limit: int = 50, offset: int = 0,
-          key_id: int | None = None, failed: bool = False):
+          key_id: int | None = None, failed: bool = False, q: str = ""):
     limit, offset = page_args(limit, offset)
     where, args = ["u.user_id=?"], [user["id"]]
     if key_id is not None:
         where.append("u.key_id=?"); args.append(key_id)
     if failed:
         where.append("(u.status_code>=400 OR u.error IS NOT NULL)")
+    if q.strip():
+        where.append("(u.request_id ILIKE ? OR u.model ILIKE ? OR u.attribution ILIKE ? OR k.name ILIKE ?)")
+        args.extend(["%" + q.strip()[:100] + "%"] * 4)
     w = " AND ".join(where)
-    total = db.scalar(f"SELECT COUNT(*) FROM usage_logs u WHERE {w}", args)
+    total = db.scalar(f"SELECT COUNT(*) FROM usage_logs u LEFT JOIN api_keys k ON k.id=u.key_id WHERE {w}", args)
     rows = db.all(
         f"""SELECT u.*, k.name AS key_name FROM usage_logs u LEFT JOIN api_keys k ON k.id=u.key_id
             WHERE {w} ORDER BY u.id DESC LIMIT ? OFFSET ?""", args + [limit, offset])

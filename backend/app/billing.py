@@ -8,6 +8,8 @@ Rules:
 """
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -267,6 +269,7 @@ def settle(
     reasoning: str = "",
     refined: str | None = None,
     refine_ms: int | None = None,
+    attribution: dict | None = None,
 ) -> Settled:
     """Finalises a request: logs it, charges the wallet, releases its reservation. `reserved` is kept for
     callers' bookkeeping; the amount released is the one stored in the reservation row (so a request whose
@@ -286,6 +289,9 @@ def settle(
              cost, status_code, int(stream), int(estimated), latency_ms, ttfb_ms, error, classify(status_code, error), ip, reasoning or None, refined, refine_ms, ts),
         )
         usage_id = cur.lastrowid
+        if attribution:
+            c.execute("UPDATE usage_logs SET attribution=? WHERE id=?",
+                      (json.dumps(attribution, ensure_ascii=False), usage_id))
         ensure_wallet(c, user_id)
         _drop_reservation(c, request_id, user_id, ts)
         w = c.execute("SELECT balance FROM wallets WHERE user_id=?", (user_id,)).fetchone()

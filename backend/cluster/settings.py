@@ -117,7 +117,7 @@ ASSISTANT_NAME = (os.getenv("SF_ASSISTANT_NAME", "").strip()
 DEFAULT_PRIORITY_ORDER = [
     "deepseek", "chatgpt", "qwen",
     # Free, login-less providers: tried last for `auto`
-    "deepai", "chatbotchatapp", "chatbotapp",
+    "deepai", "venice", "chatbotchatapp", "chatbotapp",
     "genspark", "zai", "grok",
     # Gemini: still being evaluated, hidden in the catalog
     "gemini",

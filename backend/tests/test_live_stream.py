@@ -108,6 +108,38 @@ def test_generator_without_progress_behaves_as_before():
     assert contents(events) == "qisqa javob"
 
 
+def test_reasoning_streams_before_content_without_replaying_the_trace():
+    live = make_live()
+    live.meta = {}
+    trace = "Avval hisoblayman. Natija tayyor."
+
+    async def job():
+        live.update_reasoning(trace[:18])
+        await asyncio.sleep(0.05)
+        live.update_reasoning(trace)
+        await asyncio.sleep(0.05)
+        live.update(ANSWER)
+        await asyncio.sleep(0.05)
+        live.final_answer = ANSWER
+        return S._sse_chunks({}, [], ANSWER, {}, reasoning_content=trace)
+
+    events = collect(S._stream_with_keepalive(job(), "x", 1, "deepseek-reasoner", live))
+    deltas = [json.loads(e[6:])["choices"][0]["delta"] for _, e in events
+              if e.startswith("data: {") and json.loads(e[6:]).get("choices")]
+    assert "".join(d.get("reasoning_content", "") for d in deltas) == trace
+    assert contents(events) == ANSWER
+    assert next(i for i, d in enumerate(deltas) if d.get("reasoning_content")) < next(i for i, d in enumerate(deltas) if d.get("content"))
+    assert live.meta["stream_committed"] is True
+
+
+def test_reasoning_does_not_bypass_answer_classification():
+    live = make_live()
+    live.update_reasoning("Thinking")
+    assert live.next_reasoning() == "Thinking"
+    live.update("You've reached your limit for today. Please try again later. " * 2)
+    assert live.next_piece() == ""
+
+
 class _Adapter:
     class caps:
         tool_calling = vision = files = image_gen = temporary_chat = False

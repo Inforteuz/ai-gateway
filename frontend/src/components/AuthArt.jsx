@@ -1,13 +1,15 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 // Illustration in the sign-in page's left panel: dark cards and a green wave
 // at the bottom. Purely decorative — no information, so hidden from screen readers.
 export default function AuthArt() {
+  useLocaleRefresh()
   const bars = [38, 62, 46, 78, 58, 92]
   return (
     <div className="auth-art" aria-hidden="true">
       <div className="auth-art__cards">
         <div className="auth-card auth-card--api">
           <span className="auth-card__dot" />
-          <b>API</b>
+          <b>{tr("API")}</b>
           <span className="auth-card__line" />
           <span className="auth-card__line auth-card__line--short" />
         </div>

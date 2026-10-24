@@ -8,7 +8,7 @@
 # tell which window belongs to which account while signing in.
 set -euo pipefail
 
-KNOWN="chatgpt deepseek qwen gemini zai grok deepai genspark chatbotapp chatbotchatapp"
+KNOWN="chatgpt deepseek qwen gemini zai grok deepai genspark chatbotapp chatbotchatapp venice"
 CHANNELS="${SF_CHROME_CHANNELS:-}"
 CHANNELS="${CHANNELS//,/ }"
 

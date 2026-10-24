@@ -20,6 +20,7 @@ via Telegram.
 from __future__ import annotations
 
 import os
+import threading
 import shutil
 import time
 import urllib.error
@@ -140,7 +141,7 @@ def _within_hourly_limit(h: PortState) -> bool:
     return len(h.recoveries) < MAX_PER_HOUR
 
 
-def run_cycle(ports: list[int]) -> list[dict]:
+def _run_cycle_unlocked(ports: list[int]) -> list[dict]:
     """Probes every port and recovers it if needed. Returns the list of events."""
     events: list[dict] = []
 
@@ -170,7 +171,11 @@ def run_cycle(ports: list[int]) -> list[dict]:
             continue
 
         if h.needs_manual:
-            continue  # already flagged, do not retry
+            # A failed helper or exhausted restart budget is not a permanent
+            # disable. Retry after five minutes, still respecting the hourly cap.
+            if time.time() - h.last_recovery < 300 or not _within_hourly_limit(h):
+                continue
+            h.needs_manual = False
 
         if not _within_hourly_limit(h):
             h.needs_manual = True
@@ -232,7 +237,7 @@ def is_recovering(port: int) -> bool:
     return bool(h and h.failures >= THRESHOLD and not h.needs_manual)
 
 
-def fast_recover(port: int) -> bool:
+def _fast_recover_unlocked(port: int) -> bool:
     """Probes the port IMMEDIATELY and recovers it right here if it does not respond.
 
     The watchdog runs once every 45 seconds and waits 3 cycles — far too slow
@@ -277,3 +282,37 @@ def fast_recover(port: int) -> bool:
     h.needs_manual = True
     log.error("instance %d: still no response after fast recovery", inst)
     return False
+
+
+# Watchdog and request-time recovery run on executor threads. Only one may
+# restart a given browser; the per-port gate prevents duplicate restarts.
+_recovery_gates: dict[int, threading.Lock] = {}
+_gates_lock = threading.Lock()
+
+
+def _recovery_gate(port: int):
+    with _gates_lock:
+        return _recovery_gates.setdefault(port, threading.Lock())
+
+
+def run_cycle(ports: list[int]) -> list[dict]:
+    events = []
+    for port in ports:
+        gate = _recovery_gate(port)
+        if not gate.acquire(blocking=False):
+            continue
+        try:
+            events.extend(_run_cycle_unlocked([port]))
+        finally:
+            gate.release()
+    return events
+
+
+def fast_recover(port: int) -> bool:
+    gate = _recovery_gate(port)
+    if not gate.acquire(blocking=False):
+        return False
+    try:
+        return _fast_recover_unlocked(port)
+    finally:
+        gate.release()

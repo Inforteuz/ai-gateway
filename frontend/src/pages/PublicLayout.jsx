@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useEffect } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth, useSite } from '../auth.js'
@@ -6,6 +7,7 @@ import { Logo } from '../components/ui.jsx'
 import TopBar from '../components/TopBar.jsx'
 
 export default function PublicLayout() {
+  useLocaleRefresh()
   const { user, freeMode } = useAuth()
   const site = useSite()
   const t = useT()
@@ -24,7 +26,7 @@ export default function PublicLayout() {
         <div className="wrap">
           <div className="foot-grid">
             <div>
-              <Link to="/" className="brand" style={{ marginBottom: 14 }}><Logo /> {site.brand_name} <small>AI API</small></Link>
+              <Link to="/" className="brand" style={{ marginBottom: 14 }}><Logo /> {tr(site.brand_name)} <small>AI API</small></Link>
               <p className="muted" style={{ maxWidth: '26rem', marginTop: 12 }}>
                 {t('footer.tagline')}
               </p>
@@ -33,7 +35,7 @@ export default function PublicLayout() {
               <h4>{t('footer.product')}</h4>
               <ul>
                 <li><Link to="/#imkoniyatlar">{t('nav.features')}</Link></li>
-                <li><Link to="/#narxlar">{freeMode ? t('nav.models') : t('nav.pricing')}</Link></li>
+                <li><Link to="/#narxlar">{tr(freeMode ? t('nav.models') : t('nav.pricing'))}</Link></li>
                 <li><NavLink to="/samples">{t('nav.samples')}</NavLink></li>
                 <li><NavLink to="/compare">{t('nav.compare')}</NavLink></li>
                 <li><NavLink to="/status">{t('nav.status')}</NavLink></li>
@@ -45,7 +47,7 @@ export default function PublicLayout() {
                 <li><NavLink to="/docs">{t('nav.docs')}</NavLink></li>
                 <li><Link to="/docs#curl">{t('footer.curl')}</Link></li>
                 <li><Link to="/docs#python">Python SDK</Link></li>
-                <li><Link to="/docs#stream">Streaming</Link></li>
+                <li><Link to="/docs#stream">{tr("Streaming")}</Link></li>
               </ul>
             </div>
             <div className="foot-col">
@@ -62,7 +64,7 @@ export default function PublicLayout() {
             </div>
           </div>
           <div className="foot-bottom">
-            <span>© {new Date().getFullYear()} {site.brand_name}</span>
+            <span>© {new Date().getFullYear()} {tr(site.brand_name)}</span>
             <span className="foot-legal">
               <NavLink to="/privacy">{t('footer.privacy')}</NavLink>
               <NavLink to="/terms">{t('footer.terms')}</NavLink>

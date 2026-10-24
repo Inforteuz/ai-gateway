@@ -1,9 +1,11 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { fmtDateTime, fmtInt, fmtSom } from '../format.js'
 import { LEVEL_SHORT } from '../reasoning.jsx'
 
 /** Request "receipt tape": each row is one request and its cost. */
 export default function Tape({ items, showUser = false, empty }) {
-  if (!items.length) return <div className="tape"><div className="tape-empty">{empty || 'Hozircha so\'rov yo\'q.'}</div></div>
+  useLocaleRefresh()
+  if (!items.length) return <div className="tape"><div className="tape-empty">{tr(empty || tr("Hozircha so'rov yo'q."))}</div></div>
   const total = items.reduce((s, r) => s + r.cost, 0)
   return (
     <div className="tape">
@@ -13,20 +15,20 @@ export default function Tape({ items, showUser = false, empty }) {
           <div key={r.id} className={`tape-row ${failed ? 'tape-row--fail' : ''}`}>
             <span className="tape-time">{fmtDateTime(r.created_at)}</span>
             <span className="tape-main">
-              <b>{failed ? `Xato ${r.status_code}` : r.model}</b>
+              <b>{tr(failed ? tr("Xato {v0}", { v0: (r.status_code) }) : r.model)}</b>
               <span className="tape-meta">
-                {failed
-                  ? (r.reason || r.error || 'so\'rov bajarilmadi') + ', pul yechilmadi'
-                  : `${fmtInt(r.prompt_tokens)} kirish + ${fmtInt(r.completion_tokens)} chiqish${r.estimated ? ' (taxminiy)' : ''}${r.reasoning ? `, fikrlash: ${LEVEL_SHORT[r.reasoning] || r.reasoning}` : ''}`}
-                {r.key_name ? `, ${r.key_name}` : ''}{showUser && r.email ? `, ${r.email}` : ''}
-                {!failed && r.latency_ms ? `, ${(r.latency_ms / 1000).toFixed(1)} s` : ''}
+                {tr(failed
+                  ? (r.reason || r.error || tr("so'rov bajarilmadi")) + ', pul yechilmadi'
+                  : `${fmtInt(r.prompt_tokens)} kirish + ${fmtInt(r.completion_tokens)} chiqish${r.estimated ? tr("(taxminiy)") : ''}${r.reasoning ? `, fikrlash: ${LEVEL_SHORT[r.reasoning] || r.reasoning}` : ''}`)}
+                {tr(r.key_name ? `, ${r.key_name}` : '')}{tr(showUser && r.email ? `, ${r.email}` : '')}
+                {tr(!failed && r.latency_ms ? `, ${(r.latency_ms / 1000).toFixed(1)} s` : '')}
               </span>
             </span>
-            <span className={`tape-cost ${r.cost === 0 ? 'tape-cost--zero' : ''}`}>{r.cost === 0 ? (failed ? '0' : 'bepul') : fmtSom(-r.cost, { sign: true })}</span>
+            <span className={`tape-cost ${r.cost === 0 ? 'tape-cost--zero' : ''}`}>{tr(r.cost === 0 ? (failed ? '0' : tr("bepul")) : fmtSom(-r.cost, { sign: true }))}</span>
           </div>
         )
       })}
-      <div className="tape-total"><span>Shu sahifada jami</span><span>{fmtSom(total)}</span></div>
+      <div className="tape-total"><span>{tr("Shu sahifada jami")}</span><span>{fmtSom(total)}</span></div>
     </div>
   )
 }

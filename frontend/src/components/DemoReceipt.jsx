@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useEffect, useMemo, useState } from 'react'
 import { useSite } from '../auth.js'
 import { MICRO, fmtInt, fmtNumber, fmtSom } from '../format.js'
@@ -15,6 +16,7 @@ const cost = (tokens, per1m) => Math.ceil((tokens * per1m) / MICRO)
 
 /** Live receipt on the landing page: the prompt is typed, tokens are counted, the price appears. Cycles quietly. */
 export default function DemoReceipt({ priceIn, priceOut, model = MODEL_PLACEHOLDER, free = false }) {
+  useLocaleRefresh()
   const site = useSite()
   const t = useT()
   const reduce = useMemo(() => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches, [])
@@ -47,8 +49,8 @@ export default function DemoReceipt({ priceIn, priceOut, model = MODEL_PLACEHOLD
   const cin = free ? 0 : cost(s.tin, priceIn), cout = free ? 0 : cost(s.tout, priceOut), total = cin + cout
   return (
     <div className="receipt" role="img" aria-label={t('receipt.aria', { in: s.tin, out: s.tout, total: free ? t('receipt.free') : t('receipt.totalAmount', { amount: fmtSom(total) }) })}>
-      <div className="receipt-head"><b>{site.brand_name}</b><span>{t('receipt.title')}</span></div>
-      <div className="rline"><span>{t('receipt.model')}</span><span>{model}</span></div>
+      <div className="receipt-head"><b>{tr(site.brand_name)}</b><span>{t('receipt.title')}</span></div>
+      <div className="rline"><span>{t('receipt.model')}</span><span>{tr(model)}</span></div>
       <div className="rline"><span>{t('receipt.prompt')}</span><span /></div>
       <div className="receipt-prompt">
         {prompt.slice(0, typed)}{step === 0 && <span className="caret" />}
@@ -62,12 +64,12 @@ export default function DemoReceipt({ priceIn, priceOut, model = MODEL_PLACEHOLD
       {step >= 2 && (
         <div className="rline rline--item print-in">
           <div className="rline"><span>{t('receipt.outTokens')}</span><span>{fmtInt(count)}</span></div>
-          {!free && <div className="rline rcalc"><span>{fmtInt(s.tout)} x {fmtNumber(priceOut / MICRO)} {t('common.som')} / 1M</span><span>{step >= 3 ? fmtSom(cout) : '...'}</span></div>}
+          {!free && <div className="rline rcalc"><span>{fmtInt(s.tout)} x {fmtNumber(priceOut / MICRO)} {t('common.som')} / 1M</span><span>{tr(step >= 3 ? fmtSom(cout) : '...')}</span></div>}
         </div>
       )}
-      {step >= 3 && (<><hr className="rsep" /><div className="rtotal print-in"><span>{free ? t('receipt.payment') : t('receipt.total')}</span><b>{free ? t('receipt.free') : fmtSom(total)}</b></div></>)}
+      {step >= 3 && (<><hr className="rsep" /><div className="rtotal print-in"><span>{tr(free ? t('receipt.payment') : t('receipt.total'))}</span><b>{tr(free ? t('receipt.free') : fmtSom(total))}</b></div></>)}
       {step >= 4 && !free && <div className="rline print-in" style={{ marginTop: 6 }}><span>{t('receipt.left')}</span><span>{fmtSom(START_BALANCE - total)}</span></div>}
-      {step >= 5 && <div className="rfoot print-in">{t('receipt.foot')} req_{s.id}</div>}
+      {step >= 5 && <div className="rfoot print-in">{t('receipt.foot')} req_{tr(s.id)}</div>}
     </div>
   )
 }

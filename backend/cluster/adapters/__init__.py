@@ -10,6 +10,7 @@ from .grok_adapter import GrokAdapter
 from .chatbotapp_adapter import ChatbotAppAdapter
 from .chatbotchatapp_adapter import ChatbotChatAppAdapter
 from .gemini_adapter import GeminiAdapter
+from .venice_adapter import VeniceAdapter
 
 ADAPTERS = {
     "chatgpt": ChatGPTAdapter(),
@@ -23,8 +24,11 @@ ADAPTERS = {
     "chatbotapp": ChatbotAppAdapter(),
     "chatbotchatapp": ChatbotChatAppAdapter(),
     "gemini": GeminiAdapter(),
+    "venice": VeniceAdapter(),
 }
 
 def get_adapter(model_name: str) -> BaseAIAdapter:
     name = model_name.lower()
+    if name in ("deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1"):
+        name = "deepseek"
     return ADAPTERS.get(name)

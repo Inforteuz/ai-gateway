@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 
 from cluster import pool as P
 from cluster import runmeta
+from cluster import server as cluster_server
 from cluster import settings as ccfg
 
 from .conftest import CHAT, SOM, add_key, add_model, add_user, bearer
@@ -328,6 +329,43 @@ def test_prewarm_marks_fresh_page(monkeypatch):
     w.adapter.wait_for_input = wait_input
     asyncio.run(w.prewarm())
     assert w.resets == 1 and w.warm_since > 0
+
+
+def test_startup_prewarm_targets_available_qwen_workers():
+    class Worker:
+        def __init__(self, model, available=True):
+            self.model_name, self.available, self.calls = model, available, 0
+
+        def is_available(self):
+            return self.available
+
+        async def prewarm(self):
+            self.calls += 1
+
+    qwen, other, sleeping_qwen = Worker("qwen"), Worker("deepseek"), Worker("qwen", False)
+
+    class Pool:
+        workers = [qwen, other, sleeping_qwen]
+
+    asyncio.run(cluster_server._prewarm_qwen_workers(Pool()))
+    assert (qwen.calls, other.calls, sleeping_qwen.calls) == (1, 0, 0)
+
+
+def test_startup_prewarm_failure_does_not_prevent_service_start():
+    class Worker:
+        model_name = "qwen"
+
+        def is_available(self):
+            return True
+
+        async def prewarm(self):
+            raise RuntimeError("browser unavailable")
+
+    class Pool:
+        workers = [Worker()]
+
+    asyncio.run(cluster_server._prewarm_qwen_workers(Pool()))
+
 
 
 # --- stand-in model (models.fallback_to) ---------------------------------------------------------

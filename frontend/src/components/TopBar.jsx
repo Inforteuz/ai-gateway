@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useAuth, useSite } from '../auth.js'
 import { useT } from '../i18n/index.jsx'
@@ -6,6 +7,7 @@ import { IconArrowRight } from './icons.jsx'
 
 /** Floating top bar from the mockup. Same on public pages and in the panel. */
 export default function TopBar() {
+  useLocaleRefresh()
   const { user, freeMode } = useAuth()
   const site = useSite()
   const t = useT()
@@ -14,10 +16,10 @@ export default function TopBar() {
   return (
     <header className="site-top">
       <div className="site-top-inner">
-        <Link to="/" className="brand"><Logo /> {site.brand_name} <small>AI API</small></Link>
+        <Link to="/" className="brand"><Logo /> {tr(site.brand_name)} <small>AI API</small></Link>
         <nav className="site-nav" aria-label={t('nav.main')}>
           <Link to="/#imkoniyatlar">{t('nav.features')}</Link>
-          <Link to="/#narxlar">{freeMode ? t('nav.models') : t('nav.pricing')}</Link>
+          <Link to="/#narxlar">{tr(freeMode ? t('nav.models') : t('nav.pricing'))}</Link>
           <NavLink to="/samples">{t('nav.samples')}</NavLink>
           <NavLink to="/compare">{t('nav.compare')}</NavLink>
           <NavLink to="/docs">{t('nav.docs')}</NavLink>

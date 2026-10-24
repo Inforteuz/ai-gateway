@@ -47,6 +47,7 @@ class Entry:
     model: str = ""
     created: float = field(default_factory=time.time)
     hits: int = 0
+    reasoning_content: str = ""
 
 
 # Manually bumped part: when answer post-processing changes (adapter DOM
@@ -144,16 +145,17 @@ class ResponseCache:
             return e
 
     def put(self, key: str, answer: str, images: Optional[List[Tuple[str, str]]] = None,
-            model: str = "") -> None:
+            model: str = "", reasoning_content: str = "") -> None:
         # Do not cache empty answers, so an error state does not get stuck
         if not (answer or "").strip() and not images:
             return
         # A very large answer (with images) could flood the cache
-        size = len(answer or "") + sum(len(b) for _, b in (images or []))
+        size = len(answer or "") + len(reasoning_content) + sum(len(b) for _, b in (images or []))
         if size > cfg.CACHE_MAX_ENTRY_BYTES:
             return
         with self._lock:
-            self._data[key] = Entry(answer=answer, images=list(images or []), model=model)
+            self._data[key] = Entry(answer=answer, images=list(images or []), model=model,
+                                    reasoning_content=reasoning_content)
             self._data.move_to_end(key)
             self.stores += 1
             while len(self._data) > self.max_entries:

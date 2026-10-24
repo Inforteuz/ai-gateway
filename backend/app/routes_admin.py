@@ -101,7 +101,7 @@ def archive_user(user_id: int, admin=Depends(require_admin), db: Database = Depe
     The account is never removed: its ledger and usage rows are what the balance
     invariants rest on, and the app role has no DELETE on those tables by design. So
     the account is marked archived (gone from the list), every key it owns is revoked
-    and its sessions are dropped - it cannot sign in or spend.
+    and its sessions are dropped — it cannot sign in or spend.
     """
     row = db.one("SELECT * FROM users WHERE id=?", (user_id,))
     if row is None:
@@ -125,7 +125,7 @@ def archive_user(user_id: int, admin=Depends(require_admin), db: Database = Depe
 
 @router.post("/users/{user_id}/restore")
 def restore_user(user_id: int, admin=Depends(require_admin), db: Database = Depends(get_db)):
-    """Brings an archived account back. Its keys stay revoked - new ones are made as usual."""
+    """Brings an archived account back. Its keys stay revoked — new ones are made as usual."""
     row = db.one("SELECT * FROM users WHERE id=?", (user_id,))
     if row is None:
         raise ApiError(404, "user_not_found", "Foydalanuvchi topilmadi.")
@@ -272,7 +272,7 @@ class ModelIn(BaseModel):
     allow_thinking: bool = True
 
 
-CLUSTER_CHANNELS = {"auto", "chatgpt", "deepseek", "qwen", "gemini", "genspark", "deepai", "zai", "grok", "chatbotapp", "chatbotchatapp"}
+CLUSTER_CHANNELS = {"auto", "chatgpt", "deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1", "qwen", "gemini", "genspark", "deepai", "zai", "grok", "chatbotapp", "chatbotchatapp", "venice"}
 
 
 def _check_model_rules(db: Database, provider: str, refine: bool, fallback: str | None, own_id: str,
@@ -400,7 +400,6 @@ async def external_test(request: Request, db: Database = Depends(get_db)):
     return {"ok": True, "models": len(names), "refiner_model": refiner, "refiner_found": refiner in names}
 
 
-# --- AI cluster ---------------------------------------------------------------------------------------------
 def _cluster_target(db: Database) -> tuple[str, dict]:
     """The cluster's CONTROL base URL (root) and headers.
 
@@ -732,14 +731,36 @@ def put_settings(body: SettingsIn, request: Request, db: Database = Depends(get_
 
 # --- statistics ----------------------------------------------------------------------------------------------------------
 @router.get("/usage")
-def all_usage(db: Database = Depends(get_db), limit: int = 50, offset: int = 0, user_id: int | None = None):
+def all_usage(db: Database = Depends(get_db), limit: int = 50, offset: int = 0,
+              user_id: int | None = None, days: int = 30, q: str = "", failed: bool = False,
+              client: str = "", tool: str = "", project: str = ""):
     limit, offset = page_args(limit, offset)
-    where, args = ("u.user_id=?", [user_id]) if user_id else ("1=1", [])
-    total = db.scalar(f"SELECT COUNT(*) FROM usage_logs u WHERE {where}", args)
-    rows = db.all(f"""SELECT u.*, k.name AS key_name, us.email AS email FROM usage_logs u
-                      LEFT JOIN api_keys k ON k.id=u.key_id LEFT JOIN users us ON us.id=u.user_id
-                      WHERE {where} ORDER BY u.id DESC LIMIT ? OFFSET ?""", args + [limit, offset])
-    return {"total": total, "items": [usage_out(r) | {"email": r["email"]} for r in rows]}
+    where, args = ["u.created_at>=?"], [now() - max(1, min(days, 365)) * 86400]
+    if user_id:
+        where.append("u.user_id=?"); args.append(user_id)
+    if failed:
+        where.append("(u.status_code>=400 OR u.error IS NOT NULL)")
+    if q.strip():
+        where.append("(u.request_id ILIKE ? OR u.model ILIKE ? OR us.email ILIKE ? OR k.name ILIKE ?)")
+        args.extend(["%" + q.strip()[:100] + "%"] * 4)
+    for field, value in (("client", client), ("project", project)):
+        if value:
+            where.append(f"CAST(u.attribution AS jsonb)->>'{field}'=?"); args.append(value[:80])
+    if tool:
+        import json
+        where.append("CAST(u.attribution AS jsonb)->'called_tools' @> CAST(? AS jsonb)")
+        args.append(json.dumps([tool[:64]]))
+    w = " AND ".join(where)
+    joins = "FROM usage_logs u LEFT JOIN api_keys k ON k.id=u.key_id LEFT JOIN users us ON us.id=u.user_id"
+    totals = dict(db.one(f"""SELECT COUNT(*) requests, COALESCE(SUM(u.cost),0) cost,
+        COALESCE(SUM(u.prompt_tokens),0) prompt_tokens, COALESCE(SUM(u.completion_tokens),0) completion_tokens,
+        COUNT(*) FILTER (WHERE u.status_code>=400) errors,
+        percentile_cont(0.95) WITHIN GROUP (ORDER BY u.latency_ms) p95_ms
+        {joins} WHERE {w}""", args))
+    rows = db.all(f"SELECT u.*, k.name AS key_name, us.email AS email {joins} WHERE {w} ORDER BY u.id DESC LIMIT ? OFFSET ?",
+                  args + [limit, offset])
+    return {"total": totals["requests"], "totals": totals,
+            "items": [usage_out(r) | {"email": r["email"], "user_id": r["user_id"]} for r in rows]}
 
 
 @router.get("/stats")

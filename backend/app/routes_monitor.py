@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
-from . import branding, monitor
+from . import admission, branding, monitor
 from .billing import MICRO, TASHKENT
 from .common import ApiError, csrf_guard, get_db, require_admin
 from . import cluster_watch
@@ -50,11 +50,15 @@ def external_benchmark():
 
 def status_block(app, h: dict) -> dict:
     state = h["state"]
-    in_flight = sum(1 for t in app.state.open_tickets if t.sem_held)
+    # Reservations and slot leases span every API worker, unlike open_tickets.
+    current = app.state.db.one("""SELECT COUNT(*) total, COUNT(*) FILTER (WHERE EXISTS (
+        SELECT 1 FROM inference_slots s WHERE s.request_id=r.request_id AND s.active=1)) active
+        FROM reservations r WHERE r.expires_at>?""", (now(),))
+    in_flight = current["active"]
     return {
         "state": state, "label": monitor.STATE_TEXT.get(state, state), "online": state == "up",
         "since": h["since"] or None, "last_check": h["ts"] or None, "latency_ms": h.get("latency_ms"), "error": h.get("error"),
-        "in_flight": in_flight, "queued": len(app.state.open_tickets) - in_flight,
+        "in_flight": in_flight, "queued": current["total"] - in_flight, "providers": admission.snapshot(app.state.db),
     }
 
 

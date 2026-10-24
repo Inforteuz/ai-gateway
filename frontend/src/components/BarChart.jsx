@@ -1,3 +1,4 @@
+import { translateText as tr } from '../i18n/index.jsx'
 import { useState } from 'react'
 import { fmtDay, fmtInt, fmtSom } from '../format.js'
 import { useT } from '../i18n/index.jsx'
@@ -40,7 +41,7 @@ export default function BarChart({ items, metric = 'cost', compact = false }) {
           return (
             <g key={t}>
               <line className="grid" x1={pad.l} x2={W - pad.r} y1={y} y2={y} />
-              <text x={pad.l - 12} y={y + (compact ? 7 : 3.5)} textAnchor="end">{metric === 'cost' ? fmtInt(t / 1_000_000) : fmtInt(t)}</text>
+              <text x={pad.l - 12} y={y + (compact ? 7 : 3.5)} textAnchor="end">{tr(metric === 'cost' ? fmtInt(t / 1_000_000) : fmtInt(t))}</text>
             </g>
           )
         })}
@@ -62,7 +63,7 @@ export default function BarChart({ items, metric = 'cost', compact = false }) {
           <text key={it.date} className="xlab" x={pad.l + i * bw + bw / 2} y={H - (compact ? 14 : 8)} textAnchor="middle">{fmtDay(it.date)}</text>
         ))}
       </svg>
-      {d && <div className="chart-tip" aria-live="polite"><b>{fmtDay(d.date)}</b>: {label(pick(d, metric))}{metric === 'cost' ? `, ${t('chart.requests', { n: fmtInt(d.requests) })}` : ''}</div>}
+      {d && <div className="chart-tip" aria-live="polite"><b>{fmtDay(d.date)}</b>: {label(pick(d, metric))}{tr(metric === 'cost' ? `, ${t('chart.requests', { n: fmtInt(d.requests) })}` : '')}</div>}
     </div>
   )
 }

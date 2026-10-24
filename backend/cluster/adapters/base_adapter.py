@@ -55,6 +55,10 @@ _HOME_URLS: dict[str, str] = {
     "chatbotapp": "https://chatbotappai.ai/",
     "chatbotchatapp": "https://chatbotchatapp.com/",
     "gemini": "https://gemini.google.com/app",
+    # /chat/agent, not /chat: once signed in, Venice remembers the last mode and
+    # /chat lands on the classic one, whose markup is all generated class hashes.
+    # The agent view names its parts (data-chat-turn-anchor, .assistant-content).
+    "venice": "https://venice.ai/chat/agent",
 }
 
 # Generic selector for finding the chat input field
@@ -766,6 +770,8 @@ class BaseAIAdapter(ABC):
         # Bot check: pause + ONE cache-bypassing reload (the owner's decision);
         # if it remains — "captcha" (the worker rests, the operator is notified). Sliders are never solved.
         if await self.detect_challenge(ws):
+            if not recover:
+                return False, "captcha"
             log.warning("%s: bot check — pausing and doing one cache-bypassing reload", self.name)
             if await self.reload_after_challenge(ws):
                 return False, "captcha"
@@ -786,6 +792,22 @@ class BaseAIAdapter(ABC):
                 return await self.check_session(ws, timeout=timeout, recover=False)
             return False, "no_chat_input"
         return True, "ok"
+
+    async def regenerate_response(self, ws) -> bool:
+        """Click an explicit retry control once; never interact with verification."""
+        if await self.detect_challenge(ws):
+            return False
+        return bool(await cdp.evaluate(ws, r"""(() => {
+            const labels = /^(regenerate( response)?|try again|retry|重新生成|重试|повторить|сгенерировать заново)$/i;
+            const buttons = [...document.querySelectorAll('button')].filter(b =>
+                !b.disabled && !!(b.offsetWidth || b.offsetHeight) &&
+                !b.closest('pre, code, [data-message-author-role="user"]'));
+            const button = buttons.reverse().find(b => labels.test(
+                (b.getAttribute('aria-label') || b.getAttribute('title') || b.innerText || '').trim()));
+            if (!button) return false;
+            button.click();
+            return true;
+        })()""", timeout=5))
 
     async def poll_answer(self, ws, script: str, timeout: int = 45,
                           initial_delay: float = 1.0,
@@ -815,6 +837,7 @@ class BaseAIAdapter(ABC):
         done_not_before = started + initial_delay
         on_progress = runmeta.get().get("on_progress")
         prev = ""
+        generating = False
         stable_since = 0.0
         js_errors = 0
         deadline = time.time() + timeout
@@ -841,6 +864,7 @@ class BaseAIAdapter(ABC):
                 continue
             cur = val.get("answer") or ""
             gen = bool(val.get("generating"))
+            generating = gen
             if not cur:
                 continue
 
@@ -862,6 +886,8 @@ class BaseAIAdapter(ABC):
             if need is not None and stable_for >= need and time.time() >= done_not_before:
                 return self.clean_text(cur)
 
+        if generating:
+            raise asyncio.TimeoutError("Provider generation did not finish")
         return self.clean_text(prev)
 
     async def wait_until(self, ws, js: str, timeout: float, interval: float = 0.1) -> bool:

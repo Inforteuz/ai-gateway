@@ -44,6 +44,17 @@ class ModelCircuit:
     probes_inflight: int = 0
     total_opens: int = 0
 
+    def is_available(self) -> bool:
+        """Read-only eligibility; only actual dispatch claims a half-open probe."""
+        if self.state == CircuitState.CLOSED:
+            return True
+        if self.state == CircuitState.OPEN:
+            return time.monotonic() - self.opened_at >= self.recovery_timeout
+        return self.probes_inflight < self.half_open_max_probes
+
+    def release_probe(self) -> None:
+        self.probes_inflight = max(0, self.probes_inflight - 1)
+
     def allow_request(self) -> bool:
         """May a request be sent to this model right now?"""
         now = time.monotonic()

@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useState } from 'react'
 import { fmtInt } from '../format.js'
 
@@ -14,6 +15,7 @@ import { fmtInt } from '../format.js'
  * labeling all of them does not hurt readability.
  */
 export default function PriceScoreChart({ points }) {
+  useLocaleRefresh()
   const [hover, setHover] = useState(null)
   if (!points?.length) return null
 
@@ -36,14 +38,14 @@ export default function PriceScoreChart({ points }) {
   return (
     <figure className="viz" style={{ margin: 0 }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
-           aria-label="Modellarning narxi va sinov natijasi">
+           aria-label={tr("Modellarning narxi va sinov natijasi")}>
         {/* Y axis: score percentage */}
         {[0, 25, 50, 75, 100].map((t) => (
           <g key={t}>
             <line x1={pad.left} y1={Y(t / 100)} x2={W - pad.right} y2={Y(t / 100)}
                   stroke="var(--border)" strokeWidth="1" />
             <text x={pad.left - 8} y={Y(t / 100) + 4} textAnchor="end"
-                  fontSize="11" fill="var(--fg-subtle)">{t}%</text>
+                  fontSize="11" fill="var(--fg-subtle)">{tr(t)}%</text>
           </g>
         ))}
 
@@ -51,13 +53,11 @@ export default function PriceScoreChart({ points }) {
         {xTicks.map((v) => (
           <text key={v} x={X(v)} y={H - pad.bottom + 20} textAnchor="middle"
                 fontSize="11" fill="var(--fg-subtle)">
-            {v === 0 ? 'bepul' : fmtInt(v / 1000) + 'k'}
+            {tr(v === 0 ? tr("bepul") : fmtInt(v / 1000) + 'k')}
           </text>
         ))}
         <text x={pad.left + innerW / 2} y={H - 14} textAnchor="middle"
-              fontSize="11" fill="var(--fg-muted)">
-          1 million chiqish tokeni uchun narx, so'm
-        </text>
+              fontSize="11" fill="var(--fg-muted)"> {tr("1 million chiqish tokeni uchun narx, so'm")} </text>
 
         {points.map((p) => {
           const isHovered = hover === p.id
@@ -72,19 +72,16 @@ export default function PriceScoreChart({ points }) {
                       fill="var(--viz-1)" stroke="var(--bg-elev)" strokeWidth="2" />
               <text x={X(p.price)} y={Y(p.ratio) - 14} textAnchor="middle"
                     fontSize="11" fontWeight={isHovered ? 600 : 400}
-                    fill={isHovered ? 'var(--fg)' : 'var(--fg-muted)'}>{p.id}</text>
+                    fill={isHovered ? 'var(--fg)' : 'var(--fg-muted)'}>{tr(p.id)}</text>
               <title>
                 {`${p.id} — ${Math.round(p.ratio * 100)}% (${p.correct}/${p.total}), `
-                 + (p.price ? `${fmtInt(p.price)} so'm / 1M token` : 'bepul')}
+                 + (p.price ? tr("{v0} so'm / 1M token", { v0: (fmtInt(p.price)) }) : tr("bepul"))}
               </title>
             </g>
           )
         })}
       </svg>
-      <figcaption className="muted small" style={{ marginTop: 6 }}>
-        Chap yuqoridagi nuqta eng foydali: arzon, lekin natijasi yuqori.
-        Nuqta ustiga sichqonchani olib borsangiz aniq son chiqadi.
-      </figcaption>
+      <figcaption className="muted small" style={{ marginTop: 6 }}> {tr("Chap yuqoridagi nuqta eng foydali: arzon, lekin natijasi yuqori. Nuqta ustiga sichqonchani olib borsangiz aniq son chiqadi.")} </figcaption>
     </figure>
   )
 }

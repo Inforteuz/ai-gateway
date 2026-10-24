@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS models (
   context_window     BIGINT NOT NULL DEFAULT 32768,
   enabled            BIGINT NOT NULL DEFAULT 1,
   created_at         BIGINT NOT NULL,
-  provider           TEXT NOT NULL DEFAULT 'local',  -- local = on-premises Ollama; external = external provider
+  provider           TEXT NOT NULL DEFAULT 'local',  -- local | external | cluster
   refine             BIGINT NOT NULL DEFAULT 0,      -- 1 = answers are verified by an external model
   listed             BIGINT NOT NULL DEFAULT 1,      -- 0 = hidden from the list (but works when called)
   default_reasoning  TEXT,                           -- NULL = global setting
@@ -304,3 +304,17 @@ CREATE TABLE IF NOT EXISTS admin_audit (
   ip          TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_admin_audit_target ON admin_audit(target, id);
+
+-- Attribution is added here too for new databases; migration handles existing ones.
+ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS attribution TEXT NOT NULL DEFAULT '{}';
+
+-- One lease per stage; deleting/reclaiming a reservation releases every slot atomically.
+CREATE TABLE IF NOT EXISTS inference_slots (
+  request_id TEXT NOT NULL REFERENCES reservations(request_id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  active BIGINT NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY(request_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_inference_provider_active ON inference_slots(provider, active);

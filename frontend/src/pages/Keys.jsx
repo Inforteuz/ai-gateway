@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth, useSite } from '../auth.js'
@@ -9,6 +10,7 @@ import { LevelSelect, levelShort } from '../reasoning.jsx'
 import { useT } from '../i18n/index.jsx'
 
 function KeyReveal({ item }) {
+  useLocaleRefresh()
   // The key is also kept encrypted (see security.encrypt_secret), so its owner can read
   // it back instead of having to revoke and re-issue after losing the one copy they saw.
   const t = useT()
@@ -34,12 +36,12 @@ function KeyReveal({ item }) {
   return (
     <>
       <div className="copy-row">
-        <div className="who"><b className="mono">{full || masked}</b></div>
+        <div className="who"><b className="mono">{tr(full || masked)}</b></div>
         {full && <CopyIcon text={full} title={t('keys.apiKey')} />}
       </div>
       <div className="hstack" style={{ gap: 8, marginTop: 8 }}>
         <button className="btn btn--small" onClick={show} disabled={busy}>
-          {full ? t('keys.hide') : t('keys.reveal')}
+          {tr(full ? t('keys.hide') : t('keys.reveal'))}
         </button>
       </div>
       <span className="dim small" style={{ marginTop: 6, display: 'block' }}>
@@ -50,6 +52,7 @@ function KeyReveal({ item }) {
 }
 
 function CreateKey({ onClose, onDone }) {
+  useLocaleRefresh()
   const { freeMode } = useAuth()
   const t = useT()
   const [name, setName] = useState('')
@@ -80,10 +83,10 @@ function CreateKey({ onClose, onDone }) {
   return (
     <Modal title={t('keys.newTitle')} onClose={onClose} actions={<>
       <button className="btn" onClick={onClose}>{t('common.cancel')}</button>
-      <button className="btn btn--primary" form="create-key" disabled={busy || !name.trim()}>{busy ? t('keys.creating') : t('keys.create')}</button>
+      <button className="btn btn--primary" form="create-key" disabled={busy || !name.trim()}>{tr(busy ? t('keys.creating') : t('keys.create'))}</button>
     </>}>
       <form id="create-key" className="form" onSubmit={submit}>
-        {error && <div className="alert alert--error" role="alert">{error}</div>}
+        {error && <div className="alert alert--error" role="alert">{tr(error)}</div>}
         <label className="field">{t('keys.name')}
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('keys.namePh')} maxLength={60} autoFocus required />
           <span className="hint">{t('keys.nameHint')}</span>
@@ -104,6 +107,7 @@ function CreateKey({ onClose, onDone }) {
 }
 
 function EditKey({ item, onClose, onDone }) {
+  useLocaleRefresh()
   const { freeMode } = useAuth()
   const toast = useToast()
   const t = useT()
@@ -140,6 +144,7 @@ function EditKey({ item, onClose, onDone }) {
 }
 
 export default function Keys() {
+  useLocaleRefresh()
   const { freeMode } = useAuth()
   const site = useSite()
   const toast = useToast()
@@ -180,13 +185,13 @@ export default function Keys() {
             <div className="panel-head">
               <div className="panel-head__t">
                 <div className="hstack" style={{ gap: 10 }}>
-                  <h2>{k.name}</h2>
+                  <h2>{tr(k.name)}</h2>
                   <span className="tag tag--ok"><IconCheck /> {t('keys.active')}</span>
                   {k.free && <span className="tag tag--warn">{t('keys.freeTag')}</span>}
                 </div>
                 <p>
                   {t('keys.reasoningShort', { level: k.reasoning_effort === 'inherit' ? t('keys.inherit') : levelShort(t, k.reasoning_effort) })}
-                  {k.created_at ? <> &middot; {t('keys.createdAt', { date: fmtDateTime(k.created_at) })}</> : null}
+                  {tr(k.created_at ? <> &middot; {t('keys.createdAt', { date: fmtDateTime(k.created_at) })}</> : null)}
                 </p>
               </div>
               <div className="hstack" style={{ gap: 8 }}>
@@ -218,7 +223,7 @@ export default function Keys() {
                   <div className="who">
                     <span className="mini-card__label">{t('keys.lastRequest')}</span>
                     <b className="mini-card__fig">{fmtAgo(k.last_used_at)}</b>
-                    {k.last_used_at ? <span className="dim small">{fmtDateTime(k.last_used_at)}</span> : null}
+                    {tr(k.last_used_at ? <span className="dim small">{fmtDateTime(k.last_used_at)}</span> : null)}
                   </div>
                 </div>
               </div>
@@ -237,19 +242,19 @@ export default function Keys() {
                   <div className="meter">
                     <b className="mini-card__fig">{t('keys.perMonth', { amount: fmtSom(k.monthly_limit) })}</b>
                     <span className="track"><span className="fill" style={{ width: `${used}%` }} /></span>
-                    <span className="ends"><span>{fmtSom(k.month_spent)}</span><span>{used}%</span></span>
+                    <span className="ends"><span>{fmtSom(k.month_spent)}</span><span>{tr(used)}%</span></span>
                   </div>
                 ) : (
                   <>
                     <b className="mini-card__fig">{t('keys.unlimited')}</b>
-                    <span className="dim small">{k.rpm_limit ? t('keys.rpm', { n: k.rpm_limit }) : t('keys.rpmDefault')}</span>
+                    <span className="dim small">{tr(k.rpm_limit ? t('keys.rpm', { n: k.rpm_limit }) : t('keys.rpmDefault'))}</span>
                   </>
                 )}
               </div>
               <div className="mini-card">
                 <span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconLink /></span> {t('keys.baseUrl')}</span>
                 <div className="copy-row">
-                  <div className="who"><b className="mono">{baseUrl}</b></div>
+                  <div className="who"><b className="mono">{tr(baseUrl)}</b></div>
                   <CopyIcon text={baseUrl} title={t('keys.copyUrl')} />
                 </div>
               </div>
@@ -271,7 +276,7 @@ export default function Keys() {
             <tbody>
               {revoked.map((k) => (
                 <tr key={k.id}>
-                  <td><b>{k.name}</b></td>
+                  <td><b>{tr(k.name)}</b></td>
                   <td><code className="dim">{k.prefix}...{k.last4}</code></td>
                   <td className="muted nowrap">{fmtAgo(k.revoked_at)}</td>
                   <td><span className="tag tag--bad"><i className="req-dot" />{t('keys.revokedTag')}</span></td>

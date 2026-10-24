@@ -12,10 +12,12 @@ def _cluster_caps(upstream: str) -> dict:
     The source is the measured `caps` of the cluster adapters, so the list is not
     kept in two places that drift apart.
 
-    The cluster package may be absent on this server (it may be moved to a
-    separate machine) — then no capabilities are advertised, since staying
-    silent is better than advertising something false.
+    The API image does not include the cluster package. Direct DeepSeek's
+    known capabilities are also available there.
     """
+    if (upstream or "").lower() in ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1"):
+        return {"vision": True, "file_input": True, "files": True,
+                "image_generation": False, "tool_calling": True}
     try:
         from cluster.adapters import get_adapter
     except Exception:
@@ -75,6 +77,7 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
         "context_window": r["context_window"], "max_output_tokens": hard_max,
         "capabilities": {
             "streaming": True,
+            "reasoning": bool(r["allow_thinking"]),
             # allow_thinking=0: thinking is off, the requested level is ignored
             "reasoning_levels": [] if third_party_provider else (REASONING_LEVELS if r["allow_thinking"] else ["none"]),
             # NOT a guarantee: verification is conditional (VERIFICATION_POLICY). This

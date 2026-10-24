@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { api } from '../api.js'
 import { Loading, useLoad } from './ui.jsx'
 import { fmtInt, fmtSom } from '../format.js'
@@ -9,6 +10,7 @@ import { useT } from '../i18n/index.jsx'
  * first; values are in text color, the bar only shows the proportion.
  */
 export default function ModelBreakdown({ days = 30, freeMode = false }) {
+  useLocaleRefresh()
   const t = useT()
   const { data } = useLoad(() => api.get(`/portal/usage/models?days=${days}`), [days], { refreshMs: 15_000 })
   if (!data) return <Loading rows={2} />
@@ -32,10 +34,10 @@ export default function ModelBreakdown({ days = 30, freeMode = false }) {
         return (
           <div className="model-break__row" role="row" key={m.model}
                title={`${m.model}: ${t('breakdown.tokensInOut', { in: fmtInt(m.prompt_tokens), out: fmtInt(m.completion_tokens) })}`}>
-            <span role="cell"><span className="tag tag--sky tag--mono">{m.model}</span></span>
+            <span role="cell"><span className="tag tag--sky tag--mono">{tr(m.model)}</span></span>
             <span role="cell" className="model-break__bar-col">
               <span className="model-break__track"><span className="model-break__bar" style={{ width: `${Math.max(2, (n / max) * 100)}%` }} /></span>
-              <span className="model-break__pct">{share}%</span>
+              <span className="model-break__pct">{tr(share)}%</span>
             </span>
             <span role="cell" className="num">{fmtInt(n)}</span>
             <span role="cell" className="num">{fmtInt(m.requests)}</span>

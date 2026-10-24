@@ -1,3 +1,4 @@
+import { translateText as tr } from '../i18n/index.jsx'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'

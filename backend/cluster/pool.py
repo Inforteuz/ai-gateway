@@ -38,6 +38,8 @@ CDP_MAX_MESSAGE = int(os.getenv("SF_CLUSTER_CDP_MAX_MESSAGE", str(48 * 1024 * 10
 # own limit and weaken account protection by the number of tabs, which is
 # exactly what we want to prevent.
 _ACCOUNT_HOURLY: Dict[tuple, List[float]] = {}
+_ACCOUNT_DISPATCH: Dict[tuple, asyncio.Lock] = {}
+_ACCOUNT_BLOCKED: Dict[tuple, tuple[float, str]] = {}
 # One request at a time per account, and one shared pacing clock for it.
 # Several tabs of one account exist for double buffering (one answers while
 # the other prepares a clean chat), never to send in parallel.
@@ -114,6 +116,7 @@ _URL_TO_MODEL = {
     "chatbotappai.ai": "chatbotapp",
     "chatbotchatapp.com": "chatbotchatapp",
     "gemini.google.com": "gemini",
+    "venice.ai": "venice",
 }
 
 
@@ -177,8 +180,25 @@ class WorkerTab:
     def short_tab(self) -> str:
         return self.tab_id[:8]
 
+    @property
+    def dispatch_lock(self) -> asyncio.Lock:
+        return _ACCOUNT_DISPATCH.setdefault(self.account_key, asyncio.Lock())
+
+    @property
+    def cooldown_until(self) -> float:
+        # Quota, login, hourly cap and captcha apply to every tab of an account.
+        shared = _ACCOUNT_BLOCKED.get(self.account_key, (0.0, ""))[0]
+        return max(getattr(self, "_cooldown_until", 0.0), shared)
+
+    @cooldown_until.setter
+    def cooldown_until(self, value: float) -> None:
+        self._cooldown_until = value
+        if value == 0:
+            _ACCOUNT_BLOCKED.pop(self.account_key, None)
+
     def is_available(self) -> bool:
-        return time.time() >= self.cooldown_until and not self.lock.locked()
+        return (time.time() >= self.cooldown_until and not self.lock.locked()
+                and not self.dispatch_lock.locked())
 
     def state(self, now: Optional[float] = None) -> str:
         """One-word state for monitoring: ACTIVE (free and healthy), BUSY (serving a request),
@@ -194,6 +214,9 @@ class WorkerTab:
     def set_cooldown(self, seconds: Optional[int] = None, reason: str = "") -> None:
         sec = seconds if seconds is not None else self.default_cooldown
         self.cooldown_until = time.time() + sec
+        if self.browser_port > 0 and reason.startswith(("captcha", "probe:captcha", "quota", "login", "probe:login", "hourly_cap", "rate_limit")):
+            old = _ACCOUNT_BLOCKED.get(self.account_key, (0.0, ""))[0]
+            _ACCOUNT_BLOCKED[self.account_key] = (max(old, self.cooldown_until), reason)
         self.cooldown_reason = reason or "manual"
         log.warning(
             "cooldown model=%s port=%d tab=%s seconds=%d reason=%s",
@@ -208,6 +231,9 @@ class WorkerTab:
         """
         self.last_probe = {"ts": int(time.time()), "ok": healthy, "reason": reason}
         if healthy:
+            blocked = _ACCOUNT_BLOCKED.get(self.account_key)
+            if blocked and blocked[1].startswith(("captcha", "probe:captcha", "login", "probe:login")):
+                _ACCOUNT_BLOCKED.pop(self.account_key, None)
             if self.needs_attention:
                 # Session restored: clear both the flag and the cooldown the probe
                 # set. Otherwise a healthy worker would keep showing "login
@@ -432,7 +458,7 @@ class WorkerTab:
         try:
             async with await self.connect(open_timeout=8) as ws:
                 ok, reason = await self.adapter.check_session(ws, timeout=8, recover=False)
-                if not ok:
+                if not ok and reason not in ("captcha", "login_required"):
                     # The page may just be loading: try one recovery
                     ok, reason = await self.adapter.check_session(ws, timeout=12, recover=True)
         except Exception as e:
@@ -521,12 +547,9 @@ class WorkerTab:
             # If it persists, the request is not sent and the worker rests. Sliders are never solved automatically.
             challenge = await self.adapter.detect_challenge(ws)
             if challenge:
-                log.warning("bot check model=%s port=%d sign=%s, pausing and reloading once",
-                            self.model_name, self.browser_port, challenge)
-                challenge = await self.adapter.reload_after_challenge(ws)
-                if challenge:
-                    raise ChallengeDetected(challenge)
-                # The reloaded page is the same clean (temporary) chat; the input field is ready
+                # Do not spend the request's latency budget reloading a bot check.
+                # Quarantine this account immediately; recovery belongs to the watchdog.
+                raise ChallengeDetected(challenge)
 
             # Provider-side model: primary or (if allowed) fallback. Checked on every
             # request so an earlier fallback choice does not stick on the account.
@@ -604,6 +627,15 @@ class WorkerTab:
                 mark("registry")
             else:
                 text = await self.adapter.read_response(ws, timeout=timeout)
+                # A bounded retry on the provider's existing answer. Never replay
+                # after live bytes were committed or when verification is required.
+                meta = runmeta.get()
+                if (is_degenerate_response(text) and not meta.get("stream_committed")
+                        and not meta.get("regenerated")
+                        and hasattr(self.adapter, "regenerate_response")):
+                    if await self.adapter.regenerate_response(ws):
+                        meta["regenerated"] = True
+                        text = await self.adapter.read_response(ws, timeout=min(12, timeout))
                 mark("answer")
 
             self.last_finished = time.time()
@@ -847,8 +879,23 @@ class DeepSeekDirectWorker(WorkerTab):
         """Prewarm: no-op for direct worker."""
         return None
 
+    @property
+    def dispatch_lock(self) -> asyncio.Lock:
+        return _ACCOUNT_DISPATCH.setdefault(self.account_key, asyncio.Lock())
+
+    @property
+    def cooldown_until(self) -> float:
+        # Quota, login, hourly cap and captcha apply to every tab of an account.
+        shared = _ACCOUNT_BLOCKED.get(self.account_key, (0.0, ""))[0]
+        return max(getattr(self, "_cooldown_until", 0.0), shared)
+
+    @cooldown_until.setter
+    def cooldown_until(self, value: float) -> None:
+        self._cooldown_until = value
+
     def is_available(self) -> bool:
-        return time.time() >= self.cooldown_until and not self.lock.locked()
+        return (time.time() >= self.cooldown_until and not self.lock.locked()
+                and not self.dispatch_lock.locked())
 
     async def probe_session(self) -> tuple[bool, str]:
         loop = asyncio.get_event_loop()
@@ -866,6 +913,19 @@ class DeepSeekDirectWorker(WorkerTab):
         images_only: bool = False,
         want_images: bool = False,
     ) -> Tuple[str, List[tuple[str, str]]]:
+        send_text, tmpdir = self._overflow_to_file(
+            prompt_text, attachment_paths, images_only, want_images)
+        paths = attachment_paths
+        if tmpdir:
+            paths = [*(attachment_paths or []), os.path.join(tmpdir, OVERFLOW_FILE_NAME)]
+        try:
+            return await self._execute_direct(send_text, timeout, paths)
+        finally:
+            if tmpdir:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+    async def _execute_direct(self, prompt_text: str, timeout: int,
+                              attachment_paths: Optional[List[str]]) -> Tuple[str, List[tuple[str, str]]]:
         self.total_requests += 1
         self.last_used = time.time()
         self._mark_request()
@@ -901,6 +961,8 @@ class DeepSeekDirectWorker(WorkerTab):
         mark("new_chat")
 
         on_progress = meta.get("on_progress")
+        on_reasoning = meta.get("on_reasoning")
+        meta["reasoning_content"] = ""
         accumulated_text = ""
 
         try:
@@ -931,6 +993,10 @@ class DeepSeekDirectWorker(WorkerTab):
                 if isinstance(item, Exception):
                     raise item
                 if isinstance(item, dict):
+                    if item.get("type") == "thinking":
+                        meta["reasoning_content"] += item.get("text", "")
+                        if on_reasoning is not None:
+                            on_reasoning(meta["reasoning_content"])
                     if item.get("type") == "content":
                         accumulated_text += item.get("text", "")
                         if on_progress is not None:
@@ -945,6 +1011,9 @@ class DeepSeekDirectWorker(WorkerTab):
         except Exception as e:
             self._record_outcome(False)
             self.last_error = str(e)
+            message = str(e).lower()
+            if any(term in message for term in ("rate limit", "too many requests", "frequency", "429", "请求过于频繁")):
+                self.set_cooldown(cfg.RATE_LIMIT_COOLDOWN, reason="rate_limit")
             raise
         finally:
             if cfg.DEEPSEEK_AUTO_CLEANUP and session_id:
@@ -970,16 +1039,25 @@ class ClusterPool:
         self.scan_errors: Dict[int, str] = {}
 
     async def scan(self, force: bool = False) -> None:
-        """Scan open pages on every port.
+        """Initial/forced scans wait; refreshes use existing workers immediately."""
+        fresh = self.workers and time.time() - self._last_scan < cfg.SCAN_REFRESH_INTERVAL
+        if not force and fresh:
+            return
+        if not force and self.workers:
+            task = getattr(self, "_scan_task", None)
+            if task is None or task.done():
+                self._scan_task = asyncio.create_task(self._refresh_scan())
+            return
+        await self._refresh_scan()
 
-        Guarded by a lock so repeated calls do not run concurrently.
-        With `force=False` it does nothing within SCAN_REFRESH_INTERVAL.
-        """
+    async def _refresh_scan(self) -> None:
         async with self._scan_lock:
-            if not force and self.workers and (time.time() - self._last_scan) < cfg.SCAN_REFRESH_INTERVAL:
-                return
-            self._last_scan = time.time()
-            await asyncio.get_event_loop().run_in_executor(None, self._scan_sync)
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, self._scan_sync)
+                self._last_scan = time.time()
+            except Exception:
+                log.exception("worker discovery refresh failed")
+
 
     def _scan_sync(self) -> None:
         discovered: List[WorkerTab] = []
@@ -1068,7 +1146,7 @@ class ClusterPool:
             for w in self.workers
         ]
 
-    async def probe_sessions(self) -> Dict[str, str]:
+    async def probe_sessions(self, force: bool = False) -> Dict[str, str]:
         """Check the session of every idle worker (without sending a prompt).
 
         Workers that lost their login are flagged `needs_attention="login"` and
@@ -1079,6 +1157,8 @@ class ClusterPool:
         problems: Dict[str, str] = {}
         for w in list(self.workers):
             if w.lock.locked():
+                continue
+            if not force and w.needs_attention == "captcha" and time.time() < w.cooldown_until:
                 continue
             # Workers in cooldown are normally left alone. Exception: a worker
             # flagged for attention (login/quota); checking it is cheap (no
@@ -1126,6 +1206,8 @@ class ClusterPool:
             for w in self.workers if w.needs_attention
         ]
         return {
+            "accounts_total": len({w.account_key for w in self.workers}),
+            "accounts_available": len({w.account_key for w in self.workers if w.is_available()}),
             "total_workers": total,
             "available_workers": available,
             "needs_attention": needs_attention,

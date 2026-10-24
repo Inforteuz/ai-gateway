@@ -1,3 +1,4 @@
+import { translateText as tr } from '../i18n/index.jsx'
 // Sign-in buttons for Google and Telegram.
 //
 // Buttons are only rendered when the server reports them as configured: with
@@ -88,7 +89,7 @@ export default function SocialLogin({ mode = 'login' }) {
           {/* Telegram draws the button text inside its widget, so the mode is
               stated by the label above it. */}
           <span className="social-label">
-            {mode === 'register' ? t('social.telegramRegister') : t('social.telegramLogin')}
+            {tr(mode === 'register' ? t('social.telegramRegister') : t('social.telegramLogin'))}
           </span>
           <TelegramButton bot={providers.telegram} />
         </>

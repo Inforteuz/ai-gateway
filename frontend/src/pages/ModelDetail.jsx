@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
@@ -23,13 +24,14 @@ function sampleCost(m) {
 
 /** Bar comparison: the larger the value, the longer the bar. */
 function CompareBars({ title, note, items, current, value, format, footnote }) {
+  useLocaleRefresh()
   const withValue = items.filter((x) => value(x) != null)
   if (withValue.length < 2) return null
   const max = Math.max(...withValue.map(value))
   return (
     <div className="panel" style={{ marginTop: 14 }}>
-      <h3 style={{ marginTop: 0, fontSize: '1rem' }}>{title}</h3>
-      {note && <p className="muted small" style={{ marginTop: 4 }}>{note}</p>}
+      <h3 style={{ marginTop: 0, fontSize: '1rem' }}>{tr(title)}</h3>
+      {note && <p className="muted small" style={{ marginTop: 4 }}>{tr(note)}</p>}
       <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
         {withValue.map((x) => {
           const v = value(x)
@@ -50,12 +52,13 @@ function CompareBars({ title, note, items, current, value, format, footnote }) {
           )
         })}
       </div>
-      {footnote && <p className="muted small" style={{ marginTop: 10 }}>{footnote}</p>}
+      {footnote && <p className="muted small" style={{ marginTop: 10 }}>{tr(footnote)}</p>}
     </div>
   )
 }
 
 export default function ModelDetail() {
+  useLocaleRefresh()
   const { id } = useParams()
   const { freeMode } = useAuth()
   const { data, error, loading, reload } = useLoad(() => api.get('/portal/models'), [])
@@ -68,9 +71,9 @@ export default function ModelDetail() {
   if (!m) {
     return (
       <>
-        <div className="page-head"><div><h1>Model topilmadi</h1></div></div>
+        <div className="page-head"><div><h1>{tr("Model topilmadi")}</h1></div></div>
         <p className="muted">
-          <code>{id}</code> degan model ro'yxatda yo'q. <Link to="/app/catalog">Modellar ro'yxatiga qaytish</Link>
+          <code>{id}</code> {tr("degan model ro'yxatda yo'q.")} <Link to="/app/catalog">{tr("Modellar ro'yxatiga qaytish")}</Link>
         </p>
       </>
     )
@@ -83,64 +86,60 @@ export default function ModelDetail() {
     <>
       <div className="page-head">
         <div>
-          <Link to="/app/catalog" className="dim small">&larr; Modellar</Link>
-          <h1 style={{ marginTop: 6 }}>{m.display_name}</h1>
-          <p><code>{m.id}</code> &middot; {m.description}</p>
+          <Link to="/app/catalog" className="dim small">{tr("← Modellar")}</Link>
+          <h1 style={{ marginTop: 6 }}>{tr(m.display_name)}</h1>
+          <p><code>{m.id}</code> &middot; {tr(m.description)}</p>
         </div>
       </div>
 
       {m.maintenance && (
         <div className="panel" style={{ borderColor: 'var(--warn)', marginBottom: 14 }}>
-          <b className="small">Bu modelda texnik ishlar ketyapti</b>
-          <p className="muted small" style={{ margin: '4px 0 0' }}>
-            Model ishlaydi, lekin hozir ba'zi so'rovlar xato qaytarishi mumkin.
-            Uzluksiz ish uchun vaqtincha boshqa modelni tanlang.
-          </p>
+          <b className="small">{tr("Bu modelda texnik ishlar ketyapti")}</b>
+          <p className="muted small" style={{ margin: '4px 0 0' }}> {tr("Model ishlaydi, lekin hozir ba'zi so'rovlar xato qaytarishi mumkin. Uzluksiz ish uchun vaqtincha boshqa modelni tanlang.")} </p>
         </div>
       )}
 
       <div className="metric-grid">
         <div className="metric">
-          <span className="label">Kontekst oynasi</span>
-          <b>{fmtNumber(m.context_window)}</b><span className="trend">token</span>
+          <span className="label">{tr("Kontekst oynasi")}</span>
+          <b>{fmtNumber(m.context_window)}</b><span className="trend">{tr("token")}</span>
         </div>
         <div className="metric">
-          <span className="label">Javob chegarasi</span>
-          <b>{fmtNumber(m.max_output_tokens)}</b><span className="trend">token</span>
+          <span className="label">{tr("Javob chegarasi")}</span>
+          <b>{fmtNumber(m.max_output_tokens)}</b><span className="trend">{tr("token")}</span>
         </div>
         {!freeMode && (
           <div className="metric">
-            <span className="label">O'rtacha so'rov</span>
-            <b>{sampleCost(m).toFixed(1)} so'm</b>
-            <span className="trend">{SAMPLE_IN} kirish + {SAMPLE_OUT} chiqish</span>
+            <span className="label">{tr("O'rtacha so'rov")}</span>
+            <b>{sampleCost(m).toFixed(1)} {tr("so'm")}</b>
+            <span className="trend">{tr(SAMPLE_IN)} {tr("kirish +")} {tr(SAMPLE_OUT)} {tr("chiqish")}</span>
           </div>
         )}
         {measured && (
           <div className="metric">
-            <span className="label">Odatdagi javob vaqti</span>
-            <b>{(measured.typical_latency_ms / 1000).toFixed(1)} s</b>
-            <span className="trend">so'nggi {measured.samples} ta so'rov medianasi</span>
+            <span className="label">{tr("Odatdagi javob vaqti")}</span>
+            <b>{(measured.typical_latency_ms / 1000).toFixed(1)} {tr("s")}</b>
+            <span className="trend">{tr("so'nggi")} {tr(measured.samples)} {tr("ta so'rov medianasi")}</span>
           </div>
         )}
       </div>
 
       <div className="block">
-        <div className="block-head"><h2>Nimalarni qila oladi</h2></div>
+        <div className="block-head"><h2>{tr("Nimalarni qila oladi")}</h2></div>
         {caps.length === 0 ? (
-          <p className="muted small">Bu model matn bilan ishlaydi: savol-javob, tarjima, matn yozish va tahlil.</p>
+          <p className="muted small">{tr("Bu model matn bilan ishlaydi: savol-javob, tarjima, matn yozish va tahlil.")}</p>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             {caps.map(([k, label, desc]) => (
               <div className="panel" key={k} style={{ padding: '12px 14px' }}>
-                <b className="small">{label}</b>
-                <p className="muted small" style={{ margin: '4px 0 0' }}>{desc}</p>
+                <b className="small">{tr(label)}</b>
+                <p className="muted small" style={{ margin: '4px 0 0' }}>{tr(desc)}</p>
               </div>
             ))}
           </div>
         )}
         {m.capabilities?.reasoning_levels?.length > 0 && (
-          <p className="muted small" style={{ marginTop: 12 }}>
-            Fikrlash rejimi: javob berishdan oldin o'ylaydi. Darajalar:{' '}
+          <p className="muted small" style={{ marginTop: 12 }}> {tr("Fikrlash rejimi: javob berishdan oldin o'ylaydi. Darajalar:")}{' '}
             {m.capabilities.reasoning_levels.join(', ')}.
           </p>
         )}
@@ -154,26 +153,19 @@ export default function ModelDetail() {
         return (
           <div className="block">
             <div className="block-head">
-              <h2>Qaysi ishlarda kuchli</h2>
-              <span className="dim small">
-                o'z sinovlarimiz · {own.correct}/{own.total} to'g'ri
-              </span>
+              <h2>{tr("Qaysi ishlarda kuchli")}</h2>
+              <span className="dim small"> {tr("o'z sinovlarimiz ·")} {tr(own.correct)}/{tr(own.total)} {tr("to'g'ri")} </span>
             </div>
-            <p className="muted small" style={{ marginTop: 0 }}>
-              Har bir yo'nalish bo'yicha bir xil topshiriqlar barcha modellarga
-              berildi va javoblar avtomatik tekshirildi. Raqamlar shu sinovdan,
-              tashqi manbalardan emas.
-            </p>
+            <p className="muted small" style={{ marginTop: 0 }}> {tr("Har bir yo'nalish bo'yicha bir xil topshiriqlar barcha modellarga berildi va javoblar avtomatik tekshirildi. Raqamlar shu sinovdan, tashqi manbalardan emas.")} </p>
             <div className="panel" style={{ marginTop: 12 }}>
               <CategoryChart items={benchItems} categories={categories} highlight={m.id} />
             </div>
 
             <div className="panel" style={{ marginTop: 12 }}>
-              <h3 style={{ marginTop: 0, fontSize: '.95rem' }}>Umumiy natija</h3>
+              <h3 style={{ marginTop: 0, fontSize: '.95rem' }}>{tr("Umumiy natija")}</h3>
               <OverallChart items={benchItems} highlight={m.id} />
               {bench.data?.updated_at && (
-                <p className="muted small" style={{ marginTop: 6, marginBottom: 0 }}>
-                  Oxirgi sinov: {new Date(bench.data.updated_at * 1000).toLocaleDateString('uz-UZ')}
+                <p className="muted small" style={{ marginTop: 6, marginBottom: 0 }}> {tr("Oxirgi sinov:")} {new Date(bench.data.updated_at * 1000).toLocaleDateString('uz-UZ')}
                 </p>
               )}
             </div>
@@ -183,12 +175,12 @@ export default function ModelDetail() {
 
       <div className="block">
         <div className="block-head">
-          <h2>Boshqa modellar bilan taqqoslash</h2>
-          <span className="dim small">barcha ko'rsatkichlar haqiqiy o'lchovdan</span>
+          <h2>{tr("Boshqa modellar bilan taqqoslash")}</h2>
+          <span className="dim small">{tr("barcha ko'rsatkichlar haqiqiy o'lchovdan")}</span>
         </div>
 
         <CompareBars
-          title="Javob tezligi"
+          title={tr("Javob tezligi")}
           note="So'nggi so'rovlarning medianasi: bitta tasodifiy kechikish ko'rsatkichni buzmaydi. Qisqa ustun — tezroq."
           items={list.filter((x) => x.measured)}
           current={m.id}
@@ -198,7 +190,7 @@ export default function ModelDetail() {
         />
 
         <CompareBars
-          title="Kontekst oynasi"
+          title={tr("Kontekst oynasi")}
           note="Bitta so'rovda model qancha matnni bir vaqtda ko'ra oladi."
           items={list}
           current={m.id}
@@ -208,40 +200,34 @@ export default function ModelDetail() {
 
         {!freeMode && (
           <CompareBars
-            title="O'rtacha so'rov narxi"
-            note={`${SAMPLE_IN} kirish va ${SAMPLE_OUT} chiqish tokeni uchun.`}
+            title={tr("O'rtacha so'rov narxi")}
+            note={tr("{v0} kirish va {v1} chiqish tokeni uchun.", { v0: (SAMPLE_IN), v1: (SAMPLE_OUT) })}
             items={list}
             current={m.id}
             value={sampleCost}
-            format={(v) => `${v.toFixed(1)} so'm`}
+            format={(v) => tr("{v0} so'm", { v0: (v.toFixed(1)) })}
           />
         )}
       </div>
 
       {m.data_processing === 'third_party' && (
         <div className="block">
-          <div className="block-head"><h2>Maxfiylik</h2></div>
+          <div className="block-head"><h2>{tr("Maxfiylik")}</h2></div>
           <div className="panel">
-            <p className="muted small" style={{ margin: 0 }}>
-              Bu modelda so'rov mazmuni javob tayyorlash uchun hamkor xizmatga ham yuboriladi.
-              Matnlar bizda saqlanmaydi, lekin maxfiy ma'lumot yuborishdan oldin shuni hisobga oling.
-              Faqat o'z serverimizda ishlaydigan modellar uchun bu yozuv ko'rinmaydi.
-            </p>
+            <p className="muted small" style={{ margin: 0 }}> {tr("Bu modelda so'rov mazmuni javob tayyorlash uchun hamkor xizmatga ham yuboriladi. Matnlar bizda saqlanmaydi, lekin maxfiy ma'lumot yuborishdan oldin shuni hisobga oling. Faqat o'z serverimizda ishlaydigan modellar uchun bu yozuv ko'rinmaydi.")} </p>
           </div>
         </div>
       )}
 
       <div className="block">
-        <div className="block-head"><h2>Qanday ishlatish</h2></div>
+        <div className="block-head"><h2>{tr("Qanday ishlatish")}</h2></div>
         <div className="panel">
           <pre className="code" style={{ margin: 0 }}>{`client.chat.completions.create(
     model="${m.id}",
     messages=[{"role": "user", "content": "Salom!"}],
 )`}</pre>
         </div>
-        <p className="muted small" style={{ marginTop: 10 }}>
-          To'liq misollar <Link to="/app/docs">Hujjatlar</Link> sahifasida.
-        </p>
+        <p className="muted small" style={{ marginTop: 10 }}> {tr("To'liq misollar")} <Link to="/app/docs">{tr("Hujjatlar")}</Link> {tr("sahifasida.")} </p>
       </div>
     </>
   )

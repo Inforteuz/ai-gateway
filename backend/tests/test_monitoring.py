@@ -79,8 +79,10 @@ def test_state_restored_after_restart(env):
     assert env.app.state.health["state"] == "tunnel_down" and env.app.state.health["since"] == 1030
 
 
-def test_uptime_and_timeline(env):
-    t = monitor.now()
+def test_uptime_and_timeline(env, monkeypatch):
+    # Keep all samples in today's bucket, including when tests run just after midnight.
+    t = monitor.day_start() + 12 * 3600
+    monkeypatch.setattr(monitor, "now", lambda: t)
     for i in range(10):
         monitor.record(env.app, "up" if i < 8 else "tunnel_down", 5, None, t - 600 + i * 30)
     assert monitor.uptime_pct(env.db, t - 3600) == 80.0

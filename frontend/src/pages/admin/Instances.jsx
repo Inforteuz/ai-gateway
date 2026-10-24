@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../../i18n/index.jsx'
 import { useState } from 'react'
 import { api } from '../../api.js'
 import { Empty, ErrorNote, Loading, Modal, useLoad, useToast } from '../../components/ui.jsx'
@@ -40,6 +41,7 @@ const BLOCK_REASON = {
 
 // Renderer memory: RAM + swap of the site's process (the cluster reads it from /proc)
 function MemoryBar({ mem, threshold }) {
+  useLocaleRefresh()
   if (!mem || mem.renderer_rss_mb == null) return null
   const total = mem.renderer_rss_mb + mem.renderer_swap_mb
   const pct = threshold ? Math.min(100, Math.round((total / threshold) * 100)) : 0
@@ -47,13 +49,13 @@ function MemoryBar({ mem, threshold }) {
   return (
     <div className={`inst-mem ${tone}`}>
       <div className="inst-mem__top">
-        <span>Xotira</span>
-        <b>{total} MB{threshold ? <small> / {threshold}</small> : null}</b>
+        <span>{tr("Xotira")}</span>
+        <b>{tr(total)} MB{tr(threshold ? <small> / {tr(threshold)}</small> : null)}</b>
       </div>
-      {threshold ? <div className="inst-mem__bar"><i style={{ width: `${pct}%` }} /></div> : null}
+      {tr(threshold ? <div className="inst-mem__bar"><i style={{ width: `${pct}%` }} /></div> : null)}
       <div className="inst-mem__sub">
-        RAM {mem.renderer_rss_mb} · swap {mem.renderer_swap_mb}
-        {mem.recoveries_24h > 0 && <> · 24 soatda {mem.recoveries_24h} tiklash</>}
+        RAM {tr(mem.renderer_rss_mb)} {tr("· swap")} {tr(mem.renderer_swap_mb)}
+        {mem.recoveries_24h > 0 && <> {tr("· 24 soatda")} {tr(mem.recoveries_24h)} {tr("tiklash")}</>}
       </div>
     </div>
   )
@@ -63,32 +65,34 @@ function MemoryBar({ mem, threshold }) {
 // this is only the explanation.
 const POLICY = {
   registry: {
-    card: (c) => `Shlyuz chatlari · reyestrda ${c.registry_size ?? '?'} ta`,
-    rule: <>Faqat <b>shlyuz o'zi yaratgan</b> (reyestrdagi), 7 kundan yangi va pin qilinmagan chatlar o'chiriladi. Reyestrda yo'q chatlarga — jumladan shaxsiy chatlaringizga — tegilmaydi.</>,
+    card: (c) => tr("Shlyuz chatlari · reyestrda {v0} ta", { v0: (c.registry_size ?? '?') }),
+    rule: <>{tr("Faqat")} <b>{tr("shlyuz o'zi yaratgan")}</b> {tr("(reyestrdagi), 7 kundan yangi va pin qilinmagan chatlar o'chiriladi. Reyestrda yo'q chatlarga — jumladan shaxsiy chatlaringizga — tegilmaydi.")}</>,
   },
   pin: {
-    card: () => 'Pin qilinmaganlar',
-    rule: <><b>Pin qilinmagan</b> chatlar o'chiriladi (eng yangilari qoladi). Saqlab qolmoqchi bo'lgan chatni avval provayderda pin qiling — pin qilinganlarga tegilmaydi.</>,
+    card: () => tr("Pin qilinmaganlar"),
+    rule: <><b>{tr("Pin qilinmagan")}</b> {tr("chatlar o'chiriladi (eng yangilari qoladi). Saqlab qolmoqchi bo'lgan chatni avval provayderda pin qiling — pin qilinganlarga tegilmaydi.")}</>,
   },
   all: {
-    card: () => 'Barcha chatlar',
-    rule: <>Bu akkauntdagi <b>barcha</b> chatlar o'chiriladi — egasi bu akkauntdagi chatlarning hammasi keraksiz ekanini tasdiqlagan.</>,
+    card: () => tr("Barcha chatlar"),
+    rule: <>{tr("Bu akkauntdagi")} <b>{tr("barcha")}</b> {tr("chatlar o'chiriladi — egasi bu akkauntdagi chatlarning hammasi keraksiz ekanini tasdiqlagan.")}</>,
   },
 }
 
 function TitleList({ title, items, extra }) {
+  useLocaleRefresh()
   if (!items?.length) return null
   return (
     <details style={{ marginTop: 8 }}>
-      <summary className="small">{title} ({items.length}{extra ? '+' : ''})</summary>
+      <summary className="small">{tr(title)} ({tr(items.length)}{tr(extra ? '+' : '')})</summary>
       <ol className="small" style={{ maxHeight: 220, overflow: 'auto', margin: '6px 0 0', paddingLeft: 22 }}>
-        {items.map((t, i) => <li key={i}>{t || <span className="dim">(sarlavhasiz)</span>}</li>)}
+        {items.map((t, i) => <li key={i}>{t || <span className="dim">{tr("(sarlavhasiz)")}</span>}</li>)}
       </ol>
     </details>
   )
 }
 
 function InstanceCard({ it, vncEnabled, threshold, onDone }) {
+  useLocaleRefresh()
   const toast = useToast()
   const [pending, setPending] = useState('')
   const [plan, setPlan] = useState(null)
@@ -125,109 +129,104 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
   return (
     <div className={`inst-card ${st.tone}`}>
       <div className="inst-card__head">
-        <b>#{it.instance} {it.models?.join(', ') || '—'}</b>
-        <small>:{it.port}</small>
+        <b>#{tr(it.instance)} {tr(it.models?.join(', ') || '—')}</b>
+        <small>:{tr(it.port)}</small>
       </div>
       <div className="inst-card__state">
         <span className={`dot ${st.dot}`} />
-        {st.label}
-        {tab?.cooldown_left > 0 && <span className="muted"> · {tab.cooldown_left}s</span>}
-        {it.busy && <span className="muted"> · amal bajarilyapti…</span>}
+        {tr(st.label)}
+        {tab?.cooldown_left > 0 && <span className="muted"> · {tr(tab.cooldown_left)}{tr("s")}</span>}
+        {it.busy && <span className="muted"> {tr("· amal bajarilyapti…")}</span>}
       </div>
 
       <MemoryBar mem={mem} threshold={threshold} />
 
       <dl className="inst-card__facts">
         {tab?.last_probe && <>
-          <dt>Sessiya</dt>
-          <dd>{tab.last_probe.ok ? 'joyida' : tab.last_probe.reason} · {fmtAgo(tab.last_probe.ts)}</dd>
+          <dt>{tr("Sessiya")}</dt>
+          <dd>{tr(tab.last_probe.ok ? 'joyida' : tab.last_probe.reason)} · {fmtAgo(tab.last_probe.ts)}</dd>
         </>}
         {cleanup && <>
-          <dt>Tozalash</dt>
-          <dd title={POLICY[cleanup.policy] ? undefined : cleanup.policy}>{POLICY[cleanup.policy]?.card(cleanup) || cleanup.policy}</dd>
+          <dt>{tr("Tozalash")}</dt>
+          <dd title={POLICY[cleanup.policy] ? undefined : cleanup.policy}>{tr(POLICY[cleanup.policy]?.card(cleanup) || cleanup.policy)}</dd>
         </>}
         {mem?.last_result && <>
-          <dt>Tiklash</dt>
-          <dd className="inst-clip" title={mem.last_result.summary}>{mem.last_result.ok ? 'muvaffaqiyatli' : 'muammo'} · {fmtAgo(mem.last_result.ts)}</dd>
+          <dt>{tr("Tiklash")}</dt>
+          <dd className="inst-clip" title={tr(mem.last_result.summary)}>{tr(mem.last_result.ok ? 'muvaffaqiyatli' : 'muammo')} · {fmtAgo(mem.last_result.ts)}</dd>
         </>}
         {it.last_action && <>
-          <dt>Oxirgi amal</dt>
-          <dd className="inst-clip" title={it.last_action.summary || ''}>{ACTIONS[it.last_action.action] || it.last_action.action} · {fmtAgo(it.last_action.ts)}</dd>
+          <dt>{tr("Oxirgi amal")}</dt>
+          <dd className="inst-clip" title={it.last_action.summary || ''}>{tr(ACTIONS[it.last_action.action] || it.last_action.action)} · {fmtAgo(it.last_action.ts)}</dd>
         </>}
       </dl>
 
       {(it.last_error || mem?.blocked) && (
         <div className="inst-card__alert">
           {mem?.blocked && (
-            <div title={`VNC orqali tekshiring; sessiya joyida bo'lsa, "RAM bo'shatish" blokni olib tashlaydi.`}>
-              Avto-tiklash to'xtatilgan: {BLOCK_REASON[mem.blocked.reason] || mem.blocked.reason} ({fmtAgo(mem.blocked.ts)})
+            <div title={tr("VNC orqali tekshiring; sessiya joyida bo'lsa, \"RAM bo'shatish\" blokni olib tashlaydi.")}> {tr("Avto-tiklash to'xtatilgan:")} {tr(BLOCK_REASON[mem.blocked.reason] || mem.blocked.reason)} ({fmtAgo(mem.blocked.ts)})
             </div>
           )}
-          {it.last_error && <div className="inst-clip" title={it.last_error}>{it.last_error}</div>}
+          {it.last_error && <div className="inst-clip" title={tr(it.last_error)}>{tr(it.last_error)}</div>}
         </div>
       )}
 
       <div className="inst-card__actions">
         <button type="button" className="btn btn--small" disabled={busy} onClick={() => run('probe')}>
-          {pending === 'probe' ? 'Tekshirilmoqda…' : 'Tekshirish'}
+          {tr(pending === 'probe' ? tr("Tekshirilmoqda…") : 'Tekshirish')}
         </button>
         <button type="button" className="btn btn--small" disabled={busy} onClick={() => run('reload')}>
-          {pending === 'reload' ? 'Yuklanmoqda…' : 'Qayta yuklash'}
+          {tr(pending === 'reload' ? tr("Yuklanmoqda…") : tr("Qayta yuklash"))}
         </button>
         {cleanup && (
           <button type="button" className="btn btn--small" disabled={busy} onClick={dryRun}>
-            {pending === 'cleanup' ? 'Hisoblanmoqda…' : 'Chat tozalash'}
+            {tr(pending === 'cleanup' ? tr("Hisoblanmoqda…") : tr("Chat tozalash"))}
           </button>
         )}
         {tab && (
           <button type="button" className="btn btn--small" disabled={busy} onClick={() => setConfirmRecover(true)}
-                  title={restartsChrome ? "Chrome'ni qayta ishga tushirish — login saqlanadi"
-                                        : "Tabni yangi renderer'da qayta ochish — Chrome qayta ishga tushmaydi"}>
-            {pending === 'recover-memory' ? 'Boshlanmoqda…' : 'RAM bo\'shatish'}
+                  title={restartsChrome ? tr("Chrome'ni qayta ishga tushirish — login saqlanadi")
+                                        : tr("Tabni yangi renderer'da qayta ochish — Chrome qayta ishga tushmaydi")}>
+            {tr(pending === 'recover-memory' ? tr("Boshlanmoqda…") : tr("RAM bo'shatish"))}
           </button>
         )}
-        <button type="button" className="btn btn--small btn--primary inst-card__vnc" disabled={!vncEnabled} onClick={openVnc}>
-          VNC'ni ochish
-        </button>
+        <button type="button" className="btn btn--small btn--primary inst-card__vnc" disabled={!vncEnabled} onClick={openVnc}> {tr("VNC'ni ochish")} </button>
       </div>
       {confirmRecover && (
         <Modal title={`#${it.instance}: tabni tiklash`} onClose={() => setConfirmRecover(false)}
           actions={<>
-            <button type="button" className="btn" onClick={() => setConfirmRecover(false)}>Bekor qilish</button>
+            <button type="button" className="btn" onClick={() => setConfirmRecover(false)}>{tr("Bekor qilish")}</button>
             <button type="button" className="btn btn--primary"
-                    onClick={() => { setConfirmRecover(false); run('recover-memory') }}>
-              Tiklash
-            </button>
+                    onClick={() => { setConfirmRecover(false); run('recover-memory') }}> {tr("Tiklash")} </button>
           </>}>
           {restartsChrome
-            ? <p>Bu instansiyada tabni qayta ochish xotirani bo'shatmaydi, shuning uchun <b>Chrome qayta ishga tushiriladi</b> (faqat shu instansiya). Login diskda saqlanadi va restartdan omon qoladi; oldin cookie zaxirasi olinadi.</p>
-            : <p>Provayder tabi yopilib, sayt yangi tabda (yangi renderer jarayonida) qayta ochiladi — renderer to'plagan xotira bo'shaydi. Chrome qayta ishga tushirilmaydi, login cookie'lariga tegilmaydi.</p>}
+            ? <p>{tr("Bu instansiyada tabni qayta ochish xotirani bo'shatmaydi, shuning uchun")} <b>{tr("Chrome qayta ishga tushiriladi")}</b> {tr("(faqat shu instansiya). Login diskda saqlanadi va restartdan omon qoladi; oldin cookie zaxirasi olinadi.")}</p>
+            : <p>{tr("Provayder tabi yopilib, sayt yangi tabda (yangi renderer jarayonida) qayta ochiladi — renderer to'plagan xotira bo'shaydi. Chrome qayta ishga tushirilmaydi, login cookie'lariga tegilmaydi.")}</p>}
           <ul className="small" style={{ marginTop: 8 }}>
-            <li>Tiklashdan oldin va keyin sessiya tekshiriladi; sessiya yo'qolsa — Telegram'ga xabar ketadi va avto-tiklash shu instansiyada to'xtatiladi.</li>
-            <li>Jonli so'rov tugashi kutiladi (30 soniyagacha); tiklash odatda 15–40 soniya oladi va bu vaqtda instansiya so'rov qabul qilmaydi.</li>
-            {mem?.renderer_rss_mb != null && <li>Hozir: {mem.renderer_rss_mb} MB RAM + {mem.renderer_swap_mb} MB swap.</li>}
+            <li>{tr("Tiklashdan oldin va keyin sessiya tekshiriladi; sessiya yo'qolsa — Telegram'ga xabar ketadi va avto-tiklash shu instansiyada to'xtatiladi.")}</li>
+            <li>{tr("Jonli so'rov tugashi kutiladi (30 soniyagacha); tiklash odatda 15–40 soniya oladi va bu vaqtda instansiya so'rov qabul qilmaydi.")}</li>
+            {mem?.renderer_rss_mb != null && <li>{tr("Hozir:")} {tr(mem.renderer_rss_mb)} {tr("MB RAM +")} {tr(mem.renderer_swap_mb)} {tr("MB swap.")}</li>}
           </ul>
         </Modal>
       )}
       {plan && (
-        <Modal title={`#${it.instance}: eski chatlarni tozalash`} onClose={() => setPlan(null)}
+        <Modal title={tr("#{v0}: eski chatlarni tozalash", { v0: (it.instance) })} onClose={() => setPlan(null)}
           actions={<>
-            <button type="button" className="btn" onClick={() => setPlan(null)}>Bekor qilish</button>
+            <button type="button" className="btn" onClick={() => setPlan(null)}>{tr("Bekor qilish")}</button>
             <button type="button" className="btn btn--danger" disabled={!plan.would_delete}
                     onClick={() => { setPlan(null); run('cleanup', { dry_run: false }) }}>
-              {plan.would_delete ? `${plan.would_delete} ta chatni o'chirish` : "O'chiriladigan chat yo'q"}
+              {tr(plan.would_delete ? tr("{v0} ta chatni o'chirish", { v0: (plan.would_delete) }) : tr("O'chiriladigan chat yo'q"))}
             </button>
           </>}>
-          <p>{POLICY[plan.policy]?.rule}</p>
+          <p>{tr(POLICY[plan.policy]?.rule)}</p>
           <ul className="small" style={{ marginTop: 8 }}>
-            <li>O'chiriladi: <b>{plan.would_delete ?? 0}</b>{plan.later > 0 ? ` (yana ${plan.later} tasi keyingi yurishlarda)` : ''}</li>
-            <li>Himoyalangan / qoladi: {plan.protected ?? 0}</li>
-            {plan.skipped > 0 && <li>O'tkazib yuborildi (holatini o'qib bo'lmadi): {plan.skipped}</li>}
-            <li>Yon panelda: {plan.rows ?? 0}{plan.registry_size != null ? `, reyestrda: ${plan.registry_size}` : ''}{plan.complete === false ? ' (ro\'yxat to\'liq yuklanmadi)' : ''}</li>
+            <li>{tr("O'chiriladi:")} <b>{tr(plan.would_delete ?? 0)}</b>{tr(plan.later > 0 ? tr("(yana {v0} tasi keyingi yurishlarda)", { v0: (plan.later) }) : '')}</li>
+            <li>{tr("Himoyalangan / qoladi:")} {tr(plan.protected ?? 0)}</li>
+            {plan.skipped > 0 && <li>{tr("O'tkazib yuborildi (holatini o'qib bo'lmadi):")} {tr(plan.skipped)}</li>}
+            <li>{tr("Yon panelda:")} {tr(plan.rows ?? 0)}{tr(plan.registry_size != null ? `, reyestrda: ${plan.registry_size}` : '')}{tr(plan.complete === false ? tr("(ro'yxat to'liq yuklanmadi)") : '')}</li>
           </ul>
-          <TitleList title="O'chiriladigan chatlar" items={plan.delete_titles} extra={plan.would_delete > (plan.delete_titles?.length || 0)} />
-          <TitleList title="Qoladigan chatlar" items={plan.protect_titles} extra={plan.protected > (plan.protect_titles?.length || 0)} />
-          <p className="muted small" style={{ marginTop: 8 }}>O'chirish fonda bajariladi (~5–7 soniya/chat); bu vaqtda shu instansiya so'rov qabul qilmaydi. Natija pastdagi jurnalda ko'rinadi.</p>
+          <TitleList title={tr("O'chiriladigan chatlar")} items={plan.delete_titles} extra={plan.would_delete > (plan.delete_titles?.length || 0)} />
+          <TitleList title={tr("Qoladigan chatlar")} items={plan.protect_titles} extra={plan.protected > (plan.protect_titles?.length || 0)} />
+          <p className="muted small" style={{ marginTop: 8 }}>{tr("O'chirish fonda bajariladi (~5–7 soniya/chat); bu vaqtda shu instansiya so'rov qabul qilmaydi. Natija pastdagi jurnalda ko'rinadi.")}</p>
         </Modal>
       )}
     </div>
@@ -235,6 +234,7 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
 }
 
 export default function Instances() {
+  useLocaleRefresh()
   const { data, error, reload } = useLoad(() => api.get('/portal/admin/instances'), [], { refreshMs: 10_000 })
   const items = data?.instances || []
   const sys = data?.system
@@ -244,25 +244,27 @@ export default function Instances() {
     <>
       <div className="page-head">
         <div>
-          <h1>Brauzer instansiyalari</h1>
-          <p>Har instansiya holati va VNC'ga kirmasdan boshqarish. Amallar Chrome'ni qayta ishga tushirmaydi — loginlar saqlanadi. Sahifa 10 soniyada yangilanadi.</p>
+          <h1>{tr("Brauzer instansiyalari")}</h1>
+          <p>{tr("Har instansiya holati va VNC'ga kirmasdan boshqarish. Amallar Chrome'ni qayta ishga tushirmaydi — loginlar saqlanadi. Sahifa 10 soniyada yangilanadi.")}</p>
         </div>
-        <button type="button" className="btn btn--small" onClick={reload}>Yangilash</button>
+        <button type="button" className="btn btn--small" onClick={reload}>{tr("Yangilash")}</button>
       </div>
       <ErrorNote error={error} retry={reload} />
       {!data && !error && <Loading rows={3} />}
       {data && !data.vnc_enabled && (
-        <div className="alert alert--warn" style={{ marginBottom: 16 }}>VNC sozlanmagan: serverda <code>SF_VNC_PASSWORD</code> berilmagan.</div>
+        <div className="alert alert--warn" style={{ marginBottom: 16 }}>{tr("VNC sozlanmagan: serverda")} <code>SF_VNC_PASSWORD</code> {tr("berilmagan.")}</div>
       )}
       {sys?.swap_total_mb > 0 && (
         <div className={`alert ${sys.swap_percent >= 80 ? 'alert--warn' : ''}`} style={{ marginBottom: 16 }}>
-          Server: swap <b>{sys.swap_percent}%</b> band ({sys.swap_used_mb} / {sys.swap_total_mb} MB), bo'sh RAM {sys.mem_available_mb} / {sys.mem_total_mb} MB.
+          {/* "swap" is kept next to the number: wrapped onto its own line it read as
+              though 5% of the SERVER were busy, which is a different thing entirely. */} {tr("Server:")} <b style={{ whiteSpace: 'nowrap' }}>{tr("swap")} {tr(sys.swap_percent)}{tr("% band")}</b>{' '}
+          ({tr(sys.swap_used_mb)} / {tr(sys.swap_total_mb)} {tr("MB),")} <span style={{ whiteSpace: 'nowrap' }}>{tr("bo'sh RAM")} {tr(sys.mem_available_mb)} / {tr(sys.mem_total_mb)} MB</span>.
           {guard && (guard.enabled
-            ? <span className="dim"> Avto-tiklash: renderer {guard.threshold_mb} MB dan oshsa, eng kami {Math.round(guard.min_gap / 60)} daqiqa oraliq bilan, kuniga {guard.max_per_day} martagacha.</span>
-            : <span className="dim"> Avto-tiklash o'chiq.</span>)}
+            ? <span className="dim"> {tr("Avto-tiklash: renderer")} {tr(guard.threshold_mb)} {tr("MB dan oshsa, eng kami")} {Math.round(guard.min_gap / 60)} {tr("daqiqa oraliq bilan, kuniga")} {tr(guard.max_per_day)} {tr("martagacha.")}</span>
+            : <span className="dim"> {tr("Avto-tiklash o'chiq.")}</span>)}
         </div>
       )}
-      {data && items.length === 0 && <Empty title="Instansiya yo'q">Klasterda CDP porti sozlanmagan.</Empty>}
+      {data && items.length === 0 && <Empty title={tr("Instansiya yo'q")}>{tr("Klasterda CDP porti sozlanmagan.")}</Empty>}
       {items.length > 0 && (
         <div className="inst-grid">
           {items.map((it) => <InstanceCard key={it.port} it={it} vncEnabled={!!data.vnc_enabled} threshold={guard?.threshold_mb} onDone={reload} />)}
@@ -270,18 +272,18 @@ export default function Instances() {
       )}
       {data?.audit && (
         <div className="block panel">
-          <div className="panel-head"><h2>Amallar jurnali</h2></div>
-          {data.audit.length === 0 ? <Empty title="Hali amal bajarilmagan" /> : (
+          <div className="panel-head"><h2>{tr("Amallar jurnali")}</h2></div>
+          {data.audit.length === 0 ? <Empty title={tr("Hali amal bajarilmagan")} /> : (
             <div className="table-wrap"><table className="table">
-              <thead><tr><th>Vaqt</th><th>Kim</th><th>Instansiya</th><th>Amal</th><th>Natija</th></tr></thead>
+              <thead><tr><th>{tr("Vaqt")}</th><th>{tr("Kim")}</th><th>{tr("Instansiya")}</th><th>{tr("Amal")}</th><th>{tr("Natija")}</th></tr></thead>
               <tbody>
                 {data.audit.map((a) => (
                   <tr key={a.id}>
                     <td className="muted nowrap">{fmtDateTime(a.created_at)}</td>
-                    <td>{a.admin_email}</td>
+                    <td>{tr(a.admin_email)}</td>
                     <td>#{a.target.replace('instance:', '')}</td>
-                    <td>{ACTIONS[a.action] || a.action}</td>
-                    <td><span className={`tag ${a.ok ? 'tag--ok' : 'tag--bad'}`}>{a.ok ? 'OK' : 'Xato'}</span> <span className="dim small">{a.detail}</span></td>
+                    <td>{tr(ACTIONS[a.action] || a.action)}</td>
+                    <td><span className={`tag ${a.ok ? 'tag--ok' : 'tag--bad'}`}>{tr(a.ok ? 'OK' : tr("Xato"))}</span> <span className="dim small">{tr(a.detail)}</span></td>
                   </tr>
                 ))}
               </tbody>

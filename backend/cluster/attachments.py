@@ -49,7 +49,10 @@ _EXT_BY_MIME = {
 
 
 class AttachmentError(ValueError):
-    """Attachment rejected (size, type or address)."""
+    """Stable code and bounded context travel separately from the display text."""
+    def __init__(self, message, code="attachment_rejected", **details):
+        super().__init__(message)
+        self.code, self.details = code, details
 
 
 @dataclass
@@ -117,15 +120,15 @@ class AttachmentStore:
         if len(data) > cfg.MAX_ATTACHMENT_BYTES:
             raise AttachmentError(
                 f"The file is too large: {len(data) // 1024} KB "
-                f"(limit {cfg.MAX_ATTACHMENT_BYTES // 1024} KB)")
+                f"(limit {cfg.MAX_ATTACHMENT_BYTES // 1024} KB)", 'attachment_too_large', size_kb=len(data) // 1024, limit_kb=cfg.MAX_ATTACHMENT_BYTES // 1024)
         if self.total_size + len(data) > cfg.MAX_ATTACHMENTS_TOTAL_BYTES:
-            raise AttachmentError("The attachments exceed the total size limit")
+            raise AttachmentError("The attachments exceed the total size limit", 'attachments_total_exceeded')
         if len(self.items) >= cfg.MAX_ATTACHMENTS:
-            raise AttachmentError(f"At most {cfg.MAX_ATTACHMENTS} files per request")
+            raise AttachmentError(f"At most {cfg.MAX_ATTACHMENTS} files per request", 'attachments_count_exceeded', limit=cfg.MAX_ATTACHMENTS)
 
         mime = (mime or "application/octet-stream").split(";")[0].strip().lower()
         if cfg.ALLOWED_ATTACHMENT_MIMES and mime not in cfg.ALLOWED_ATTACHMENT_MIMES:
-            raise AttachmentError(f"This file type is not accepted: {mime}")
+            raise AttachmentError(f"This file type is not accepted: {mime}", 'attachment_type_rejected', mime=mime)
 
         ext = _EXT_BY_MIME.get(mime) or mimetypes.guess_extension(mime) or ".bin"
         safe = _safe_name(name, ext)
@@ -151,7 +154,7 @@ class AttachmentStore:
             try:
                 data = base64.b64decode(payload, validate=False)
             except (binascii.Error, ValueError) as e:
-                raise AttachmentError(f"The base64 payload could not be read: {e}") from e
+                raise AttachmentError(f"The base64 payload could not be read: {e}", 'attachment_invalid_base64') from e
         else:
             data = urllib.parse.unquote_to_bytes(payload)
         return self.add_bytes(data, mime, name)
@@ -188,18 +191,18 @@ def _resolve_public(url: str) -> tuple[urllib.parse.ParseResult, str]:
     """
     parts = urllib.parse.urlparse(url)
     if parts.scheme not in ("http", "https"):
-        raise AttachmentError("Only http/https links are accepted")
+        raise AttachmentError("Only http/https links are accepted", 'link_scheme_rejected')
     host = parts.hostname
     if not host:
-        raise AttachmentError("The link has no host")
+        raise AttachmentError("The link has no host", 'link_host_missing')
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (socket.gaierror, ValueError) as e:
-        raise AttachmentError(f"The host could not be resolved: {host}") from e
+        raise AttachmentError(f"The host could not be resolved: {host}", 'link_host_unresolved', host=host) from e
     ips = [ipaddress.ip_address(info[4][0]) for info in infos]
     if not ips or not all(_is_public_ip(ip) for ip in ips):
-        raise AttachmentError("Internal network addresses are not allowed")
+        raise AttachmentError("Internal network addresses are not allowed", 'link_not_allowed')
     return parts, str(ips[0])
 
 
@@ -224,12 +227,12 @@ def _fetch_public(url: str, limit: int, timeout: float) -> tuple[bytes, str]:
             resp = conn.getresponse()
             if 300 <= resp.status < 400:
                 # Redirects are not followed: the target could be an internal address
-                raise AttachmentError("The link redirects elsewhere; send the direct link")
+                raise AttachmentError("The link redirects elsewhere; send the direct link", 'link_redirect_rejected')
             if resp.status != 200:
-                raise AttachmentError(f"The file could not be downloaded: HTTP {resp.status}")
+                raise AttachmentError(f"The file could not be downloaded: HTTP {resp.status}", 'attachment_download_http', status=resp.status)
             declared = resp.getheader("Content-Length")
             if declared and declared.isdigit() and int(declared) > limit:
-                raise AttachmentError(f"The file is too large: {int(declared) // 1024} KB")
+                raise AttachmentError(f"The file is too large: {int(declared) // 1024} KB", 'attachment_too_large', size_kb=int(declared) // 1024, limit_kb=limit // 1024)
             # Read 1 byte past the limit so add_bytes() detects oversize
             data = resp.read(limit + 1)
             mime = (resp.getheader("Content-Type") or "").split(";")[0].strip()
@@ -239,7 +242,7 @@ def _fetch_public(url: str, limit: int, timeout: float) -> tuple[bytes, str]:
     except AttachmentError:
         raise
     except Exception as e:
-        raise AttachmentError(f"The file could not be downloaded: {type(e).__name__}") from e
+        raise AttachmentError(f"The file could not be downloaded: {type(e).__name__}", 'attachment_download_failed', reason=type(e).__name__) from e
 
 
 def parse_message_content(content: Any, store: AttachmentStore) -> ParsedContent:

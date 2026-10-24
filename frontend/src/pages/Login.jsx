@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
@@ -23,6 +24,7 @@ const IconLock = (props) => (
 const POINTS = ['login.point1', 'login.point2', 'login.point3']
 
 export default function Login() {
+  useLocaleRefresh()
   const { user, loading, registrationOpen, refresh } = useAuth()
   const site = useSite()
   const t = useT()
@@ -81,9 +83,9 @@ export default function Login() {
         <div className="auth-side__top">
           <Link to="/" className="brand brand--rail">
             <Logo />
-            <span><b>{site.brand_name}</b><small>AI API</small></span>
+            <span><b>{tr(site.brand_name)}</b><small>AI API</small></span>
           </Link>
-          <span className="auth-badge"><i aria-hidden="true" />v2.0 &middot; {t('login.badge')}</span>
+          <span className="auth-badge"><i aria-hidden="true" />{tr("v2.0 ·")} {t('login.badge')}</span>
         </div>
 
         <div className="quote">
@@ -103,15 +105,15 @@ export default function Login() {
         <div className="auth-lang"><LangSwitch /></div>
         <form className="auth-box" onSubmit={submit}>
           <div className="auth-box__head">
-            <h1>{register ? t('login.register') : t('login.signIn')}</h1>
+            <h1>{tr(register ? t('login.register') : t('login.signIn'))}</h1>
             <p>
-              {register
+              {tr(register
                 ? t('login.registerLead')
-                : t('login.signInLead', { brand: site.brand_name })}
+                : t('login.signInLead', { brand: site.brand_name }))}
             </p>
           </div>
 
-          {(error || oauthCode) && <div className="alert alert--error" role="alert">{error || oauthErrorText(t, oauthCode)}</div>}
+          {(error || oauthCode) && <div className="alert alert--error" role="alert">{tr(error || oauthErrorText(t, oauthCode))}</div>}
 
           {register && (
             <label className="auth-field">
@@ -176,7 +178,7 @@ export default function Login() {
           )}
 
           <button className="btn btn--primary btn--large auth-submit" disabled={busy}>
-            {busy ? t('login.wait') : <>{register ? t('login.submitRegister') : t('login.submitSignIn')} <IconArrowRight /></>}
+            {tr(busy ? t('login.wait') : <>{tr(register ? t('login.submitRegister') : t('login.submitSignIn'))} <IconArrowRight /></>)}
           </button>
 
           <SocialLogin mode={mode} />
@@ -184,9 +186,9 @@ export default function Login() {
 
           {registrationOpen && (
             <p className="auth-foot">
-              {register ? t('login.haveAccount') : t('login.noAccount')}{' '}
+              {tr(register ? t('login.haveAccount') : t('login.noAccount'))}{' '}
               <button type="button" className="auth-link" onClick={toggleMode}>
-                {register ? t('login.submitSignIn') : t('login.registerCta')}
+                {tr(register ? t('login.submitSignIn') : t('login.registerCta'))}
               </button>
             </p>
           )}

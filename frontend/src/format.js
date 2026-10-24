@@ -1,6 +1,6 @@
 // Money is stored on the server as integer "micro-som" (1 som = 1 000 000).
 // Formatters read the current UI language, so callers need no extra argument.
-import { getLang, translate } from './i18n/index.jsx'
+import { getLang, translate, localeOf } from './i18n/index.jsx'
 
 export const MICRO = 1_000_000
 
@@ -12,10 +12,7 @@ function group(intStr) {
 
 /** 12345.5 -> "12 345,5" (space for thousands, comma for decimals — same in uz and ru). */
 export function fmtNumber(value, decimals = 0) {
-  const neg = value < 0
-  const fixed = Math.abs(value).toFixed(decimals)
-  const [i, d] = fixed.split('.')
-  return (neg ? '-' : '') + group(i) + (d ? ',' + d : '')
+  return new Intl.NumberFormat(localeOf(), { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(Number(value) || 0)
 }
 
 /** Som amount in a readable form: large sums rounded, small ones precise. */
@@ -26,7 +23,7 @@ export function fmtSom(micro, { sign = false, unit = true } = {}) {
   if (abs >= 1000) s = fmtNumber(v, 0)
   else if (abs >= 1) s = fmtNumber(v, 2)
   else if (abs === 0) s = '0'
-  else s = fmtNumber(v, abs < 0.01 ? 6 : 4).replace(/,?0+$/, '')
+  else s = fmtNumber(v, abs < 0.01 ? 6 : 4).replace(/[,.]?0+$/, '')
   if (sign && v > 0) s = '+' + s
   return unit ? `${s}${nbsp}${translate('common.som')}` : s
 }
@@ -34,17 +31,19 @@ export function fmtSom(micro, { sign = false, unit = true } = {}) {
 export const fmtInt = (n) => fmtNumber(n || 0, 0)
 
 const MONTHS = {
+  en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   uz: ['yan', 'fev', 'mar', 'apr', 'may', 'iyn', 'iyl', 'avg', 'sen', 'okt', 'noy', 'dek'],
   ru: ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'],
 }
 const MONTHS_LONG = {
+  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
   uz: ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'],
   ru: ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
 }
 const monthsShort = () => MONTHS[getLang()] || MONTHS.uz
 const monthsLong = () => MONTHS_LONG[getLang()] || MONTHS_LONG.uz
 // Uzbek writes "20-oktabr", Russian "20 октября"
-const dayMonth = (day, month) => (getLang() === 'ru' ? `${day} ${month}` : `${day}-${month}`)
+const dayMonth = (day, month) => (getLang() === 'uz' ? `${day}-${month}` : `${day} ${month}`)
 
 const tz = { timeZone: 'Asia/Tashkent' }
 

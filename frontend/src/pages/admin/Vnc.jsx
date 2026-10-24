@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../../i18n/index.jsx'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../../api.js'
@@ -16,6 +17,7 @@ const STATUS = {
 }
 
 export default function Vnc() {
+  useLocaleRefresh()
   const { n } = useParams()
   const site = useSite()
   const box = useRef(null)
@@ -53,13 +55,13 @@ export default function Vnc() {
       r.addEventListener('disconnect', (e) => {
         if (my !== attempt.current) return   // deliberately disconnected or superseded by a newer attempt
         setStatus('closed')
-        if (!e.detail?.clean) setError('Ulanish uzildi. Qayta ulaning.')
+        if (!e.detail?.clean) setError(tr("Ulanish uzildi. Qayta ulaning."))
       })
       rfb.current = r
     } catch (e) {
       if (my !== attempt.current) return
       setStatus('closed')
-      setError(e.message || 'Ulanib bo\'lmadi')
+      setError(e.message || tr("Ulanib bo'lmadi"))
     }
   }, [n, disconnect])
 
@@ -77,13 +79,13 @@ export default function Vnc() {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#111', zIndex: 50 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 14px', background: 'var(--surface, #1b1b1b)', color: 'var(--text, #eee)', flexWrap: 'wrap' }}>
-        <b>Instansiya #{n}</b>
-        <span className="muted small">{STATUS[status]}</span>
-        {error && <span className="small" style={{ color: 'var(--bad, #f66)' }}>{error}</span>}
+        <b>{tr("Instansiya #")}{tr(n)}</b>
+        <span className="muted small">{tr(STATUS[status])}</span>
+        {error && <span className="small" style={{ color: 'var(--bad, #f66)' }}>{tr(error)}</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button type="button" className="btn btn--small" onClick={connect}>Qayta ulanish</button>
-          <button type="button" className="btn btn--small" onClick={() => { disconnect(); setStatus('closed') }}>Uzish</button>
-          <Link className="btn btn--small" to="/app/admin/instances">Instansiyalar</Link>
+          <button type="button" className="btn btn--small" onClick={connect}>{tr("Qayta ulanish")}</button>
+          <button type="button" className="btn btn--small" onClick={() => { disconnect(); setStatus('closed') }}>{tr("Uzish")}</button>
+          <Link className="btn btn--small" to="/app/admin/instances">{tr("Instansiyalar")}</Link>
         </span>
       </div>
       <div ref={box} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} />

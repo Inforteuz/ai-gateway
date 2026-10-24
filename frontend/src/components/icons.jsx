@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 // Line icons in a single consistent style. 24x24 viewBox, `currentColor`.
 // Size is set via CSS (`.ico-chip svg`, `.rail-link svg`, etc.).
 
@@ -14,7 +15,8 @@ const base = {
 }
 
 const make = (path) => function Icon(props) {
-  return <svg {...base} {...props}>{path}</svg>
+  useLocaleRefresh()
+  return <svg {...base} {...props}>{tr(path)}</svg>
 }
 
 export const IconHome = make(<><path d="M3 10.5 12 3l9 7.5" /><path d="M5.5 9.5V20h13V9.5" /><path d="M9.5 20v-5.5h5V20" /></>)

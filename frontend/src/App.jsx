@@ -1,39 +1,45 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from './api.js'
 import { AuthCtx, useAuth } from './auth.js'
 import { forgetReferral } from './referral.js'
 import { normalizeSite } from './site.js'
-import { LangProvider } from './i18n/index.jsx'
+import { LangProvider, useT } from './i18n/index.jsx'
 import { ToastProvider } from './components/ui.jsx'
-import Shell from './pages/Shell.jsx'
-import Landing from './pages/Landing.jsx'
-import Login from './pages/Login.jsx'
-import Docs from './pages/Docs.jsx'
-import PublicLayout from './pages/PublicLayout.jsx'
-import Dashboard from './pages/Dashboard.jsx'
-import Keys from './pages/Keys.jsx'
-import Usage from './pages/Usage.jsx'
-import Billing from './pages/Billing.jsx'
-import Account from './pages/Account.jsx'
-import Catalog from './pages/Catalog.jsx'
-import ModelDetail from './pages/ModelDetail.jsx'
-import AdminOverview from './pages/admin/Overview.jsx'
-import AdminUsers from './pages/admin/Users.jsx'
-import AdminTopups from './pages/admin/Topups.jsx'
-import AdminModels from './pages/admin/Models.jsx'
-import AdminSettings from './pages/admin/Settings.jsx'
-import AdminMonitoring from './pages/admin/Monitoring.jsx'
-import AdminReferrals from './pages/admin/Referrals.jsx'
-import AdminInstances from './pages/admin/Instances.jsx'
-import AdminVnc from './pages/admin/Vnc.jsx'
-import Referral from './pages/Referral.jsx'
-import Status from './pages/Status.jsx'
-import Samples from './pages/Samples.jsx'
-import Compare from './pages/Compare.jsx'
-import PasswordReset from './pages/PasswordReset.jsx'
-import Privacy from './pages/Privacy.jsx'
-import Terms from './pages/Terms.jsx'
+const AdminUsage = lazy(() => import('./pages/admin/Usage.jsx'))
+const Shell = lazy(() => import('./pages/Shell.jsx'))
+const Landing = lazy(() => import('./pages/Landing.jsx'))
+const Login = lazy(() => import('./pages/Login.jsx'))
+const Docs = lazy(() => import('./pages/Docs.jsx'))
+const PublicLayout = lazy(() => import('./pages/PublicLayout.jsx'))
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'))
+const Keys = lazy(() => import('./pages/Keys.jsx'))
+const Usage = lazy(() => import('./pages/Usage.jsx'))
+const Billing = lazy(() => import('./pages/Billing.jsx'))
+const Account = lazy(() => import('./pages/Account.jsx'))
+const Catalog = lazy(() => import('./pages/Catalog.jsx'))
+const ModelDetail = lazy(() => import('./pages/ModelDetail.jsx'))
+const AdminOverview = lazy(() => import('./pages/admin/Overview.jsx'))
+const AdminUsers = lazy(() => import('./pages/admin/Users.jsx'))
+const AdminTopups = lazy(() => import('./pages/admin/Topups.jsx'))
+const AdminModels = lazy(() => import('./pages/admin/Models.jsx'))
+const AdminSettings = lazy(() => import('./pages/admin/Settings.jsx'))
+const AdminMonitoring = lazy(() => import('./pages/admin/Monitoring.jsx'))
+const AdminReferrals = lazy(() => import('./pages/admin/Referrals.jsx'))
+const AdminInstances = lazy(() => import('./pages/admin/Instances.jsx'))
+const AdminVnc = lazy(() => import('./pages/admin/Vnc.jsx'))
+const Referral = lazy(() => import('./pages/Referral.jsx'))
+const Status = lazy(() => import('./pages/Status.jsx'))
+const Samples = lazy(() => import('./pages/Samples.jsx'))
+const Compare = lazy(() => import('./pages/Compare.jsx'))
+const PasswordReset = lazy(() => import('./pages/PasswordReset.jsx'))
+const Privacy = lazy(() => import('./pages/Privacy.jsx'))
+const Terms = lazy(() => import('./pages/Terms.jsx'))
+
+function RouteLoading() {
+  const t = useT()
+  return <div role="status" className="loading" aria-label={t('Yuklanmoqda')}>…</div>
+}
 
 function RequireAuth() {
   const { user, loading } = useAuth()
@@ -75,6 +81,7 @@ export default function App() {
     <AuthCtx.Provider value={{ ...auth, refresh, logout }}>
       <LangProvider defaultLang={auth.site.default_lang}>
       <ToastProvider>
+        <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route element={<PublicLayout />}>
             <Route path="/" element={<Landing />} />
@@ -108,6 +115,7 @@ export default function App() {
               <Route path="admin" element={<RequireAdmin />}>
                 <Route index element={<AdminOverview />} />
                 <Route path="monitoring" element={<AdminMonitoring />} />
+                <Route path="usage" element={<AdminUsage />} />
                 <Route path="instances" element={<AdminInstances />} />
                 <Route path="vnc/:n" element={<AdminVnc />} />
                 <Route path="users" element={<AdminUsers />} />
@@ -120,6 +128,7 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </ToastProvider>
       </LangProvider>
     </AuthCtx.Provider>

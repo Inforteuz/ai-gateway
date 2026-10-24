@@ -280,3 +280,14 @@ def add_model(env, mid, *, upstream="qwen3:14b", provider="local", refine=0, lis
 def configure_external(env, *, key="ext-secret-key", model="posiden/gpt-6-luna", timeout="25"):
     for k, v in {"external_base_url": "http://external/v1", "external_api_key": key, "refiner_model": model, "refine_timeout": timeout}.items():
         env.db.set_setting(k, v)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_browser_account_state():
+    from cluster import pool
+    registries = [getattr(pool, n, {}) for n in ("_ACCOUNT_BLOCKED", "_ACCOUNT_DISPATCH", "_ACCOUNT_HOURLY", "_ACCOUNT_LOCKS", "_ACCOUNT_FINISHED")]
+    for registry in registries:
+        registry.clear()
+    yield
+    for registry in registries:
+        registry.clear()

@@ -12,6 +12,9 @@ from .base_adapter import READ_TEXT_JS, BaseAIAdapter, Capabilities
 
 
 class DeepSeekAdapter(BaseAIAdapter):
+    # Long inputs are uploaded as context.txt by WorkerTab before sending.
+    # Keep the inline prompt short enough for DeepSeek's composer.
+    MAX_INPUT_CHARS = 24000
     # Measured accept: .pdf,.png,.jpg,.jpeg,.svg and many text formats.
     # DeepSeek reads images mostly for OCR — it does not generate images.
     # Measured: `setFileInputFiles` works — a preview appears in the composer
@@ -36,6 +39,7 @@ class DeepSeekAdapter(BaseAIAdapter):
     def get_direct_client(self, token: Optional[str] = None):
         """Returns DeepSeekDirectClient instance."""
         from ..deepseek_direct import DeepSeekDirectClient
+        from .. import settings as cfg
         return DeepSeekDirectClient(token or cfg.DEEPSEEK_USER_TOKEN)
 
     async def send_prompt(self, ws, prompt_text: str) -> bool:

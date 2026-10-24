@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -111,6 +111,8 @@ MIGRATIONS: dict[int, list[str]] = {
     8: [
         "ALTER TABLE models ADD COLUMN IF NOT EXISTS fallback_to TEXT",
     ],
+    # v9: request attribution; content and tool arguments are never recorded.
+    9: ["ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS attribution TEXT NOT NULL DEFAULT '{}'"],
 }
 
 # Advisory lock key for the write queue ("SFDB"). Other processes on the same

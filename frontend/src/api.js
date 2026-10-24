@@ -1,9 +1,11 @@
 // Portal API client. The session lives in a cookie; mutating requests carry a CSRF header.
-import { translate } from './i18n/index.jsx'
+import { translate, translateText, getLang } from './i18n/index.jsx'
 
 export class ApiError extends Error {
   constructor(status, code, message) {
-    super(message)
+    const translated = translateText(message)
+    const known = translate(`api.err.${code}`)
+    super(getLang() === 'uz' || translated !== message ? translated : (known !== `api.err.${code}` ? known : message))
     this.status = status
     this.code = code
   }

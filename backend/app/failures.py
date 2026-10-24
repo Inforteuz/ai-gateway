@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # Problems on our side (model/server): not the client's fault.
 PLATFORM_ERRORS = {
+    "reasoning_budget_exceeded", "generation_budget_exceeded", "generation_failed",
     "model_offline", "upstream_unavailable", "upstream_timeout", "upstream_error", "server_busy",
     "stream_interrupted", "stream_stalled", "stream_too_long", "internal_error", "abandoned", "empty_stream", "bad_upstream_json",
 }
@@ -16,6 +17,9 @@ CATEGORY_LABELS = {
 }
 
 ERROR_LABELS = {
+    "reasoning_budget_exceeded": "Reasoning time budget exceeded",
+    "generation_budget_exceeded": "Generation time budget exceeded",
+    "generation_failed": "Generation stopped by loop protection",
     "model_offline": "Model serveri ulanmagan",
     "upstream_unavailable": "Model serveri ulanmagan",
     "upstream_timeout": "Model javob berishga ulgurmadi",

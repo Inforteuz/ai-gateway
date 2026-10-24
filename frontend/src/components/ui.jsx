@@ -1,14 +1,16 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTheme } from '../theme.js'
 import { LANGS, useLang, useT } from '../i18n/index.jsx'
 
 // ---------- theme toggle ----------
 export function ThemeToggle() {
+  useLocaleRefresh()
   const { mode, cycle } = useTheme()
   const t = useT()
   const title = t('theme.title', { mode: t(`theme.${mode}`) })
   return (
-    <button type="button" className="theme-toggle" onClick={cycle} title={title} aria-label={title}>
+    <button type="button" className="theme-toggle" onClick={cycle} title={tr(title)} aria-label={tr(title)}>
       {mode === 'auto' && (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" opacity="0.5" /></svg>
       )}
@@ -24,6 +26,7 @@ export function ThemeToggle() {
 
 // ---------- language switcher ----------
 export function LangSwitch() {
+  useLocaleRefresh()
   const { lang, setLang } = useLang()
   const t = useT()
   return (
@@ -40,6 +43,7 @@ export function LangSwitch() {
 
 // ---------- password field (with an eye toggle) ----------
 export function PasswordInput({ value, onChange, ...props }) {
+  useLocaleRefresh()
   const [show, setShow] = useState(false)
   const t = useT()
   return (
@@ -67,6 +71,7 @@ export function PasswordInput({ value, onChange, ...props }) {
 
 // ---------- logo ----------
 export function Logo({ size = 36, title }) {
+  useLocaleRefresh()
   // Neutral mark: a spark inside a rounded square. Its color comes from the design
   // system's primary color (--primary), so it adapts to light and dark mode.
   // public/logo.svg and favicon.svg are static copies of this mark.
@@ -90,32 +95,34 @@ export function Logo({ size = 36, title }) {
 // ---------- page heading (large display title from the mockup) ----------
 /** `title` — text, or a [plain, accent] pair. */
 export function PageHead({ eyebrow, title, lead, action, crumbs }) {
+  useLocaleRefresh()
   const [head, accent] = Array.isArray(title) ? title : [title, null]
   return (
     <div className="page-head page-head--stack">
-      {crumbs}
-      {eyebrow && <span className="eyebrow-pill">{eyebrow}</span>}
+      {tr(crumbs)}
+      {eyebrow && <span className="eyebrow-pill">{tr(eyebrow)}</span>}
       {/* The action sits on the title row at the right edge; the lead stays
           below at full width. */}
       <div className="page-head__row">
-        <h1>{head}{accent && <em>{accent}</em>}</h1>
-        {action}
+        <h1>{tr(head)}{accent && <em>{tr(accent)}</em>}</h1>
+        {tr(action)}
       </div>
-      {lead && <p>{lead}</p>}
+      {lead && <p>{tr(lead)}</p>}
     </div>
   )
 }
 
 // ---------- stat card ----------
 export function StatCard({ icon, label, value, unit, trend, trendDir, note, tone }) {
+  useLocaleRefresh()
   return (
     <div className="metric">
-      <span className="label"><span className={`ico-chip ico-chip--sm ${tone ? `ico-chip--${tone}` : ''}`}>{icon}</span>{label}</span>
-      <b>{value}{unit && <small>{unit}</small>}</b>
+      <span className="label"><span className={`ico-chip ico-chip--sm ${tone ? `ico-chip--${tone}` : ''}`}>{tr(icon)}</span>{tr(label)}</span>
+      <b>{tr(value)}{unit && <small>{tr(unit)}</small>}</b>
       {(trend || note) && (
         <span className="trend">
-          {trend && <span className={`trend-pill ${trendDir === 'down' ? 'trend-pill--down' : trendDir === 'up' ? 'trend-pill--up' : ''}`}>{trend}</span>}
-          {note}
+          {trend && <span className={`trend-pill ${trendDir === 'down' ? 'trend-pill--down' : trendDir === 'up' ? 'trend-pill--up' : ''}`}>{tr(trend)}</span>}
+          {tr(note)}
         </span>
       )}
     </div>
@@ -124,6 +131,7 @@ export function StatCard({ icon, label, value, unit, trend, trendDir, note, tone
 
 // ---------- icon-only copy button ----------
 export function CopyIcon({ text, title }) {
+  useLocaleRefresh()
   const [done, setDone] = useState(false)
   const t = useT()
   const label = done ? t('common.copied') : (title || t('common.copy'))
@@ -136,7 +144,7 @@ export function CopyIcon({ text, title }) {
     setDone(true); setTimeout(() => setDone(false), 1600)
   }
   return (
-    <button type="button" className="icon-btn" onClick={copy} title={label} aria-label={label}>
+    <button type="button" className="icon-btn" onClick={copy} title={tr(label)} aria-label={tr(label)}>
       {done
         ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12.5 4.5 4.5L19 7" /></svg>
         : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2.5" /><path d="M15 6.5V5.5A2.5 2.5 0 0 0 12.5 3H5.5A2.5 2.5 0 0 0 3 5.5v7A2.5 2.5 0 0 0 5.5 15h1" /></svg>}
@@ -190,6 +198,7 @@ const ToastCtx = createContext(() => {})
 export const useToast = () => useContext(ToastCtx)
 
 export function ToastProvider({ children }) {
+  useLocaleRefresh()
   const [items, setItems] = useState([])
   const push = useCallback((message, kind = 'ok') => {
     const id = Math.random()
@@ -200,7 +209,7 @@ export function ToastProvider({ children }) {
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toast-area" role="status" aria-live="polite">
-        {items.map((t) => <div key={t.id} className={`toast ${t.kind === 'error' ? 'toast--error' : ''}`}>{t.message}</div>)}
+        {items.map((t) => <div key={t.id} className={`toast ${t.kind === 'error' ? 'toast--error' : ''}`}>{tr(t.message)}</div>)}
       </div>
     </ToastCtx.Provider>
   )
@@ -208,6 +217,7 @@ export function ToastProvider({ children }) {
 
 // ---------- modal ----------
 export function Modal({ title, onClose, children, wide, actions }) {
+  useLocaleRefresh()
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose?.()
     document.addEventListener('keydown', onKey)
@@ -217,10 +227,10 @@ export function Modal({ title, onClose, children, wide, actions }) {
   }, [onClose])
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className={`modal ${wide ? 'modal--wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
-        <h2>{title}</h2>
+      <div className={`modal ${wide ? 'modal--wide' : ''}`} role="dialog" aria-modal="true" aria-label={tr(title)}>
+        <h2>{tr(title)}</h2>
         {children}
-        {actions && <div className="modal-actions">{actions}</div>}
+        {actions && <div className="modal-actions">{tr(actions)}</div>}
       </div>
     </div>
   )
@@ -228,6 +238,7 @@ export function Modal({ title, onClose, children, wide, actions }) {
 
 // ---------- copy button ----------
 export function CopyButton({ text, label, small = true }) {
+  useLocaleRefresh()
   const [done, setDone] = useState(false)
   const t = useT()
   const copy = async () => {
@@ -238,10 +249,11 @@ export function CopyButton({ text, label, small = true }) {
     }
     setDone(true); setTimeout(() => setDone(false), 1600)
   }
-  return <button type="button" className={`btn ${small ? 'btn--small' : ''}`} onClick={copy}>{done ? t('common.copied') : (label || t('common.copy'))}</button>
+  return <button type="button" className={`btn ${small ? 'btn--small' : ''}`} onClick={copy}>{tr(done ? t('common.copied') : (label || t('common.copy')))}</button>
 }
 
 export function CodeBlock({ code }) {
+  useLocaleRefresh()
   return (
     <div className="code">
       <span className="copy"><CopyButton text={code} /></span>
@@ -251,11 +263,12 @@ export function CodeBlock({ code }) {
 }
 
 export function CodeTabs({ tabs }) {
+  useLocaleRefresh()
   const [i, setI] = useState(0)
   return (
     <div>
       <div className="code-tabs" role="tablist">
-        {tabs.map((t, k) => <button key={t.name} role="tab" aria-selected={k === i} className={`code-tab ${k === i ? 'is-on' : ''}`} onClick={() => setI(k)}>{t.name}</button>)}
+        {tabs.map((t, k) => <button key={t.name} role="tab" aria-selected={k === i} className={`code-tab ${k === i ? 'is-on' : ''}`} onClick={() => setI(k)}>{tr(t.name)}</button>)}
       </div>
       <CodeBlock code={tabs[i].code} />
     </div>
@@ -264,30 +277,34 @@ export function CodeTabs({ tabs }) {
 
 // ---------- empty state, error, pagination ----------
 export function Empty({ title, children }) {
-  return <div className="empty"><b>{title}</b>{children}</div>
+  useLocaleRefresh()
+  return <div className="empty"><b>{tr(title)}</b>{children}</div>
 }
 
 export function ErrorNote({ error, retry }) {
+  useLocaleRefresh()
   const t = useT()
   if (!error) return null
   return (
     <div className="alert alert--error" role="alert">
-      {error.message} {retry && <button className="btn btn--link" onClick={retry}>{t('common.retry')}</button>}
+      {tr(error.message)} {retry && <button className="btn btn--link" onClick={retry}>{t('common.retry')}</button>}
     </div>
   )
 }
 
 export function Loading({ rows = 3 }) {
+  useLocaleRefresh()
   return <div style={{ display: 'grid', gap: 14 }} aria-busy="true">{Array.from({ length: rows }).map((_, i) => <div key={i} className="skeleton" style={{ width: `${88 - i * 14}%`, height: 18 }} />)}</div>
 }
 
 export function Pager({ total, limit, offset, onChange }) {
+  useLocaleRefresh()
   const t = useT()
   if (total <= limit) return null
   const from = offset + 1, to = Math.min(offset + limit, total)
   return (
     <div className="pager">
-      <span>{from}-{to} / {total}</span>
+      <span>{tr(from)}-{tr(to)} / {tr(total)}</span>
       <div>
         <button className="btn btn--small" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}>{t('common.prev')}</button>
         <button className="btn btn--small" disabled={to >= total} onClick={() => onChange(offset + limit)}>{t('common.next')}</button>
@@ -297,11 +314,12 @@ export function Pager({ total, limit, offset, onChange }) {
 }
 
 export function Status({ online }) {
+  useLocaleRefresh()
   const t = useT()
   return (
     <span className="status-line">
       <span className={`dot ${online ? 'dot--on' : 'dot--off'}`} />
-      {online ? t('status.online') : t('status.offline')}
+      {tr(online ? t('status.online') : t('status.offline'))}
     </span>
   )
 }

@@ -39,10 +39,24 @@ class LiveStream:
         self.final_answer: Optional[str] = None
         self.changed = asyncio.Event()
         self.meta: Optional[dict] = None     # the request's runmeta, gets "stream_committed"
+        self.reasoning = ""
+        self.reasoning_emitted = ""
+
+    def update_reasoning(self, text: str) -> None:
+        self.reasoning = text or ""
+        self.changed.set()
+
+    def next_reasoning(self) -> str:
+        piece = self.reasoning[len(self.reasoning_emitted):]
+        if piece:
+            self.reasoning_emitted = self.reasoning
+            if self.meta is not None:
+                self.meta["stream_committed"] = True
+        return piece
 
     @property
     def committed(self) -> bool:
-        return bool(self.emitted)
+        return bool(self.emitted or self.reasoning_emitted)
 
     def update(self, text: str) -> None:
         """on_progress callback (runs in the event loop)."""
@@ -51,7 +65,7 @@ class LiveStream:
 
     def has_piece(self) -> bool:
         """Would next_piece() return text now? (does not consume it)"""
-        return bool(self._candidate()[1])
+        return bool(self._candidate()[1] or len(self.reasoning) > len(self.reasoning_emitted))
 
     def next_piece(self) -> str:
         """Text that may be sent now (possibly empty)."""
@@ -65,7 +79,7 @@ class LiveStream:
 
     def _candidate(self) -> tuple[str, str]:
         text = self.latest
-        if not self.committed:
+        if not self.emitted:
             if len(text) < self.hold or not self._is_answer(text):
                 return "", ""
         safe = self._finish(text)

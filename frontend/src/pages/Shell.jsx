@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
@@ -10,21 +11,23 @@ import {
 } from '../components/icons.jsx'
 
 function RailLink({ to, end, children, badge, icon }) {
+  useLocaleRefresh()
   return (
     <NavLink to={to} end={end} className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`}>
-      {icon}
+      {tr(icon)}
       <span>{children}</span>
-      {badge > 0 && <span className="rail-badge">{badge}</span>}
+      {badge > 0 && <span className="rail-badge">{tr(badge)}</span>}
     </NavLink>
   )
 }
 
 export default function Shell() {
+  useLocaleRefresh()
   const { user, logout, freeMode } = useAuth()
   const nav = useNavigate()
   const t = useT()
   const [pending, setPending] = useState(0)
-  const isAdmin = user.role === 'admin'
+  const isAdmin = user.role === tr("admin")
 
   useEffect(() => {
     if (!isAdmin) return
@@ -55,6 +58,7 @@ export default function Shell() {
                 <div className="rail-group">{t('shell.admin')}</div>
                 <RailLink to="/app/admin" end icon={<IconChart />}>{t('shell.adminStats')}</RailLink>
                 <RailLink to="/app/admin/monitoring" icon={<IconActivity />}>{t('shell.adminMonitoring')}</RailLink>
+                <RailLink to="/app/admin/usage" icon={<IconChart />}>{tr("So‘rovlar va tokenlar")}</RailLink>
                 <RailLink to="/app/admin/instances" icon={<IconLayers />}>{t('shell.adminInstances')}</RailLink>
                 <RailLink to="/app/admin/users" icon={<IconUsers />}>{t('shell.adminUsers')}</RailLink>
                 <RailLink to="/app/admin/topups" badge={pending} icon={<IconCoins />}>{t('shell.adminTopups')}</RailLink>
@@ -74,9 +78,9 @@ export default function Shell() {
             </div>
           )}
           <div className="rail-foot">
-            <NavLink to="/app/account" className="rail-user" title={user.email}>
+            <NavLink to="/app/account" className="rail-user" title={tr(user.email)}>
               <span className="avatar" aria-hidden="true">{(who || '?').slice(0, 1).toUpperCase()}</span>
-              <span className="who"><b>{who}</b><span>{user.email}</span></span>
+              <span className="who"><b>{tr(who)}</b><span>{tr(user.email)}</span></span>
             </NavLink>
             <button className="btn btn--small" onClick={async () => { await logout(); nav('/') }}>
               <IconLogout /> {t('shell.logout')}

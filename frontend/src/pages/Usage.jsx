@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import RequestAttribution from '../components/RequestAttribution.jsx'
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
+import { useEffect, useState } from 'react'
 import { api, qs } from '../api.js'
 import BarChart from '../components/BarChart.jsx'
 import FreeQuota from '../components/FreeQuota.jsx'
@@ -13,18 +15,21 @@ import { fmtDateTime, fmtInt, fmtSom } from '../format.js'
 const LIMIT = 25
 
 export default function Usage() {
+  useLocaleRefresh()
   const { freeMode } = useAuth()
   const t = useT()
   const [offset, setOffset] = useState(0)
   const [keyId, setKeyId] = useState('')
   const [failed, setFailed] = useState(false)
   const [q, setQ] = useState('')
+  const [query, setQuery] = useState('')
+  useEffect(() => { const id = setTimeout(() => { setQuery(q); setOffset(0) }, 300); return () => clearTimeout(id) }, [q])
   const keys = useLoad(() => api.get('/portal/keys'), [])
   const daily = useLoad(() => api.get('/portal/usage/daily?days=30'), [], { refreshMs: 15_000 })
   const sum = useLoad(() => api.get('/portal/account/summary'), [], { refreshMs: 15_000 })
   const { data, error, loading, reload } = useLoad(
-    () => api.get('/portal/usage' + qs({ limit: LIMIT, offset, key_id: keyId, failed })),
-    [offset, keyId, failed], { refreshMs: 15_000 })
+    () => api.get('/portal/usage' + qs({ limit: LIMIT, offset, key_id: keyId, failed, q: query })),
+    [offset, keyId, failed, query], { refreshMs: 15_000 })
 
   const days = daily.data?.items || []
   const monthCost = days.reduce((s, d) => s + (d.cost || 0), 0)
@@ -32,11 +37,7 @@ export default function Usage() {
   const monthIn = days.reduce((s, d) => s + (d.prompt_tokens || 0), 0)
   const monthOut = days.reduce((s, d) => s + (d.completion_tokens || 0), 0)
 
-  const rows = (data?.items || []).filter((r) => {
-    const needle = q.trim().toLowerCase()
-    if (!needle) return true
-    return [r.model, r.key_name, r.reason, r.error].filter(Boolean).some((t) => String(t).toLowerCase().includes(needle))
-  })
+  const rows = data?.items || []
   const lat = rows.filter((r) => r.latency_ms).map((r) => r.latency_ms)
   const avgLat = lat.length ? lat.reduce((a, b) => a + b, 0) / lat.length / 1000 : null
 
@@ -80,14 +81,14 @@ export default function Usage() {
         </label>
         <select className="input" style={{ width: 'auto' }} value={keyId} onChange={(e) => { setKeyId(e.target.value); setOffset(0) }} aria-label={t('usage.keyFilter')}>
           <option value="">{t('usage.allKeys')}</option>
-          {(keys.data?.items || []).map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+          {(keys.data?.items || []).map((k) => <option key={k.id} value={k.id}>{tr(k.name)}</option>)}
         </select>
         <label className="check"><input type="checkbox" checked={failed} onChange={(e) => { setFailed(e.target.checked); setOffset(0) }} /> {t('usage.onlyErrors')}</label>
       </div>
 
       {loading && !data && <Loading rows={5} />}
       {data && rows.length === 0 && (
-        <div className="empty"><b>{t('usage.emptyTitle')}</b><span>{failed ? t('usage.emptyErrors') : t('usage.emptyText')}</span></div>
+        <div className="empty"><b>{t('usage.emptyTitle')}</b><span>{tr(failed ? t('usage.emptyErrors') : t('usage.emptyText'))}</span></div>
       )}
       {data && rows.length > 0 && (
         <section className="panel">
@@ -96,7 +97,7 @@ export default function Usage() {
               <thead>
                 <tr>
                   <th>{t('usage.colTime')}</th><th>{t('usage.colModel')}</th><th>{t('usage.colTokens')}</th><th>{t('usage.colType')}</th>
-                  <th>{t('usage.colLatency')}</th><th>{t('usage.colCost')}</th><th>{t('usage.colStatus')}</th>
+                  <th>{t('usage.colLatency')}</th><th>{t('usage.colCost')}</th><th>{tr('Tafsilotlar')}</th><th>{t('usage.colStatus')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -105,26 +106,27 @@ export default function Usage() {
                   return (
                     <tr key={r.id}>
                       <td className="muted nowrap">{fmtDateTime(r.created_at)}</td>
-                      <td><span className="tag tag--sky tag--mono">{r.model}</span></td>
+                      <td><span className="tag tag--sky tag--mono">{tr(r.model)}</span></td>
                       <td className="nowrap">
                         {bad ? <span className="muted">—</span> : (<>
                           <b>{fmtInt(r.prompt_tokens)}</b> <span className="dim">{t('usage.in')}</span> + <b>{fmtInt(r.completion_tokens)}</b> <span className="dim">{t('usage.out')}</span>
-                          <span className="stack dim small">{t('chart.tokens', { n: fmtInt(r.prompt_tokens + r.completion_tokens) })}{r.estimated ? ` ${t('usage.estimated')}` : ''}</span>
+                          <span className="stack dim small">{t('chart.tokens', { n: fmtInt(r.prompt_tokens + r.completion_tokens) })}{tr(r.estimated ? ` ${t('usage.estimated')}` : '')}</span>
                         </>)}
                       </td>
                       <td>{r.reasoning
                         ? <span className="tag tag--violet">{t('usage.reasoning', { level: levelShort(t, r.reasoning) })}</span>
                         : <span className="tag tag--ok">{t('usage.chat')}</span>}</td>
-                      <td className="muted nowrap">{r.latency_ms ? t('common.seconds', { n: (r.latency_ms / 1000).toFixed(1) }) : '—'}</td>
+                      <td className="muted nowrap">{tr(r.latency_ms ? t('common.seconds', { n: (r.latency_ms / 1000).toFixed(1) }) : '—')}</td>
                       <td className="nowrap">{r.cost === 0
                         ? <span className="tag">{t('common.free')}</span>
                         : <span className="tag tag--bad">{fmtSom(-r.cost, { sign: true })}</span>}</td>
                       <td className="nowrap">
                         <span className={`tag ${bad ? 'tag--bad' : 'tag--ok'}`}>
-                          <i className="req-dot" aria-hidden="true" />{bad ? t('req.error', { code: r.status_code }) : t('req.success')}
+                          <i className="req-dot" aria-hidden="true" />{tr(bad ? t('req.error', { code: r.status_code }) : t('req.success'))}
                         </span>
                         {bad && <span className="stack dim small">{t('req.failedNote', { reason: r.reason || r.error || t('usage.failed') })}</span>}
                       </td>
+                      <td><RequestAttribution item={r} /></td>
                     </tr>
                   )
                 })}

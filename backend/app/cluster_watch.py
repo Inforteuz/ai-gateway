@@ -38,6 +38,8 @@ DOWN_THRESHOLD = 3
 # Minimum pause (seconds) before the same message is sent again.
 MESSAGE_COOLDOWN = 1800
 
+DEEPSEEK_CHANNELS = ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1")
+
 # No repeat messages while the state is unchanged.
 _state: dict[str, dict[str, Any]] = {}
 
@@ -48,8 +50,8 @@ _state: dict[str, dict[str, Any]] = {}
 def _public_names(db: Database, upstream: str) -> list[str]:
     """Public model IDs backed by the given upstream provider name."""
     rows = db.all(
-        "SELECT id FROM models WHERE provider='cluster' AND upstream_name=? AND enabled=1 AND listed=1",
-        (upstream,),
+        "SELECT id FROM models WHERE provider='cluster' AND upstream_name IN (?,?,?,?,?) AND enabled=1 AND listed=1",
+        DEEPSEEK_CHANNELS if upstream in DEEPSEEK_CHANNELS else (upstream,) * 5,
     )
     return [r["id"] for r in rows]
 
@@ -299,7 +301,8 @@ def public_status(db: Database, local_state: str | None = None) -> dict:
     faulty = _recently_faulty(db)
     for m in models:
         if m["provider"] == "cluster":
-            r = states.get(m["upstream_name"])
+            upstream = m["upstream_name"]
+            r = states.get("deepseek" if upstream in DEEPSEEK_CHANNELS else upstream)
             state = r["state"] if r else "unknown"
             since = r["since"] if r else None
             if state == "up" and m["id"] in faulty:
@@ -307,12 +310,16 @@ def public_status(db: Database, local_state: str | None = None) -> dict:
                 # showing "up" would mislead clients (once every 3.1/3.5 request returned
                 # 502/503 while the catalog said health=up).
                 state, since = "down", faulty[m["id"]]
+        elif m["provider"] == "external":
+            # Ollama/Chrome health says nothing about independent HTTP providers.
+            state = "down" if m["id"] in faulty else "unknown"
+            since = faulty.get(m["id"])
         else:
             # Local models run through ollama: if the gateway goes down, they all do
             state = "up" if local_state == "up" else ("down" if local_state else "unknown")
             since = None
         items.append({"model": m["id"], "state": state, "since": since,
-                      "local": m["provider"] != "cluster"})
+                      "local": m["provider"] == "local"})
 
     down = [{"model": x["model"], "since": x["since"]}
             for x in items if x["state"] == "down"]

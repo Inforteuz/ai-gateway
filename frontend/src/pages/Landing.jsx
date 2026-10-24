@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth, useSite } from '../auth.js'
@@ -20,6 +21,7 @@ const FALLBACK = {
 }
 
 function Icon({ name }) {
+  useLocaleRefresh()
   const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round', viewBox: '0 0 24 24' }
   switch (name) {
     case 'bolt': return <svg {...p}><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" /></svg>
@@ -30,7 +32,7 @@ function Icon({ name }) {
     case 'stack': return <svg {...p}><path d="M12 3l9 5-9 5-9-5 9-5z" /><path d="M3 13l9 5 9-5M3 18l9 5 9-5" /></svg>
     case 'globe': return <svg {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" /></svg>
     case 'gift': return <svg {...p}><path d="M3 11h18v10H3zM3 7h18v4H3z" /><path d="M12 7v14" /><path d="M12 7S10.5 3 8.5 3a2 2 0 000 4zM12 7s1.5-4 3.5-4a2 2 0 010 4z" /></svg>
-    case 'code': return <svg {...p}><path d="M9 18l-6-6 6-6M15 6l6 6-6 6" /></svg>
+    case tr("code"): return <svg {...p}><path d="M9 18l-6-6 6-6M15 6l6 6-6 6" /></svg>
     case 'rocket': return <svg {...p}><path d="M5 15c-1.5 2-1.5 5-1.5 5s3 0 5-1.5" /><path d="M9 15l-3-3c0-6 4-10 11-10 0 7-4 11-10 11l-1 2z" /><circle cx="14.5" cy="9.5" r="1.5" /></svg>
     case 'terminal': return <svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9l3 3-3 3M13 15h4" /></svg>
     case 'arrow': return <svg {...p} width="14" height="14"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
@@ -81,6 +83,7 @@ function fastest(items) {
 const secs = (ms) => fmtNumber(Math.round(ms / 100) / 10, 1)
 
 export default function Landing() {
+  useLocaleRefresh()
   const t = useT()
   const { lang } = useLang()
   const bench = useLoad(() => api.get('/portal/benchmark'), [])
@@ -128,12 +131,12 @@ export default function Landing() {
                   : <><b>v2.0</b> · {t('landing.badgeBilling')}</>}
               </span>
               <h1>
-                {freeMode
+                {tr(freeMode
                   ? t('landing.h1Free', { accent: <span className="serif">{t('landing.h1FreeAccent')}</span> })
-                  : t('landing.h1', { accent: <span className="serif">{t('landing.h1Accent')}</span> })}
+                  : t('landing.h1', { accent: <span className="serif">{t('landing.h1Accent')}</span> }))}
               </h1>
               <p>
-                {freeMode
+                {tr(freeMode
                   ? t('landing.leadFree')
                   : <>
                       {t('landing.lead', { code: <code>base_url</code> })}
@@ -141,11 +144,11 @@ export default function Landing() {
                         start: freeM ? `${freeM.display_name} ${freeNote}` : t('landing.startFree'),
                         bonus,
                       })}</>}
-                    </>}
+                    </>)}
               </p>
               <div className="hero-actions">
                 <Link className="btn btn--primary btn--large" to={signupLink || '/app'}>
-                  {user ? t('nav.toPanel') : (signupOpen ? t('landing.ctaStart') : t('nav.login'))} <Icon name="arrow" />
+                  {tr(user ? t('nav.toPanel') : (signupOpen ? t('landing.ctaStart') : t('nav.login')))} <Icon name="arrow" />
                 </Link>
                 <Link className="btn btn--large" to="/docs">{t('nav.docs')}</Link>
               </div>
@@ -173,15 +176,15 @@ export default function Landing() {
                 <div className="hero-mock-body">
                   <div className="hero-mock-code">
                     <div><span className="c"># {t('landing.mockComment')}</span></div>
-                    <div><span className="k">from</span> openai <span className="k">import</span> OpenAI</div>
-                    <div><span className="p">client</span> = OpenAI(</div>
-                    <div>&nbsp;&nbsp;base_url=<span className="s">"{origin}/v1"</span>,</div>
+                    <div><span className="k">{tr("from")}</span> {tr("openai")} <span className="k">{tr("import")}</span> OpenAI</div>
+                    <div><span className="p">{tr("client")}</span> = OpenAI(</div>
+                    <div>&nbsp;&nbsp;base_url=<span className="s">"{tr(origin)}/v1"</span>,</div>
                     <div>&nbsp;&nbsp;api_key=<span className="s">"sk-sf-…"</span></div>
                     <div>)</div>
-                    <div style={{ marginTop: 6 }}><span className="p">res</span> = client.chat.completions.create(</div>
-                    <div>&nbsp;&nbsp;model=<span className="s">"{main.id}"</span>,</div>
+                    <div style={{ marginTop: 6 }}><span className="p">{tr("res")}</span> = client.chat.completions.create(</div>
+                    <div>&nbsp;&nbsp;model=<span className="s">"{tr(main.id)}"</span>,</div>
                     <div>&nbsp;&nbsp;messages=[…],</div>
-                    <div>&nbsp;&nbsp;stream=<span className="k">True</span>,</div>
+                    <div>&nbsp;&nbsp;stream=<span className="k">{tr("True")}</span>,</div>
                     <div>)</div>
                   </div>
                   <div className="hero-mock-stats">
@@ -202,9 +205,9 @@ export default function Landing() {
         <div className="wrap">
           <div className="stats">
             {signupOpen
-              ? <div className="stat"><b>{bonus}</b><span>{t('landing.statBonus')}</span></div>
+              ? <div className="stat"><b>{tr(bonus)}</b><span>{t('landing.statBonus')}</span></div>
               : <div className="stat"><b>OpenAI</b><span>{t('landing.compatible')}</span></div>}
-            {freeM && <div className="stat"><b>0 {som}</b><span>{t('landing.statFreePrice', { name: freeM.display_name })}</span></div>}
+            {freeM && <div className="stat"><b>0 {tr(som)}</b><span>{t('landing.statFreePrice', { name: freeM.display_name })}</span></div>}
             <div className="stat"><b>{Math.round(maxCtx / 1000)}k</b><span>{t('landing.statContext')}</span></div>
             <div className="stat"><b>24/7</b><span>{t('landing.statMonitoring')}</span></div>
           </div>
@@ -260,7 +263,7 @@ export default function Landing() {
             const overall = best(items)
             // Category names are benchmark data from the server, not UI text
             const code = best(items, 'Kod')
-            const uzbek = best(items, "O'zbek tili")
+            const uzbek = best(items, tr("O'zbek tili"))
             const total = items[0]?.total
             const pct = (x) => `${Math.round(x.ratio * 100)}%`
             return (
@@ -269,8 +272,8 @@ export default function Landing() {
                   <span className="eyebrow">{t('landing.benchEyebrow')}</span>
                   <h2>{t('landing.benchTitle')}</h2>
                   <p>
-                    {total ? t('landing.benchTasksN', { n: total }) : t('landing.benchTasks')}
-                    {categories.length ? t('landing.benchCats', { n: categories.length, list: categories.join(', ').toLowerCase() }) : ''}.
+                    {tr(total ? t('landing.benchTasksN', { n: total }) : t('landing.benchTasks'))}
+                    {tr(categories.length ? t('landing.benchCats', { n: categories.length, list: categories.join(', ').toLowerCase() }) : '')}.
                     {' '}{t('landing.benchRest')}
                   </p>
                 </div>
@@ -306,7 +309,7 @@ export default function Landing() {
         <div className="wrap showcase">
           <div className="section-head" style={{ marginBottom: 0 }}>
             <span className="eyebrow">{t('landing.stepsEyebrow')}</span>
-            <h2>{freeMode || !signupOpen ? t('landing.stepsTwo') : t('landing.stepsThree')}</h2>
+            <h2>{tr(freeMode || !signupOpen ? t('landing.stepsTwo') : t('landing.stepsThree'))}</h2>
             <p>{t('landing.stepsLead')}</p>
           </div>
           <ol className="steps">
@@ -317,7 +320,7 @@ export default function Landing() {
             <li>
               <div>
                 <h3>{t('landing.step3Title')}</h3>
-                <p>{freeMode ? t('landing.step3TextFree') : t('landing.step3Text')}</p>
+                <p>{tr(freeMode ? t('landing.step3TextFree') : t('landing.step3Text'))}</p>
               </div>
             </li>
           </ol>
@@ -338,9 +341,9 @@ export default function Landing() {
       <section className="section" id="narxlar">
         <div className="wrap">
           <div className="section-head">
-            <span className="eyebrow">{freeMode ? t('landing.priceEyebrowFree') : t('landing.priceEyebrow')}</span>
-            <h2>{freeMode ? t('landing.priceTitleFree') : t('landing.priceTitle')}</h2>
-            <p>{freeMode ? t('landing.priceLeadFree') : t('landing.priceLead')}</p>
+            <span className="eyebrow">{tr(freeMode ? t('landing.priceEyebrowFree') : t('landing.priceEyebrow'))}</span>
+            <h2>{tr(freeMode ? t('landing.priceTitleFree') : t('landing.priceTitle'))}</h2>
+            <p>{tr(freeMode ? t('landing.priceLeadFree') : t('landing.priceLead'))}</p>
           </div>
           <div className="price-list">
             {list.map((m) => {
@@ -348,9 +351,9 @@ export default function Landing() {
               return (
                 <div className="price-row" key={m.id}>
                   <div>
-                    <div className="price-model">{m.display_name}</div>
+                    <div className="price-model">{tr(m.display_name)}</div>
                     <div className="dim small" style={{ marginTop: 2 }}>
-                      {m.id} · {t('landing.context', { n: fmtNumber(m.context_window) })}
+                      {tr(m.id)} · {t('landing.context', { n: fmtNumber(m.context_window) })}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                       {isFree && !freeMode && <span className="tag tag--ok">{t('common.free')}</span>}
@@ -361,7 +364,7 @@ export default function Landing() {
                       {m.capabilities?.tool_calling && <span className="tag tag--new">{t('landing.tagTools')}</span>}
                       {m.data_processing === 'third_party' && <span className="tag tag--warn">{t('landing.tagThirdParty')}</span>}
                     </div>
-                    {m.description && <p className="muted small" style={{ marginTop: 10, maxWidth: '32rem' }}>{m.description}</p>}
+                    {m.description && <p className="muted small" style={{ marginTop: 10, maxWidth: '32rem' }}>{tr(m.description)}</p>}
                   </div>
                   {freeMode
                     ? <div className="price-figs"><div><b>{t('common.free')}</b><span>{t('landing.forPartners')}</span></div></div>
@@ -369,8 +372,8 @@ export default function Landing() {
                       ? <div className="price-figs"><div><b>{t('common.free')}</b><span>{t('landing.noCharge')}</span></div></div>
                       : (
                         <div className="price-figs">
-                          <div><b>{fmtNumber(m.price_in_per_1m / MICRO)} {som}</b><span>{t('landing.per1mIn')}</span></div>
-                          <div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {som}</b><span>{t('landing.per1mOut')}</span></div>
+                          <div><b>{fmtNumber(m.price_in_per_1m / MICRO)} {tr(som)}</b><span>{t('landing.per1mIn')}</span></div>
+                          <div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr(som)}</b><span>{t('landing.per1mOut')}</span></div>
                         </div>
                       )}
                 </div>
@@ -397,7 +400,7 @@ export default function Landing() {
               <p>{t('landing.refLead', { pct: fmtNumber(refPercent) })}</p>
               <div style={{ marginTop: 18 }}>
                 <Link className="btn btn--primary" to={user ? '/app/referral' : signupLink}>
-                  {user ? t('landing.refGetLink') : t('landing.refSignup')} <Icon name="arrow" />
+                  {tr(user ? t('landing.refGetLink') : t('landing.refSignup'))} <Icon name="arrow" />
                 </Link>
               </div>
             </div>
@@ -414,16 +417,16 @@ export default function Landing() {
         <div className="wrap">
           <div className="cta">
             <div>
-              <h2>{signupOpen ? t('landing.ctaTitleBonus', { bonus }) : t('landing.ctaTitle')}</h2>
+              <h2>{tr(signupOpen ? t('landing.ctaTitleBonus', { bonus }) : t('landing.ctaTitle'))}</h2>
               <p>
-                {signupOpen
+                {tr(signupOpen
                   ? t('landing.ctaLeadBonus', { start: freeM ? t('landing.ctaStartModel', { name: freeM.display_name, note: freeNote }) : t('landing.ctaStartFree') })
-                  : t('landing.ctaLead')}
+                  : t('landing.ctaLead'))}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <Link className="btn btn--primary btn--large" to={user ? '/app/keys' : signupLink}>
-                {user ? t('landing.ctaCreateKey') : (signupOpen ? t('landing.ctaSignup') : t('nav.login'))} <Icon name="arrow" />
+                {tr(user ? t('landing.ctaCreateKey') : (signupOpen ? t('landing.ctaSignup') : t('nav.login')))} <Icon name="arrow" />
               </Link>
               <Link className="btn btn--large" to="/docs">{t('landing.ctaDocs')}</Link>
             </div>

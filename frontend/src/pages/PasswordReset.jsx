@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 // Password reset. ONE page handles both steps:
 //   no `?token=` in the URL -> ask for the email, a link is sent via Telegram
 //   `?token=` present       -> ask for the new password
@@ -30,10 +31,11 @@ const MIN_PASSWORD = 8
 const POINTS = ['reset.point1', 'reset.point2', 'reset.point3']
 
 export default function PasswordReset() {
+  useLocaleRefresh()
   const site = useSite()
   const t = useT()
   const [params] = useSearchParams()
-  const token = params.get('token') || ''
+  const token = params.get(tr("token")) || ''
   const nav = useNavigate()
 
   // Check whether the link is still valid as soon as the page opens. Otherwise
@@ -54,9 +56,9 @@ export default function PasswordReset() {
         <div className="auth-side__top">
           <Link to="/" className="brand brand--rail">
             <Logo />
-            <span><b>{site.brand_name}</b><small>AI API</small></span>
+            <span><b>{tr(site.brand_name)}</b><small>AI API</small></span>
           </Link>
-          <span className="auth-badge"><i aria-hidden="true" />v2.0 &middot; {t('reset.badge')}</span>
+          <span className="auth-badge"><i aria-hidden="true" />{tr("v2.0 ·")} {t('reset.badge')}</span>
         </div>
 
         <div className="quote">
@@ -88,6 +90,7 @@ export default function PasswordReset() {
 }
 
 function EmailStep() {
+  useLocaleRefresh()
   const t = useT()
   const [email, setEmail] = useState('')
   const [state, setState] = useState(null)   // null | 'sending' | 'sent'
@@ -136,11 +139,11 @@ function EmailStep() {
                  onChange={(e) => setEmail(e.target.value)} />
         </span>
       </label>
-      {error && <p className="form-error">{error}</p>}
+      {error && <p className="form-error">{tr(error)}</p>}
       <button className="btn btn--primary" type="submit"
               disabled={state === 'sending' || !email}
               style={{ width: '100%', marginTop: 16 }}>
-        {state === 'sending' ? t('reset.sending') : t('reset.send')}
+        {tr(state === 'sending' ? t('reset.sending') : t('reset.send'))}
       </button>
       <p className="muted small" style={{ marginTop: 16, textAlign: 'center' }}>
         <Link to="/login">{t('reset.backToLogin')}</Link>
@@ -151,6 +154,7 @@ function EmailStep() {
 }
 
 function Expired() {
+  useLocaleRefresh()
   const t = useT()
   return (
     <div className="auth-box">
@@ -166,6 +170,7 @@ function Expired() {
 }
 
 function PasswordStep({ token, nav }) {
+  useLocaleRefresh()
   const t = useT()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -218,10 +223,10 @@ function PasswordStep({ token, nav }) {
         <p className="muted small">{t('reset.tooShort', { n: MIN_PASSWORD })}</p>
       )}
       {confirm && password !== confirm && <p className="form-error">{t('reset.mismatch')}</p>}
-      {error && <p className="form-error">{error}</p>}
+      {error && <p className="form-error">{tr(error)}</p>}
       <button className="btn btn--primary" type="submit" disabled={!valid || saving}
               style={{ width: '100%', marginTop: 16 }}>
-        {saving ? t('reset.saving') : t('reset.save')}
+        {tr(saving ? t('reset.saving') : t('reset.save'))}
       </button>
     </form>
   )

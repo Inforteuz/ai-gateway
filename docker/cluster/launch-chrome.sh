@@ -13,6 +13,7 @@ case "$CHANNEL" in
     deepseek)       START_URL='https://chat.deepseek.com/' ;;
     qwen)           START_URL='https://chat.qwen.ai/' ;;
     gemini)         START_URL='https://gemini.google.com/app' ;;
+    venice)         START_URL='https://venice.ai/chat/agent' ;;
     zai)            START_URL='https://chat.z.ai/' ;;
     grok)           START_URL='https://grok.com/' ;;
     deepai)         START_URL='https://deepai.org/chat' ;;

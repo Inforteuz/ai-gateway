@@ -30,10 +30,12 @@ class Config:
     # Concurrent requests to the local model (sized for a single GPU).
     max_concurrent: int = field(default_factory=lambda: int(os.getenv("SF_MAX_CONCURRENT", "2")))
     queue_wait_seconds: int = field(default_factory=lambda: int(os.getenv("SF_QUEUE_WAIT", "90")))
-    per_key_concurrent: int = field(default_factory=lambda: int(os.getenv("SF_PER_KEY_CONCURRENT", "3")))
+    per_key_concurrent: int = field(default_factory=lambda: int(os.getenv("SF_PER_KEY_CONCURRENT", "10")))
     upstream_read_timeout: int = field(default_factory=lambda: int(os.getenv("SF_UPSTREAM_TIMEOUT", "300")))   # non-streaming request: time to wait for the answer
     stream_idle_timeout: int = field(default_factory=lambda: int(os.getenv("SF_STREAM_IDLE", "90")))        # stream: aborted after this many seconds without data
     max_stream_seconds: int = field(default_factory=lambda: int(os.getenv("SF_MAX_STREAM", "600")))        # overall stream duration limit
+    local_reasoning_seconds: int = field(default_factory=lambda: int(os.getenv("SF_LOCAL_REASONING_SECONDS", "90")))
+    local_generation_seconds: int = field(default_factory=lambda: int(os.getenv("SF_LOCAL_GENERATION_SECONDS", "180")))
     max_body_bytes: int = field(default_factory=lambda: int(os.getenv("SF_MAX_BODY", str(2 * 1024 * 1024))))
     # Higher limit for requests with image/file attachments: base64 encoding
     # grows the file ~1.37x, so the normal limit is not enough.
@@ -43,7 +45,8 @@ class Config:
     static_dir: str | None = field(default_factory=lambda: os.getenv("SF_STATIC_DIR") or None)
     monitor_enabled: bool = field(default_factory=lambda: _bool("SF_MONITOR", True))
     probe_interval: int = field(default_factory=lambda: int(os.getenv("SF_PROBE_INTERVAL", "30")))
-    ext_concurrent: int = field(default_factory=lambda: int(os.getenv("SF_EXT_CONCURRENT", "6")))
+    # External requests are network-bound; align gateway capacity with the per-key limit.
+    ext_concurrent: int = field(default_factory=lambda: int(os.getenv("SF_EXT_CONCURRENT", "10")))
     cluster_concurrent: int = field(default_factory=lambda: int(os.getenv("SF_CLUSTER_CONCURRENT", "8")))
     # Google reCAPTCHA v3 (captcha). Keys live here (/etc/ai-gateway.env) or in admin
     # settings; the environment wins. SF_CAPTCHA=0 is the emergency switch, so that admins can

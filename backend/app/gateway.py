@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted
+from . import admission, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted
 from .common import ApiError, client_ip
 from .db import Database, now
 
@@ -148,6 +148,7 @@ class Ticket:
     retried: bool = False         # retried without thinking because the answer was empty
     refine_ms: int | None = None
     ext_held: bool = False        # external provider slot (held during streaming verification)
+    attribution: dict = field(default_factory=dict)
 
     def release_ext(self) -> None:
         if self.ext_held:
@@ -184,7 +185,7 @@ class Ticket:
                     prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, status_code=status_code,
                     stream=self.stream, estimated=estimated, latency_ms=int((time.monotonic() - self.t0) * 1000),
                     ttfb_ms=self.ttfb_ms, error=error or ("auto_retry_no_thinking" if self.retried and status_code == 200 else None), ip=self.ip, reasoning=self.reasoning,
-                    refined=self.refined, refine_ms=self.refine_ms,
+                    refined=self.refined, refine_ms=self.refine_ms, attribution=attribution.persisted(self.attribution),
                 )
         finally:
             self._cleanup()
@@ -331,7 +332,7 @@ def upstream_error(resp: httpx.Response, body: bytes, model=None) -> tuple[int, 
     in 10 seconds" (503 + Retry-After) and "the model did not answer" looked
     the same to the client, and SDKs could not know when to retry.
     """
-    msg, code = "", ""
+    msg, code, e = "", "", None
     try:
         j = json.loads(body)
         e = j.get("error")
@@ -351,6 +352,10 @@ def upstream_error(resp: httpx.Response, body: bytes, model=None) -> tuple[int, 
     safe = code in _SAFE_UPSTREAM_CODES
 
     st = resp.status_code
+    localized = upstream_errors.localize(code, e.get("details") if isinstance(e, dict) and isinstance(e.get("details"), dict) else {})
+    if localized:
+        status = 400 if st in (400, 404, 413, 422) else (503 if st in (429, 503) else 502)
+        return status, code, localized[0], headers, localized[1]
     if st in (400, 404, 413, 422):
         # The provider's own words are the useful part here, so they are kept in both
         return (400, (code if safe else "upstream_rejected"), f"Model so'rovni qabul qilmadi: {msg}"[:400],
@@ -666,14 +671,42 @@ def _target(state, model, settings: dict):
     return state.http, f"{state.config.upstream_url}/v1", {}, state.sem
 
 
+def _provider_limit(state, provider):
+    return {"local": state.config.max_concurrent, "cluster": state.config.cluster_concurrent}.get(provider, state.config.ext_concurrent)
+
+
 async def _acquire(state, ticket: Ticket, sem) -> None:
+    provider = ticket.attribution.get("provider", "local")
+    provider = provider if provider in ("local", "cluster") else "external"
+    deadline = time.monotonic() + state.config.queue_wait_seconds
+    await run_in_threadpool(admission.register, state.db, ticket.request_id, "primary", provider)
     try:
-        await asyncio.wait_for(sem.acquire(), timeout=state.config.queue_wait_seconds)
+        await asyncio.wait_for(sem.acquire(), timeout=max(.001, deadline - time.monotonic()))
+        ticket.sem, ticket.sem_held = sem, True
+        if not await admission.wait(state.db, ticket.request_id, "primary", provider, _provider_limit(state, provider), deadline):
+            raise asyncio.TimeoutError()
     except asyncio.TimeoutError:
         await ticket.finish(status_code=503, error="server_busy")
-        raise ApiError(503, "server_busy", "Model band. Birozdan keyin qayta urinib ko'ring.", "server_error",
-                       {"Retry-After": "10"})
-    ticket.sem, ticket.sem_held = sem, True
+        raise ApiError(503, "server_busy", "Model band. Birozdan keyin qayta urinib ko'ring.", "server_error", {"Retry-After": "10"})
+
+
+async def _acquire_verification(state, ticket):
+    deadline = time.monotonic() + state.config.queue_wait_seconds
+    await run_in_threadpool(admission.register, state.db, ticket.request_id, "verification", "external")
+    try:
+        await asyncio.wait_for(state.ext_sem.acquire(), timeout=max(.001, deadline - time.monotonic()))
+        ticket.ext_held = True
+        if await admission.wait(state.db, ticket.request_id, "verification", "external", state.config.ext_concurrent, deadline):
+            return True
+    except asyncio.TimeoutError:
+        pass
+    await _release_verification(state, ticket)
+    return False
+
+
+async def _release_verification(state, ticket):
+    await run_in_threadpool(admission.release, state.db, ticket.request_id, "verification")
+    ticket.release_ext()
 
 
 async def _send(state, ticket: Ticket, client, url: str, headers: dict, payload: dict, stream: bool, model) -> httpx.Response:
@@ -682,8 +715,13 @@ async def _send(state, ticket: Ticket, client, url: str, headers: dict, payload:
     read = state.config.stream_idle_timeout if stream else state.config.upstream_read_timeout
     timeout = httpx.Timeout(connect=5.0, read=float(read), write=30.0, pool=5.0)
     try:
-        req = client.build_request("POST", url, json=payload, headers=headers, timeout=timeout)
-        resp = await client.send(req, stream=stream)
+        guarded = (model["provider"] == "local" and not stream and url.endswith("/chat/completions")
+                   and (payload.get("reasoning_effort") in ("medium", "high") or payload.get("think") is True
+                        or isinstance(payload.get("reasoning"), dict)))
+        outgoing = {**payload, "stream": True, "stream_options": {"include_usage": True}} if guarded else payload
+        req = client.build_request("POST", url, json=outgoing, headers=headers, timeout=timeout)
+        ticket.attribution["attempts"] = ticket.attribution.get("attempts", 0) + 1
+        resp = await client.send(req, stream=stream or guarded)
     except (httpx.ConnectError, httpx.ConnectTimeout):
         await ticket.finish(status_code=503, error="upstream_unavailable")
         raise ApiError(503, "model_offline", "Model serveri hozir ulanmagan. Birozdan keyin qayta urinib ko'ring.", "server_error",
@@ -702,25 +740,41 @@ async def _send(state, ticket: Ticket, client, url: str, headers: dict, payload:
         raise ApiError(status, code, message,
                        "invalid_request_error" if status == 400 else "server_error", err_headers,
                        en=message_en)
+    if guarded:
+        try:
+            data = await local_guard.collect(resp, min(state.config.max_stream_seconds, state.config.local_generation_seconds),
+                                             state.config.local_reasoning_seconds)
+        except local_guard.GuardStopped as exc:
+            ticket.attribution["guard_reason"] = str(exc)
+            data = {"choices": [{"message": {"role": "assistant", "content": ""}, "finish_reason": "length"}],
+                    "gateway_guard": str(exc)}
+        except httpx.TimeoutException:
+            await resp.aclose()
+            data = {"choices": [{"message": {"role": "assistant", "content": ""}, "finish_reason": "length"}],
+                    "gateway_guard": "reasoning_budget_exceeded"}
+        resp = httpx.Response(200, json=data, request=req)
     return resp
 
 
 async def _retry_if_starved(state, ticket: Ticket, client, url: str, headers: dict, payload: dict, model, resp: httpx.Response) -> httpx.Response:
     """If thinking tokens ate the whole budget and the answer is empty (finish_reason=length), retries once without thinking.
     Only when we set the reasoning level. The first (empty) attempt is not charged: billing covers the retry only."""
-    if not ticket.reasoning_auto or model["provider"] != "local":
+    if model["provider"] != "local" or ticket.retried:
         return resp
     try:
         data = resp.json()
         choice = (data.get("choices") or [{}])[0]
         content = ((choice.get("message") or {}).get("content") or "").strip()
         starved = not content and choice.get("finish_reason") == "length" and not (choice.get("message") or {}).get("tool_calls")
+        repeated = any(loops.is_looping((choice.get("message") or {}).get(k) or "") for k in ("content", "reasoning", "reasoning_content"))
+        starved = bool(data.get("gateway_guard")) or repeated or (starved and ticket.reasoning_auto)
     except Exception:
         return resp
     if not starved:
         return resp
     ticket.reasoning, ticket.reasoning_auto, ticket.retried = "none", False, True
-    return await _send(state, ticket, client, url, headers, {**payload, "reasoning_effort": "none"}, False, model)
+    return await _send(state, ticket, client, url, headers,
+                       {k: v for k, v in payload.items() if k not in ("think", "reasoning")} | {"reasoning_effort": "none"}, False, model)
 
 
 def _scrub(obj: dict, public_model: str) -> dict:
@@ -735,12 +789,15 @@ def _scrub(obj: dict, public_model: str) -> dict:
 async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, model, max_out: int, stream: bool):
     state = request.app.state
     request_id = ticket.request_id
+    if not ticket.attribution:
+        ticket.attribution = attribution.request_meta(request.headers, body)
     try:
         settings = await run_in_threadpool(state.db.get_settings)
         # Fast path: a trivial message to a web-chat model ("Hey", "ishlayapsanmi", "sen kimsan")
         # is answered by the fast GPU model — decided BEFORE queueing, otherwise it would also
         # wait 30-60 s in the web window queue (app/fastpath.py). Priced as the requested model.
         fast = (endpoint == "chat/completions" and model["provider"] == "cluster"
+                and model["upstream_name"].lower() not in ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1")
                 and settings.get("fastpath_enabled", "1") == "1" and fastpath.eligible(body))
         if fast:
             model = {**model, "provider": "local", "refine": 0,
@@ -748,7 +805,11 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             log.info("fast path: %s -> %s (%s)", model.get("public_id") or model["id"],
                      model["upstream_name"], request_id)
         client, base, headers, sem = _target(state, model, settings)
+        ticket.attribution.update(provider=model["provider"], route_model=_public_id(model))
+        queued_at = time.monotonic()
         await _acquire(state, ticket, sem)
+        ticket.attribution["queue_ms"] += round((time.monotonic() - queued_at) * 1000)
+        ticket.attribution.update(provider=model["provider"], route_model=_public_id(model))
 
         payload = fastpath.payload(body, model["upstream_name"], max_out) if fast else dict(body)
         payload["model"] = model["upstream_name"]
@@ -811,8 +872,10 @@ async def _execute_refined(state, ticket: Ticket, body: dict, payload: dict, mod
     except Exception:
         await ticket.finish(status_code=502, error="bad_upstream_json")
         raise ApiError(502, "upstream_error", "Model serveri noto'g'ri javob qaytardi.", "server_error")
+    await run_in_threadpool(admission.release, state.db, ticket.request_id, "primary")
     ticket.release_sem()   # the GPU is free now: verification runs externally
 
+    attribution.observe(ticket.attribution, data)
     usage = usage_of(data)
     estimated = usage is None
     choice = (data.get("choices") or [{}])[0]
@@ -824,19 +887,19 @@ async def _execute_refined(state, ticket: Ticket, body: dict, payload: dict, mod
     ok, why = refine.eligible(body, message, choice.get("finish_reason"))
     if ok:
         refine_tokens = min(int(settings["max_max_tokens"]), max(512, usage[1] * 2 + 256))
-        if stream:
-            # Streaming verification: forwarded to the client as soon as the first text chunk arrives (shorter wait).
-            # A problem before that chunk falls back to the draft; after it there is no going back.
-            await state.ext_sem.acquire()
-            ticket.ext_held = True
+        if not await _acquire_verification(state, ticket):
+            why = "verification_busy"
+        elif stream:
             try:
                 cand, why, ms = await refine.open_stream(state.ext_http, settings, body.get("messages") or [], message["content"], refine_tokens)
             finally:
                 if cand is None:
-                    ticket.release_ext()
+                    await _release_verification(state, ticket)
         else:
-            async with state.ext_sem:
+            try:
                 final, why, ms = await refine.refine_answer(state.ext_http, settings, body.get("messages") or [], message["content"], refine_tokens)
+            finally:
+                await _release_verification(state, ticket)
     verified = final is not None or cand is not None
     ticket.refined = "ok" if verified else f"fallback:{why}"
     ticket.refine_ms = ms if ok else None   # only when verification was actually attempted (streaming: up to the first chunk)
@@ -944,6 +1007,8 @@ def _replay_stream(data: dict, wants_usage: bool, usage: tuple[int, int]):
 
     yield sse({**base, "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}]})
     message = choice.get("message") or {}
+    if message.get("reasoning_content"):
+        yield sse({**base, "choices": [{"index": 0, "delta": {"reasoning_content": message["reasoning_content"]}, "finish_reason": None}]})
     if message.get("tool_calls"):
         calls = [{**tc, "index": i} for i, tc in enumerate(message["tool_calls"]) if isinstance(tc, dict)]
         yield sse({**base, "choices": [{"index": 0, "delta": {"tool_calls": calls}, "finish_reason": None}]})
@@ -963,6 +1028,12 @@ async def _respond_json(resp: httpx.Response, ticket: Ticket, public_model: str)
     except Exception:
         await ticket.finish(status_code=502, error="bad_upstream_json")
         raise ApiError(502, "upstream_error", "Model serveri noto'g'ri javob qaytardi.", "server_error")
+    attribution.observe(ticket.attribution, data)
+    if ticket.attribution.get("provider") == "local":
+        messages = [ch.get("message") or {} for ch in data.get("choices") or []]
+        if data.get("gateway_guard") or any(loops.is_looping(m.get(k) or "") for m in messages for k in ("content", "reasoning", "reasoning_content")):
+            await ticket.finish(status_code=502, error="repetition_loop")
+            raise ApiError(502, "generation_failed", "Model javobi takrorlanib qoldi. Qayta urinib ko'ring.", "server_error")
     usage = usage_of(data)
     estimated = usage is None
     if usage is None:  # rare: without usage, estimate from the text length
@@ -993,8 +1064,11 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
     since_check = 0
     meta: dict = {}
     looped = False
+    local = ticket.attribution.get("provider") == "local"
+    budget = local_guard.Budget(ticket.state.config.local_reasoning_seconds) if local else None
+    seconds = min(ticket.state.config.max_stream_seconds, ticket.state.config.local_generation_seconds) if local else ticket.state.config.max_stream_seconds
     try:
-        async for line in resp.aiter_lines():
+        async for line in local_guard.bounded_lines(resp, seconds, budget):
             if first:
                 ticket.ttfb_ms = int((time.monotonic() - ticket.t0) * 1000)
                 first = False
@@ -1013,6 +1087,9 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                             # is passed to the client as is (SDKs raise it as an exception),
                             # and billing records the real reason instead of "client disconnected".
                             error = f"stream_upstream_error:{obj['error'].get('code') or 'unknown'}"
+                        if budget:
+                            budget.observe(obj, repetition=False)
+                        attribution.observe(ticket.attribution, obj)
                         usage = usage_of(obj) or usage
                         meta = {"id": obj.get("id") or meta.get("id"), "created": obj.get("created") or meta.get("created")}
                         for ch in obj.get("choices") or []:
@@ -1054,6 +1131,14 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                 err = {"error": {"message": "Javob juda uzoq davom etdi va to'xtatildi.", "type": "server_error", "code": "stream_too_long"}}
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
                 break
+    except local_guard.GuardStopped as exc:
+        error = str(exc)
+        yield ("data: " + json.dumps({"error": {"message": "Generation stopped to prevent a reasoning loop.", "type": "server_error", "code": error}}) + "\n\n").encode()
+        yield b"data: [DONE]\n\n"
+    except TimeoutError:
+        error = "generation_budget_exceeded"
+        yield ("data: " + json.dumps({"error": {"message": "Generation time budget exceeded.", "type": "server_error", "code": error}}) + "\n\n").encode()
+        yield b"data: [DONE]\n\n"
     except httpx.TimeoutException:
         error = "stream_stalled"
         err = {"error": {"message": f"Model {ticket.state.config.stream_idle_timeout} soniya jim qoldi, so'rov to'xtatildi.", "type": "server_error", "code": "stream_stalled"}}

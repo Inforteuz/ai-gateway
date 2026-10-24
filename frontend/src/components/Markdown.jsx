@@ -1,3 +1,4 @@
+import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { marked } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
@@ -59,6 +60,7 @@ marked.use({
 })
 
 export function Markdown({ children }) {
+  useLocaleRefresh()
   const ref = useRef(null)
   const [copied, setCopied] = useState(null)
 
@@ -70,7 +72,7 @@ export function Markdown({ children }) {
       if (pre.querySelector('.md-copy')) return
       const btn = document.createElement('button')
       btn.className = 'md-copy'
-      btn.textContent = 'Nusxa'
+      btn.textContent = tr("Nusxa")
       btn.type = 'button'
       btn.onclick = () => {
         navigator.clipboard.writeText(block.textContent).then(() => {
@@ -79,7 +81,7 @@ export function Markdown({ children }) {
         })
       }
       pre.appendChild(btn)
-      if (copied === idx) btn.textContent = 'Nusxalandi'
+      if (copied === idx) btn.textContent = tr("Nusxalandi")
     })
   }, [children, copied])
 
