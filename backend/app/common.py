@@ -9,6 +9,13 @@ from .db import Database, now
 
 SESSION_COOKIE = "sf_session"
 
+# When a model is down and the request is retried on its stand-in, the second
+# attempt needs a request id of its own (`usage_logs.request_id` is unique) and
+# the two have to stay recognisably one request. The retry carries the original
+# id plus this suffix, which is what lets the panel show a failed first attempt
+# together with the answer that was actually delivered.
+FALLBACK_SUFFIX = "f"
+
 
 # English wording for the /v1 API, by error code.
 #

@@ -18,7 +18,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import admission, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted
-from .common import ApiError, client_ip
+from .common import ApiError, FALLBACK_SUFFIX, client_ip
 from .db import Database, now
 
 router = APIRouter(prefix="/v1", tags=["gateway"])
@@ -424,7 +424,7 @@ async def proxy(request: Request, endpoint: str):
         log.info("fallback: %s -> %s after %s (%s)", model["id"], stand_in, exc.code, request_id)
         # Its own id: the failed attempt already wrote a usage row under the first one,
         # and request_id is unique there. The suffix keeps the two attempts tied together.
-        retry_id = request_id + "f"
+        retry_id = request_id + FALLBACK_SUFFIX
         try:
             ticket2, body2, model2, max_out2, stream2 = await _prepare(
                 request, endpoint, key, retry_id, t0, ctx, force_model=stand_in)

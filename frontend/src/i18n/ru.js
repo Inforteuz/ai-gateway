@@ -415,6 +415,8 @@ export default {
   'req.empty': 'Запросов пока нет.',
   'req.error': 'Ошибка {code}',
   'req.errorShort': 'Ошибка',
+  'req.standIn': 'Выполнено резервной моделью',
+  'req.servedByStandIn': 'Основная модель не ответила — выполнила {model}',
   'req.success': 'Успешно',
   'req.failed': 'запрос не выполнен',
   'req.failedNote': '{reason}, деньги не списаны',

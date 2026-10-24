@@ -415,6 +415,8 @@ export default {
   'req.empty': "Hozircha so'rov yo'q.",
   'req.error': 'Xato {code}',
   'req.errorShort': 'Xato',
+  'req.standIn': 'Zaxirada bajarildi',
+  'req.servedByStandIn': 'Asosiy model javob bermadi — {model} bajardi',
   'req.success': 'Muvaffaqiyatli',
   'req.failed': "so'rov bajarilmadi",
   'req.failedNote': '{reason}, pul yechilmadi',

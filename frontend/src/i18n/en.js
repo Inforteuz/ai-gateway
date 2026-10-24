@@ -415,6 +415,8 @@ export default {
   'req.empty': 'No requests yet.',
   'req.error': 'Error {code}',
   'req.errorShort': 'Error',
+  'req.standIn': 'Served by stand-in',
+  'req.servedByStandIn': 'The model was down — {model} answered instead',
   'req.success': 'Success',
   'req.failed': 'request failed',
   'req.failedNote': '{reason}, no charge',

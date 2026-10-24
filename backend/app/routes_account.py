@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from . import attribution, security
 from .billing import MICRO, free_quota, month_start_ts, TASHKENT
 from . import catalog, monitor, topup_telegram
-from .common import ApiError, csrf_guard, get_db, require_user
+from .common import ApiError, FALLBACK_SUFFIX, csrf_guard, get_db, require_user
 from .failures import CATEGORY_LABELS, error_label
 from .db import Database, now
 
@@ -318,8 +318,32 @@ def revoke_key(key_id: int, user=Depends(require_user), db: Database = Depends(g
 
 
 # --- usage and ledger history ----------------------------------------------------------------------------------
-def usage_out(r) -> dict:
+def fallback_models(db: Database, user_id: int, rows) -> dict[str, str]:
+    """For each failed row, the model that answered on its behalf (if any).
+
+    A request whose model was down is retried on its stand-in, and the retry is
+    logged under the same id plus `FALLBACK_SUFFIX`. Without this lookup the list
+    shows a bare red failure and, further down, an unrelated-looking success —
+    so five answered requests read as five errors (seen 2026-10-25 01:25, where
+    all five `sable-4.0` queue rejections were served by `sable-3.5`).
+    """
+    ids = [r["request_id"] for r in rows if r["status_code"] >= 400 and r["request_id"]]
+    if not ids:
+        return {}
+    retries = [i + FALLBACK_SUFFIX for i in ids]
+    marks = ",".join("?" for _ in retries)
+    found = db.all(
+        f"""SELECT request_id, model FROM usage_logs
+            WHERE user_id=? AND status_code=200 AND request_id IN ({marks})""",
+        [user_id, *retries])
+    n = len(FALLBACK_SUFFIX)
+    return {r["request_id"][:-n]: r["model"] for r in found}
+
+
+def usage_out(r, retried_on: dict[str, str] | None = None) -> dict:
     return {
+        # The answer the client actually got, when the first model was down.
+        "retried_on": (retried_on or {}).get(r["request_id"]),
         "id": r["id"], "request_id": r["request_id"], "created_at": r["created_at"], "model": r["model"],
         "endpoint": r["endpoint"], "key_id": r["key_id"], "key_name": r["key_name"] if "key_name" in r.keys() else None,
         "prompt_tokens": r["prompt_tokens"], "completion_tokens": r["completion_tokens"], "cost": r["cost"],
@@ -348,7 +372,8 @@ def usage(user=Depends(require_user), db: Database = Depends(get_db), limit: int
     rows = db.all(
         f"""SELECT u.*, k.name AS key_name FROM usage_logs u LEFT JOIN api_keys k ON k.id=u.key_id
             WHERE {w} ORDER BY u.id DESC LIMIT ? OFFSET ?""", args + [limit, offset])
-    return {"total": total, "items": [usage_out(r) for r in rows]}
+    retried = fallback_models(db, user["id"], rows)
+    return {"total": total, "items": [usage_out(r, retried) for r in rows]}
 
 
 def daily_series(db: Database, where: str, args: list, days: int) -> list[dict]:
