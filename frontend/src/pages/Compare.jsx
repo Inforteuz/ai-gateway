@@ -169,7 +169,7 @@ function ExternalSource({ s }) {
 
       <div className="table-wrap">
         {s.kind === 'matrix' ? <MatrixTable s={s} />
-          : s.kind === tr("model") ? <ModelTable s={s} />
+          : s.kind === 'model' ? <ModelTable s={s} />
             : <RankingTable s={s} />}
       </div>
       <p className="muted small" style={{ marginTop: 10 }}> {tr("Qatorlar manbadagi nom va tartibda keltirilgan, hech narsa o'zgartirilmagan. Raqamlar:")} <a href={s.source_url} target="_blank"

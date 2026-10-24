@@ -27,7 +27,7 @@ export default function Shell() {
   const nav = useNavigate()
   const t = useT()
   const [pending, setPending] = useState(0)
-  const isAdmin = user.role === tr("admin")
+  const isAdmin = user.role === 'admin'
 
   useEffect(() => {
     if (!isAdmin) return

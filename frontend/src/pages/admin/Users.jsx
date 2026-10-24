@@ -76,7 +76,7 @@ function Detail({ id, onClose, onChanged, onSecret }) {
       {u && (
         <>
           <dl className="kv">
-            <dt>{tr("Email")}</dt><dd>{tr(u.email)} {u.role === tr("admin") && <span className="tag">{tr("administrator")}</span>} {u.status !== 'active' && <span className="tag tag--bad">{tr("to'xtatilgan")}</span>}</dd>
+            <dt>{tr("Email")}</dt><dd>{tr(u.email)} {u.role === 'admin' && <span className="tag">{tr("administrator")}</span>} {u.status !== 'active' && <span className="tag tag--bad">{tr("to'xtatilgan")}</span>}</dd>
             <dt>{tr("Hisob")}</dt><dd><b>{fmtSom(u.balance)}</b>{u.held > 0 && <span className="dim"> {tr("(band:")} {fmtSom(u.held)})</span>}</dd>
             <dt>{tr("Shu oy")}</dt><dd>{fmtSom(u.month_cost)}, {tr(u.month_requests)} {tr("ta so'rov")}</dd>
             <dt>{tr("Ro'yxatdan o'tgan")}</dt><dd>{fmtDateTime(u.created_at)}{tr(", oxirgi kirish:")} {fmtAgo(u.last_login_at)}</dd>
@@ -95,7 +95,7 @@ function Detail({ id, onClose, onChanged, onSecret }) {
               {tr(u.status === 'active' ? tr("To'xtatish") : tr("Qayta faollashtirish"))}
             </button>
             <button className="btn btn--small" disabled={busy} onClick={() => run(async () => { const r = await api.post(`/portal/admin/users/${id}/reset-password`); onSecret({ title: tr("Yangi parol"), email: u.email, password: r.temp_password }) })}>{tr("Parolni tiklash")}</button>
-            {u.id !== me.id && <button className="btn btn--small" disabled={busy} onClick={() => run(() => api.patch(`/portal/admin/users/${id}`, { role: u.role === tr("admin") ? 'user' : tr("admin") }), tr("Rol o'zgardi"))}>{tr(u.role === tr("admin") ? 'Administratorlikdan olish' : 'Administrator qilish')}</button>}
+            {u.id !== me.id && <button className="btn btn--small" disabled={busy} onClick={() => run(() => api.patch(`/portal/admin/users/${id}`, { role: u.role === 'admin' ? 'user' : 'admin' }), tr("Rol o'zgardi"))}>{tr(u.role === 'admin' ? 'Administratorlikdan olish' : 'Administrator qilish')}</button>}
             {/* Archiving, not deleting: the ledger and usage rows behind an account have to stay */}
             {u.id !== me.id && u.status !== 'archived' && (
               <button className="btn btn--small btn--danger" disabled={busy} onClick={() => {
@@ -176,7 +176,7 @@ export default function Users() {
           <tbody>
             {data.items.map((u) => (
               <tr key={u.id} className="is-click" onClick={() => setOpen(u.id)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(u.id)}>
-                <td><b>{tr(u.name || u.email)}</b> {u.role === tr("admin") && <span className="tag">{tr("admin")}</span>} {u.status === 'archived' ? <span className="tag tag--bad">{tr("arxivlangan")}</span> : u.status !== 'active' && <span className="tag tag--bad">{tr("to'xtatilgan")}</span>}<div className="dim small">{tr(u.email)}</div></td>
+                <td><b>{tr(u.name || u.email)}</b> {u.role === 'admin' && <span className="tag">{tr("admin")}</span>} {u.status === 'archived' ? <span className="tag tag--bad">{tr("arxivlangan")}</span> : u.status !== 'active' && <span className="tag tag--bad">{tr("to'xtatilgan")}</span>}<div className="dim small">{tr(u.email)}</div></td>
                 <td className="num"><b>{fmtSom(u.balance)}</b></td>
                 <td className="num muted">{fmtSom(u.month_cost)}</td>
                 <td className="num muted">{tr(u.active_keys)}</td>

@@ -36,7 +36,7 @@ export default function Account() {
         <dl className="kv">
           <dt>{tr("Email")}</dt><dd>{tr(user.email)}</dd>
           <dt>{tr("Ism")}</dt><dd>{tr(user.name || '-')}</dd>
-          <dt>{tr("Rol")}</dt><dd>{tr(user.role === tr("admin") ? tr("Administrator") : tr("Foydalanuvchi"))}</dd>
+          <dt>{tr("Rol")}</dt><dd>{tr(user.role === 'admin' ? tr("Administrator") : tr("Foydalanuvchi"))}</dd>
         </dl>
       </div>
       <div className="panel" style={{ maxWidth: 560, marginTop: 18 }}>
