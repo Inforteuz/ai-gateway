@@ -417,12 +417,15 @@ async def proxy(request: Request, endpoint: str):
         if not stand_in:
             raise
         log.info("fallback: %s -> %s after %s (%s)", model["id"], stand_in, exc.code, request_id)
+        # Its own id: the failed attempt already wrote a usage row under the first one,
+        # and request_id is unique there. The suffix keeps the two attempts tied together.
+        retry_id = request_id + "f"
         try:
             ticket2, body2, model2, max_out2, stream2 = await _prepare(
-                request, endpoint, key, request_id, t0, ctx, force_model=stand_in)
+                request, endpoint, key, retry_id, t0, ctx, force_model=stand_in)
         except ApiError as exc2:
-            exc2.headers = {**exc2.headers, "X-Request-Id": request_id}
-            await _log_rejection(state, key, request_id, endpoint, ctx, exc2, client_ip(request))
+            exc2.headers = {**exc2.headers, "X-Request-Id": retry_id}
+            await _log_rejection(state, key, retry_id, endpoint, ctx, exc2, client_ip(request))
             raise
         # One hop only: the stand-in answers or the request fails.
         response = await _execute(request, endpoint, ticket2, body2, {**model2, "fallback_to": None},
