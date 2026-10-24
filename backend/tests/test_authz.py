@@ -122,3 +122,26 @@ def test_archive_hides_the_account_and_revokes_its_keys(env):
 
     assert env.client.post(f"/portal/admin/users/{uid}/restore", headers=CSRF).status_code == 200
     assert "arxiv@test.uz" in emails()
+
+
+def test_v1_speaks_english_while_the_panel_stays_uzbek(env):
+    """/v1 is read by other people's programs; the panel is read by its Uzbek operators."""
+    uid = add_user(env, email="til@test.uz")
+    raw, _ = add_key(env, uid)
+
+    # unknown model: the API answers in English, with the code a client branches on
+    r = env.client.post("/v1/chat/completions", headers=bearer(raw),
+                        json={"model": "yo-q-model", "messages": [{"role": "user", "content": "salom"}]})
+    err = r.json()["error"]
+    assert r.status_code == 404 and err["code"] == "model_not_found"
+    assert err["message"].startswith("The model `yo-q-model` does not exist")
+    assert err["message"].isascii()
+
+    # no key at all
+    r = env.client.post("/v1/chat/completions", json={"model": "model-1.0", "messages": []})
+    assert r.json()["error"]["message"].isascii()
+
+    # the panel keeps its Uzbek wording
+    login(env.client, "til@test.uz")
+    r = env.client.get("/portal/keys/999999/reveal")
+    assert r.status_code == 404 and r.json()["error"]["message"] == "Kalit topilmadi."

@@ -96,6 +96,8 @@ def free_limit_error(quota: billing.FreeQuota) -> ApiError:
     retry = max(1, quota.resets_at - now())
     hours, minutes = divmod(-(-retry // 60), 60)
     wait = f"{hours} soat {minutes} daqiqa" if hours else f"{minutes} daqiqa"
+    wait_en = f"{hours}h {minutes}m" if hours else f"{minutes}m"
+    names = ", ".join(quota.models)
     remaining = max(0, quota.limit - quota.used)
     if quota.requested and remaining > 0:
         return ApiError(
@@ -103,13 +105,18 @@ def free_limit_error(quota: billing.FreeQuota) -> ApiError:
             f"Bepul {', '.join(quota.models)} modelining bugungi limitidan {tokens(remaining)} token qoldi, bu so'rov "
             f"esa {tokens(quota.requested)} tokengacha ishlatishi mumkin (prompt + max_tokens). max_tokens ni kamaytiring "
             f"yoki limit Toshkent vaqti bilan 00:00 da yangilanishini kuting ({wait}dan keyin).",
-            "rate_limit_error", {"Retry-After": str(retry)})
+            "rate_limit_error", {"Retry-After": str(retry)},
+            en=(f"Only {tokens(remaining)} tokens are left of today's free allowance for {names}, and this "
+                f"request could use up to {tokens(quota.requested)} (prompt + max_tokens). Lower max_tokens, "
+                f"or wait {wait_en} for the allowance to reset at 00:00 Asia/Tashkent."))
     return ApiError(
         429, "free_daily_limit",
         f"Bepul {', '.join(quota.models)} modelining kunlik limiti tugadi: bugun {tokens(quota.used)} / "
         f"{tokens(quota.limit)} token ishlatildi. Limit Toshkent vaqti bilan soat 00:00 da yangilanadi "
         f"({wait}dan keyin). Hisobingizni to'ldirsangiz, bu cheklov butunlay olib tashlanadi.",
-        "rate_limit_error", {"Retry-After": str(retry)})
+        "rate_limit_error", {"Retry-After": str(retry)},
+        en=(f"Today's free allowance for {names} is used up: {tokens(quota.used)} of {tokens(quota.limit)} "
+            f"tokens. It resets at 00:00 Asia/Tashkent, in {wait_en}. Adding funds removes the limit."))
 
 
 # --- request state ---------------------------------------------------------------------------------------------------
@@ -317,8 +324,8 @@ _SAFE_UPSTREAM_CODES = {
 }
 
 
-def upstream_error(resp: httpx.Response, body: bytes, model=None) -> tuple[int, str, str, dict[str, str]]:
-    """Maps a model server error response to the (status, code, message, headers) returned to the client.
+def upstream_error(resp: httpx.Response, body: bytes, model=None) -> tuple[int, str, str, dict[str, str], str]:
+    """Maps a model server error response to (status, code, message, headers, english) for the client.
 
     Previously EVERYTHING outside the 400 group became 502: "queue full, retry
     in 10 seconds" (503 + Retry-After) and "the model did not answer" looked
@@ -345,15 +352,20 @@ def upstream_error(resp: httpx.Response, body: bytes, model=None) -> tuple[int, 
 
     st = resp.status_code
     if st in (400, 404, 413, 422):
-        return 400, (code if safe else "upstream_rejected"), f"Model so'rovni qabul qilmadi: {msg}"[:400], headers
+        # The provider's own words are the useful part here, so they are kept in both
+        return (400, (code if safe else "upstream_rejected"), f"Model so'rovni qabul qilmadi: {msg}"[:400],
+                headers, f"The model rejected the request: {msg}"[:400])
     if st in (429, 503):
-        return 503, (code if safe else "model_busy"), (msg[:300] if safe else
-                     "Model hozir band. Birozdan keyin qayta urinib ko'ring."), headers or {"Retry-After": "15"}
+        return (503, (code if safe else "model_busy"), (msg[:300] if safe else
+                "Model hozir band. Birozdan keyin qayta urinib ko'ring."), headers or {"Retry-After": "15"},
+                "The model is busy. Try again shortly.")
     if st == 504:
-        return 504, "upstream_timeout", "Model javob berishga ulgurmadi.", headers
+        return 504, "upstream_timeout", "Model javob berishga ulgurmadi.", headers, \
+            "The model did not answer in time."
     if safe:
-        return 502, code, msg[:300], headers
-    return 502, "upstream_error", "Model serveri xato qaytardi. Birozdan keyin qayta urinib ko'ring.", headers
+        return 502, code, msg[:300], headers, msg[:300]
+    return (502, "upstream_error", "Model serveri xato qaytardi. Birozdan keyin qayta urinib ko'ring.",
+            headers, "The model server returned an error. Try again shortly.")
 
 
 def _public_id(model) -> str:
@@ -457,7 +469,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     if model is None:
         listed = [r["id"] for r in await run_in_threadpool(db.all, "SELECT id FROM models WHERE enabled=1 AND listed=1 ORDER BY id")]
         names = ", ".join(sorted(directions.listed(set(listed))) + listed)
-        raise ApiError(404, "model_not_found", f"Model topilmadi. Mavjud modellar: {names}.")
+        raise ApiError(404, "model_not_found", f"Model topilmadi. Mavjud modellar: {names}.",
+                       en=f"The model `{public_id}` does not exist. Available models: {names}.")
     model = dict(model)
     model["public_id"] = public_id
     if endpoint in ("images/generations", "images/edits"):
@@ -645,10 +658,11 @@ async def _send(state, ticket: Ticket, client, url: str, headers: dict, payload:
     if resp.status_code != 200:
         err_body = await resp.aread()
         await resp.aclose()
-        status, code, message, err_headers = upstream_error(resp, err_body, model)
+        status, code, message, err_headers, message_en = upstream_error(resp, err_body, model)
         await ticket.finish(status_code=status, error=f"upstream_{resp.status_code}:{code}")
         raise ApiError(status, code, message,
-                       "invalid_request_error" if status == 400 else "server_error", err_headers)
+                       "invalid_request_error" if status == 400 else "server_error", err_headers,
+                       en=message_en)
     return resp
 
 

@@ -442,9 +442,10 @@ def _resp(status, body, headers=None):
 ])
 def test_gateway_maps_upstream_errors(status, body, headers, want):
     resp = _resp(status, body, headers)
-    st, code, msg, hdr = upstream_error(resp, resp.content)
+    st, code, msg, hdr, msg_en = upstream_error(resp, resp.content)
     assert (st, code, hdr.get("Retry-After")) == want
-    assert "deepseek" not in msg and "chatgpt" not in msg and "Traceback" not in msg
+    for text in (msg, msg_en):     # neither wording may name the provider or leak a traceback
+        assert "deepseek" not in text and "chatgpt" not in text and "Traceback" not in text
 
 
 # --- 6. Catalog --------------------------------------------------------------------------------------------------

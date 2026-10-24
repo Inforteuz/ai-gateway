@@ -126,8 +126,11 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
                        default_limit=config.max_body_bytes)
 
     @app.exception_handler(ApiError)
-    async def api_error(_: Request, exc: ApiError):
-        return JSONResponse(exc.body(), status_code=exc.status, headers=exc.headers)
+    async def api_error(request: Request, exc: ApiError):
+        # /v1 is read by other people's programs and their logs: answer it in English.
+        # The panel (/portal) keeps the Uzbek wording its users expect.
+        return JSONResponse(exc.body(english=request.url.path.startswith("/v1/")),
+                            status_code=exc.status, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, exc: RequestValidationError):

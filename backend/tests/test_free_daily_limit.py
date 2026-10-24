@@ -61,7 +61,8 @@ def test_request_that_does_not_fit_is_refused_without_touching_max_tokens(free_e
     seed(free_env, uid, LIMIT - 1000)
     r = chat(free_env, key)                   # default max_tokens 4096 does not fit into 1 000
     assert r.status_code == 429 and r.json()["error"]["code"] == "free_daily_limit"
-    assert "1 000 token qoldi" in r.json()["error"]["message"] and "max_tokens" in r.json()["error"]["message"]
+    msg = r.json()["error"]["message"]          # /v1 answers in English
+    assert "1 000 tokens are left" in msg and "max_tokens" in msg
     assert free_env.up.get("calls", 0) == 0
 
 
@@ -72,7 +73,7 @@ def test_used_up_quota_is_blocked(free_env):
     assert r.status_code == 429
     err = r.json()["error"]
     assert err["type"] == "rate_limit_error" and err["code"] == "free_daily_limit"
-    assert "250 000" in err["message"] and "00:00" in err["message"] and "to'ldirsangiz" in err["message"]
+    assert "250 000" in err["message"] and "00:00" in err["message"] and "Adding funds" in err["message"]
     expected = billing.next_day_ts() - now()
     assert abs(int(r.headers["retry-after"]) - expected) <= 2
     assert 0 < int(r.headers["retry-after"]) <= 86400

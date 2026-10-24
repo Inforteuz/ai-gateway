@@ -10,16 +10,70 @@ from .db import Database, now
 SESSION_COOKIE = "sf_session"
 
 
+# English wording for the /v1 API, by error code.
+#
+# The panel speaks Uzbek to the people who run the gateway; /v1 speaks to other people's
+# programs, where an SDK, a log line or a support thread is read in English — and where
+# the code, not the prose, is what a client branches on. The message is replaced by code
+# at the boundary (see main.create_app) so call sites keep their Uzbek text for the panel.
+# A code that is missing here keeps whatever message it was raised with.
+API_ERRORS_EN = {
+    # request
+    "invalid_json": "The request body is not valid JSON.",
+    "invalid_body": "The request body is not valid.",
+    "invalid_messages": "`messages` must be a non-empty list of chat messages.",
+    "invalid_prompt": "`prompt` must be a non-empty string.",
+    "invalid_max_tokens": "`max_tokens` is out of range.",
+    "invalid_n": "`n` is out of range; only one completion per request is supported.",
+    "invalid_image": "The image could not be read.",
+    "invalid_request": "The request is not valid.",
+    "unsupported_endpoint": "This endpoint is not supported.",
+    "unsupported_feature": "The selected model does not support this feature.",
+    "invalid_response_format": "The requested `response_format` is not supported by this model.",
+    "request_too_large": "The request body is too large.",
+    # context_length_exceeded is deliberately absent: it is already raised in English,
+    # with the model's context window in it, and agent CLIs read that number.
+    # authentication and access
+    "not_authenticated": "No API key was provided.",
+    "invalid_api_key": "The API key is not valid.",
+    "revoked_api_key": "This API key has been revoked.",
+    "account_suspended": "This account is suspended.",
+    "forbidden": "This key is not allowed to use that.",
+    # model
+    "model_not_found": "The requested model does not exist.",
+    "model_offline": "The requested model is offline.",
+    "model_unavailable": "The requested model is unavailable right now.",
+    "model_busy": "The model is busy. Try again shortly.",
+    "queue_full": "The queue for this model is full. Try again shortly.",
+    # money and limits
+    "insufficient_balance": "The account balance is too low for this request.",
+    "key_limit_reached": "This key has reached its monthly spending limit.",
+    "too_many_concurrent": "Too many requests in flight for this key.",
+    "free_daily_limit": "The free daily token limit for this model has been used up.",
+    "server_busy": "The gateway is at capacity. Try again shortly.",
+    # upstream
+    "upstream_rejected": "The model rejected the request.",
+    "upstream_failed": "The model did not return an answer.",
+    "upstream_timeout": "The model did not answer in time.",
+    "upstream_error": "The model server returned an error. Try again shortly.",
+    "invalid_output": "The model's answer could not be used. Try again.",
+}
+
+
 class ApiError(Exception):
     """OpenAI-style error: {"error": {"message", "type", "code"}}."""
 
     def __init__(self, status: int, code: str, message: str, type_: str = "invalid_request_error",
-                 headers: dict[str, str] | None = None):
+                 headers: dict[str, str] | None = None, en: str | None = None):
         super().__init__(message)
         self.status, self.code, self.message, self.type, self.headers = status, code, message, type_, headers or {}
+        # Set where the Uzbek message carries numbers or names worth keeping in English
+        # too; otherwise API_ERRORS_EN[code] is used.
+        self.en = en
 
-    def body(self) -> dict:
-        return {"error": {"message": self.message, "type": self.type, "code": self.code}}
+    def body(self, english: bool = False) -> dict:
+        message = (self.en or API_ERRORS_EN.get(self.code) or self.message) if english else self.message
+        return {"error": {"message": message, "type": self.type, "code": self.code}}
 
 
 def get_db(request: Request) -> Database:
