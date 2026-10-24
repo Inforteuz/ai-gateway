@@ -85,7 +85,7 @@ def local_server(monkeypatch):
 
 def test_redirects_are_not_followed(local_server, monkeypatch):
     calls = fake_dns(monkeypatch, "127.0.0.1")
-    with pytest.raises(A.AttachmentError, match="yo'naltiradi"):
+    with pytest.raises(A.AttachmentError, match="redirects elsewhere"):
         A._fetch_public(f"http://files.example:{local_server}/redirect", 1000, 5)
     assert _Handler.hits == ["/redirect"] and names(calls) == ["files.example"]
 
@@ -100,5 +100,5 @@ def test_connects_to_the_checked_address_only_once_resolved(local_server, monkey
 
 def test_size_limit(local_server, monkeypatch):
     fake_dns(monkeypatch, "127.0.0.1")
-    with pytest.raises(A.AttachmentError, match="katta"):
+    with pytest.raises(A.AttachmentError, match="too large"):
         A._fetch_public(f"http://files.example:{local_server}/a.txt", 3, 5)

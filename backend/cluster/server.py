@@ -823,8 +823,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 if not ok:
                     log.warning("format mismatch even after retry: %s", why)
                     raise ClusterError(502, "invalid_output",
-                                       "Model talab qilingan JSON formatida javob bermadi. "
-                                       "Qayta urinib ko'ring.", 10)
+                                       "The model did not answer in the requested JSON format. "
+                                       "Try again.", 10)
                 answer = answer_fmt
 
             # Answers from the fallback model are not cached: the next identical request
@@ -1152,7 +1152,7 @@ async def images_generations(req: ImageRequest, request: Request):
     except RuntimeError as e:
         log.warning("images: %s", e)
         raise ClusterError(503, "model_unavailable",
-                           "Model hozir mavjud emas. Birozdan keyin qayta urinib ko'ring.", 15)
+                           "The model is unavailable right now. Try again shortly.", 15)
 
     if not images:
         raise HTTPException(status_code=502,
@@ -1221,7 +1221,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
         except RuntimeError as e:
             log.warning("images/edits: %s", e)
             raise ClusterError(503, "model_unavailable",
-                               "Model hozir mavjud emas. Birozdan keyin qayta urinib ko'ring.", 15)
+                               "The model is unavailable right now. Try again shortly.", 15)
 
     if not images:
         raise HTTPException(status_code=502,

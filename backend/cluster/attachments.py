@@ -116,16 +116,16 @@ class AttachmentStore:
     def add_bytes(self, data: bytes, mime: str, name: str = "") -> Attachment:
         if len(data) > cfg.MAX_ATTACHMENT_BYTES:
             raise AttachmentError(
-                f"Fayl juda katta: {len(data) // 1024} KB "
-                f"(ruxsat {cfg.MAX_ATTACHMENT_BYTES // 1024} KB)")
+                f"The file is too large: {len(data) // 1024} KB "
+                f"(limit {cfg.MAX_ATTACHMENT_BYTES // 1024} KB)")
         if self.total_size + len(data) > cfg.MAX_ATTACHMENTS_TOTAL_BYTES:
-            raise AttachmentError("Biriktirmalarning umumiy hajmi chegaradan oshdi")
+            raise AttachmentError("The attachments exceed the total size limit")
         if len(self.items) >= cfg.MAX_ATTACHMENTS:
-            raise AttachmentError(f"Bitta so'rovda ko'pi bilan {cfg.MAX_ATTACHMENTS} ta fayl")
+            raise AttachmentError(f"At most {cfg.MAX_ATTACHMENTS} files per request")
 
         mime = (mime or "application/octet-stream").split(";")[0].strip().lower()
         if cfg.ALLOWED_ATTACHMENT_MIMES and mime not in cfg.ALLOWED_ATTACHMENT_MIMES:
-            raise AttachmentError(f"Bu fayl turi qabul qilinmaydi: {mime}")
+            raise AttachmentError(f"This file type is not accepted: {mime}")
 
         ext = _EXT_BY_MIME.get(mime) or mimetypes.guess_extension(mime) or ".bin"
         safe = _safe_name(name, ext)
@@ -151,7 +151,7 @@ class AttachmentStore:
             try:
                 data = base64.b64decode(payload, validate=False)
             except (binascii.Error, ValueError) as e:
-                raise AttachmentError(f"base64 ni o'qib bo'lmadi: {e}") from e
+                raise AttachmentError(f"The base64 payload could not be read: {e}") from e
         else:
             data = urllib.parse.unquote_to_bytes(payload)
         return self.add_bytes(data, mime, name)
@@ -188,18 +188,18 @@ def _resolve_public(url: str) -> tuple[urllib.parse.ParseResult, str]:
     """
     parts = urllib.parse.urlparse(url)
     if parts.scheme not in ("http", "https"):
-        raise AttachmentError("Faqat http/https havolalar qabul qilinadi")
+        raise AttachmentError("Only http/https links are accepted")
     host = parts.hostname
     if not host:
-        raise AttachmentError("Havolada host yo'q")
+        raise AttachmentError("The link has no host")
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (socket.gaierror, ValueError) as e:
-        raise AttachmentError(f"Hostni aniqlab bo'lmadi: {host}") from e
+        raise AttachmentError(f"The host could not be resolved: {host}") from e
     ips = [ipaddress.ip_address(info[4][0]) for info in infos]
     if not ips or not all(_is_public_ip(ip) for ip in ips):
-        raise AttachmentError("Ichki tarmoq manzillariga ruxsat yo'q")
+        raise AttachmentError("Internal network addresses are not allowed")
     return parts, str(ips[0])
 
 
@@ -224,12 +224,12 @@ def _fetch_public(url: str, limit: int, timeout: float) -> tuple[bytes, str]:
             resp = conn.getresponse()
             if 300 <= resp.status < 400:
                 # Redirects are not followed: the target could be an internal address
-                raise AttachmentError("Havola boshqa manzilga yo'naltiradi; to'g'ridan-to'g'ri havolani yuboring")
+                raise AttachmentError("The link redirects elsewhere; send the direct link")
             if resp.status != 200:
-                raise AttachmentError(f"Faylni yuklab bo'lmadi: HTTP {resp.status}")
+                raise AttachmentError(f"The file could not be downloaded: HTTP {resp.status}")
             declared = resp.getheader("Content-Length")
             if declared and declared.isdigit() and int(declared) > limit:
-                raise AttachmentError(f"Fayl juda katta: {int(declared) // 1024} KB")
+                raise AttachmentError(f"The file is too large: {int(declared) // 1024} KB")
             # Read 1 byte past the limit so add_bytes() detects oversize
             data = resp.read(limit + 1)
             mime = (resp.getheader("Content-Type") or "").split(";")[0].strip()
@@ -239,7 +239,7 @@ def _fetch_public(url: str, limit: int, timeout: float) -> tuple[bytes, str]:
     except AttachmentError:
         raise
     except Exception as e:
-        raise AttachmentError(f"Faylni yuklab bo'lmadi: {type(e).__name__}") from e
+        raise AttachmentError(f"The file could not be downloaded: {type(e).__name__}") from e
 
 
 def parse_message_content(content: Any, store: AttachmentStore) -> ParsedContent:

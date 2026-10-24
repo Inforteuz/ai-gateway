@@ -195,7 +195,7 @@ class ClusterBalancer:
                 log.info("matching worker cooling down, waiting %.1fs (model=%s)", wait, requested_model)
                 await asyncio.sleep(wait + 0.2)
             if not self.pick_candidates(requested_model, require):
-                raise NoWorker("Model hozir mavjud emas. Birozdan keyin qayta urinib ko'ring.")
+                raise NoWorker("The model is unavailable right now. Try again shortly.")
         return await self._dispatch(prompt_text, requested_model, timeout_per_worker,
                                     time.monotonic(), retried=False, require=require,
                                     attachment_paths=attachment_paths,
@@ -437,4 +437,4 @@ class ClusterBalancer:
             raise UpstreamFailed("Model javob bera olmadi. Birozdan keyin qayta urinib ko'ring.")
         if waited_busy:
             raise Busy("Model band — navbatda kutish muddati tugadi. Birozdan keyin qayta urinib ko'ring.")
-        raise NoWorker("Model hozir mavjud emas. Birozdan keyin qayta urinib ko'ring.")
+        raise NoWorker("The model is unavailable right now. Try again shortly.")
