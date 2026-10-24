@@ -65,6 +65,25 @@ class QwenAdapter(BaseAIAdapter):
         };
     })()"""
 
+    # How long to wait for that marker. It is painted with the page or not at all,
+    # so polling for the whole reset timeout bought nothing: measured, Qwen stopped
+    # turning the mode on from the URL (the page carries no `.temporary-chat-entry`
+    # at all) and EVERY request paid those seconds before falling back to a regular
+    # new chat.
+    TEMP_CONFIRM_WAIT = 4.0
+
+    # Is the open page a chat a request may reuse? A temporary chat is NOT required:
+    # what has to hold is what `_reset_saved_chat` itself guarantees — the composer is
+    # there, the chat is EMPTY, and we are not inside a saved chat (`/c/<id>`) whose
+    # history belongs to someone else. The two paths below are the ones Qwen serves a
+    # brand-new chat on; anything else is not reused.
+    _FRESH_STATE_JS = """(() => ({
+        hasInput: !!document.querySelector('textarea.message-input-textarea, textarea'),
+        msgs: document.querySelectorAll(
+            '.qwen-chat-message-assistant, .qwen-chat-message-user, .qwen-chat-message').length,
+        newPath: location.pathname === '/' || location.pathname === '/c/guest',
+    }))()"""
+
     # Model selection (measured on the live page): the `.wms-trigger` in the header
     # (ant-dropdown) opens a list where each model name sits in a leaf element
     # inside `.wms-list__name-info`. Variants: Qwen3.7-Plus, Qwen3.8-Max,
@@ -79,11 +98,17 @@ class QwenAdapter(BaseAIAdapter):
         return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })"""
 
     async def is_fresh_chat(self, ws) -> bool:
-        st = await cdp.evaluate(ws, self._TEMP_STATE_JS, timeout=8)
-        if not (isinstance(st, dict) and st.get("on") and st.get("hasInput") and st.get("msgs") == 0):
+        """Can the prewarmed page be used as it is, without opening a new chat?
+
+        This used to demand the temporary-chat marker, and since Qwen stopped setting
+        it the answer was always "no": the prewarmed page was thrown away and every
+        request paid ~23 s to open a new chat, while gemini and chatgpt — same pool,
+        same prewarm — paid 0.1 s.
+        """
+        st = await cdp.evaluate(ws, self._FRESH_STATE_JS, timeout=8)
+        if not isinstance(st, dict):
             return False
-        n = await cdp.evaluate(ws, "document.querySelectorAll('.qwen-chat-message, .qwen-chat-message-user').length", timeout=8)
-        return n == 0
+        return bool(st.get("hasInput")) and st.get("msgs") == 0 and bool(st.get("newPath"))
 
     def has_variant(self, variant: str) -> bool:
         return variant == "fallback" and bool(cfg.QWEN_FALLBACK_MODEL) \
@@ -142,7 +167,7 @@ class QwenAdapter(BaseAIAdapter):
         """
         if cfg.QWEN_TEMPORARY_CHAT:
             await self.goto(ws, f"{self.TEMP_URL}&_sf={int(time.time() * 1000)}")
-            for _ in range(int(timeout * 2)):
+            for _ in range(int(self.TEMP_CONFIRM_WAIT * 2)):
                 await asyncio.sleep(0.5)
                 try:
                     st = await cdp.evaluate(ws, self._TEMP_STATE_JS, timeout=10)
