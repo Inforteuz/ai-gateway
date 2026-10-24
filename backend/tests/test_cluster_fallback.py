@@ -329,3 +329,24 @@ def test_prewarm_marks_fresh_page(monkeypatch):
     asyncio.run(w.prewarm())
     assert w.resets == 1 and w.warm_since > 0
 
+
+# --- stand-in model (models.fallback_to) ---------------------------------------------------------
+def test_stand_in_chosen_only_for_failures_another_model_would_not_share():
+    from app.common import ApiError
+    from app.gateway import _stand_in_for
+    model = {"id": "sable-3.5", "fallback_to": "sable-3.1"}
+
+    for status, code in ((503, "model_busy"), (503, "model_unavailable"), (502, "upstream_error"),
+                         (504, "upstream_timeout")):
+        assert _stand_in_for(model, ApiError(status, code, "x")) == "sable-3.1"
+
+    # the stand-in would fail exactly the same way on these
+    for status, code in ((400, "upstream_rejected"), (401, "invalid_api_key"), (413, "request_too_large"),
+                         (429, "free_daily_limit"), (402, "insufficient_balance")):
+        assert _stand_in_for(model, ApiError(status, code, "x")) is None
+    # the gateway itself being full: retrying only adds load
+    assert _stand_in_for(model, ApiError(503, "server_busy", "x")) is None
+
+    # nothing configured, or pointing at itself
+    assert _stand_in_for({"id": "a", "fallback_to": None}, ApiError(503, "model_busy", "x")) is None
+    assert _stand_in_for({"id": "a", "fallback_to": "a"}, ApiError(503, "model_busy", "x")) is None

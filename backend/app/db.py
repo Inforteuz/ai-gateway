@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -104,6 +104,12 @@ MIGRATIONS: dict[int, list[str]] = {
           ALTER TABLE users ADD CONSTRAINT users_status_check
             CHECK (status IN ('active','suspended','archived'));
         END $$""",
+    ],
+    # v8: a stand-in model. When a model cannot answer for a reason another model would
+    # not share (offline, busy, the provider erroring), the request is retried once on
+    # the model named here instead of failing.
+    8: [
+        "ALTER TABLE models ADD COLUMN IF NOT EXISTS fallback_to TEXT",
     ],
 }
 

@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS models (
   refine             BIGINT NOT NULL DEFAULT 0,      -- 1 = answers are verified by an external model
   listed             BIGINT NOT NULL DEFAULT 1,      -- 0 = hidden from the list (but works when called)
   default_reasoning  TEXT,                           -- NULL = global setting
+  -- Stand-in model: a request this model cannot serve (offline, busy, provider error)
+  -- is retried once on this one. NULL = the request simply fails. One hop only.
+  fallback_to   TEXT REFERENCES models(id),
   fallback_price_from TEXT,                          -- this model's price applies when verification does not run
   allow_thinking     BIGINT NOT NULL DEFAULT 1       -- 0 = thinking (reasoning) always off, even if the client asks
 );

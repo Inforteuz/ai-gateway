@@ -268,6 +268,7 @@ class ModelIn(BaseModel):
     listed: bool = True
     default_reasoning: str | None = Field(default=None, pattern=LEVEL_PATTERN)
     fallback_price_from: str | None = Field(default=None, max_length=80)
+    fallback_to: str | None = Field(default=None, max_length=80)
     allow_thinking: bool = True
 
 
@@ -275,7 +276,7 @@ CLUSTER_CHANNELS = {"auto", "chatgpt", "deepseek", "qwen", "gemini", "genspark",
 
 
 def _check_model_rules(db: Database, provider: str, refine: bool, fallback: str | None, own_id: str,
-                       upstream_name: str | None = None) -> None:
+                       upstream_name: str | None = None, stand_in: str | None = None) -> None:
     if refine and provider != "local":
         raise ApiError(400, "invalid_model", "Tekshiruvli rejim faqat mahalliy model uchun.")
     if provider == "cluster" and upstream_name and upstream_name.lower() not in CLUSTER_CHANNELS:
@@ -283,21 +284,30 @@ def _check_model_rules(db: Database, provider: str, refine: bool, fallback: str 
                        f"Cluster uchun 'upstream_name' quyidagilardan biri bo'lishi kerak: {', '.join(sorted(CLUSTER_CHANNELS))}.")
     if fallback and (fallback == own_id or db.one("SELECT 1 FROM models WHERE id=?", (fallback,)) is None):
         raise ApiError(400, "invalid_model", "'Narx manbai' mavjud boshqa model bo'lishi kerak.")
+    if stand_in and (stand_in == own_id or db.one("SELECT 1 FROM models WHERE id=?", (stand_in,)) is None):
+        raise ApiError(400, "invalid_model", "'Zaxira model' mavjud boshqa model bo'lishi kerak.")
 
 
 @router.post("/models")
 def add_model(body: ModelIn, db: Database = Depends(get_db)):
     if db.one("SELECT 1 FROM models WHERE id=?", (body.id,)):
         raise ApiError(409, "model_exists", "Bunday model allaqachon bor.")
-    _check_model_rules(db, body.provider, body.refine, body.fallback_price_from, body.id, body.upstream_name)
+    _check_model_rules(db, body.provider, body.refine, body.fallback_price_from, body.id, body.upstream_name,
+                       body.fallback_to)
     with db.tx() as c:
         c.execute("""INSERT INTO models(id, upstream_name, display_name, description, price_in_per_1m, price_out_per_1m,
-                         context_window, enabled, created_at, provider, refine, listed, default_reasoning, fallback_price_from, allow_thinking)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         context_window, enabled, created_at, provider, refine, listed, default_reasoning, fallback_price_from,
+                         fallback_to, allow_thinking)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (body.id, body.upstream_name, body.display_name, body.description, body.price_in_per_1m,
                    body.price_out_per_1m, body.context_window, int(body.enabled), now(), body.provider, int(body.refine),
-                   int(body.listed), body.default_reasoning, body.fallback_price_from, int(body.allow_thinking)))
+                   int(body.listed), body.default_reasoning, body.fallback_price_from, body.fallback_to,
+                   int(body.allow_thinking)))
     return {"ok": True}
+
+
+# Sending these as null clears them; every other field keeps its value when omitted.
+CLEARABLE = ("default_reasoning", "fallback_price_from", "fallback_to")
 
 
 class ModelPatch(BaseModel):
@@ -313,6 +323,7 @@ class ModelPatch(BaseModel):
     listed: bool | None = None
     default_reasoning: str | None = Field(default=None, pattern=LEVEL_PATTERN)
     fallback_price_from: str | None = Field(default=None, max_length=80)
+    fallback_to: str | None = Field(default=None, max_length=80)
     allow_thinking: bool | None = None
 
 
@@ -324,18 +335,20 @@ def patch_model(model_id: str, body: ModelPatch, db: Database = Depends(get_db))
     given = body.model_dump(exclude_unset=True)
     new = {k: row[k] for k in row.keys()}
     for k, v in given.items():
-        if v is None and k not in ("default_reasoning", "fallback_price_from"):
-            continue                       # an empty value clears only these two fields
-        new[k] = int(v) if isinstance(v, bool) else (v or None if k in ("default_reasoning", "fallback_price_from") else v)
-    _check_model_rules(db, new["provider"], bool(new["refine"]), new["fallback_price_from"], model_id, new["upstream_name"])
+        if v is None and k not in CLEARABLE:
+            continue                       # an empty value clears only these fields
+        new[k] = int(v) if isinstance(v, bool) else (v or None if k in CLEARABLE else v)
+    _check_model_rules(db, new["provider"], bool(new["refine"]), new["fallback_price_from"], model_id,
+                       new["upstream_name"], new["fallback_to"])
     with db.tx() as c:
         c.execute("""UPDATE models SET upstream_name=?, display_name=?, description=?, price_in_per_1m=?, price_out_per_1m=?,
                          context_window=?, enabled=?, provider=?, refine=?, listed=?, default_reasoning=?, fallback_price_from=?,
-                         allow_thinking=?
+                         fallback_to=?, allow_thinking=?
                      WHERE id=?""",
                   (new["upstream_name"], new["display_name"], new["description"], new["price_in_per_1m"], new["price_out_per_1m"],
                    new["context_window"], new["enabled"], new["provider"], new["refine"], new["listed"],
-                   new["default_reasoning"], new["fallback_price_from"], new["allow_thinking"], model_id))
+                   new["default_reasoning"], new["fallback_price_from"], new["fallback_to"],
+                   new["allow_thinking"], model_id))
     return {"ok": True}
 
 

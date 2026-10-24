@@ -410,11 +410,42 @@ async def proxy(request: Request, endpoint: str):
         exc.headers = {**exc.headers, "X-Request-Id": request_id}
         await _log_rejection(state, key, request_id, endpoint, ctx, exc, client_ip(request))
         raise
-    response = await _execute(request, endpoint, ticket, body, model, max_out, stream)
+    try:
+        response = await _execute(request, endpoint, ticket, body, model, max_out, stream)
+    except ApiError as exc:
+        stand_in = _stand_in_for(model, exc)
+        if not stand_in:
+            raise
+        log.info("fallback: %s -> %s after %s (%s)", model["id"], stand_in, exc.code, request_id)
+        try:
+            ticket2, body2, model2, max_out2, stream2 = await _prepare(
+                request, endpoint, key, request_id, t0, ctx, force_model=stand_in)
+        except ApiError as exc2:
+            exc2.headers = {**exc2.headers, "X-Request-Id": request_id}
+            await _log_rejection(state, key, request_id, endpoint, ctx, exc2, client_ip(request))
+            raise
+        # One hop only: the stand-in answers or the request fails.
+        response = await _execute(request, endpoint, ticket2, body2, {**model2, "fallback_to": None},
+                                  max_out2, stream2)
+        response.headers["X-Fallback-Model"] = stand_in
     extra = legacy_headers(ctx.get("requested") or "", ctx.get("legacy_sunset") or "")
     for k, v in extra.items():
         response.headers[k] = v
     return response
+
+
+def _stand_in_for(model, exc: ApiError) -> str | None:
+    """The model to retry on, or None to let the error through.
+
+    Only for failures another model would not share: the provider being offline, busy
+    or erroring. A rejected or oversized request, a bad key, an exhausted balance or a
+    rate limit would fail exactly the same way on the stand-in, and `server_busy` is
+    this gateway being full - retrying would only add to the load.
+    """
+    if exc.status not in (502, 503, 504) or exc.code == "server_busy":
+        return None
+    stand_in = model.get("fallback_to") if isinstance(model, dict) else None
+    return stand_in if stand_in and stand_in != model.get("id") else None
 
 
 async def _log_rejection(state, key: dict, request_id: str, endpoint: str, ctx: dict, exc: ApiError, ip: str) -> None:
@@ -433,8 +464,13 @@ async def _log_rejection(state, key: dict, request_id: str, endpoint: str, ctx: 
         pass  # the client must get a proper response even if reporting fails
 
 
-async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, t0: float, ctx: dict):
-    """Validation and the funds hold. Raises ApiError on rejection (which gets logged)."""
+async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, t0: float, ctx: dict,
+                   force_model: str | None = None):
+    """Validation and the funds hold. Raises ApiError on rejection (which gets logged).
+
+    `force_model` ignores the model the client asked for: it is how a fallback runs the
+    same request on the stand-in model, with that model's own price and limits.
+    """
     state = request.app.state
     db: Database = state.db
     cfg = state.config
@@ -459,7 +495,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     if len(raw) > cfg.max_body_bytes and not count_attachments(body):
         raise ApiError(413, "request_too_large", "So'rov hajmi juda katta.")
 
-    model_id = body.get("model")
+    model_id = force_model or body.get("model")
     ctx["model"] = model_id if isinstance(model_id, str) and model_id else "-"
     ctx["requested"] = model_id if isinstance(model_id, str) else ""
     ctx["stream"] = bool(body.get("stream"))
