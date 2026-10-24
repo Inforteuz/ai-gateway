@@ -245,8 +245,8 @@ class ClusterBalancer:
         n = self._waiting.get(model, 0)
         if n >= cfg.QUEUE_MAX_WAITING:
             raise QueueFull(
-                "Navbat to'la — bu modelga hozir juda ko'p so'rov kelmoqda. "
-                "Birozdan keyin qayta urinib ko'ring.")
+                "The queue is full — too many requests for this model right now. "
+                "Try again shortly.")
         self._waiting[model] = n + 1
         try:
             yield
@@ -433,7 +433,7 @@ class ClusterBalancer:
 
         if _stream_committed():
             log.warning("dispatch stopped: answer already partly streamed, last=%s", last_error or "-")
-            raise UpstreamFailed("Model javobi yarmida uzildi. Qayta urinib ko'ring.")
+            raise UpstreamFailed("The model's answer broke off midway. Try again.")
 
         # Nobody answered. If the fault is transient (the worker is now in a short
         # cooldown), wait and retry once; only then return an error.
@@ -467,7 +467,7 @@ class ClusterBalancer:
         log.warning("dispatch finished: attempts=%d busy=%s last=%s",
                     tried, waited_busy, last_error or "-")
         if tried:
-            raise UpstreamFailed("Model javob bera olmadi. Birozdan keyin qayta urinib ko'ring.")
+            raise UpstreamFailed("The model did not return an answer. Try again shortly.")
         if waited_busy:
-            raise Busy("Model band — navbatda kutish muddati tugadi. Birozdan keyin qayta urinib ko'ring.")
+            raise Busy("The model is busy — the queue wait ran out. Try again shortly.")
         raise NoWorker("The model is unavailable right now. Try again shortly.")

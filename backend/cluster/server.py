@@ -680,7 +680,7 @@ async def list_models(request: Request):
 @app.post("/v1/chat/completions", dependencies=[Depends(_auth)])
 async def chat_completions(req: ChatCompletionRequest, request: Request):
     if not req.messages:
-        raise HTTPException(status_code=400, detail="`messages` ro'yxati bo'sh bo'lmasligi kerak")
+        raise HTTPException(status_code=400, detail="`messages` must not be empty")
 
     balancer: ClusterBalancer = request.app.state.balancer
     requested = (req.model or "auto").lower()
@@ -1030,8 +1030,12 @@ async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: 
             yield ": thinking\n\n"
             waited = time.monotonic() - started
             if waited >= THINKING_AFTER and not thinking_sent and not (live and live.committed):
+                # A long silence looks like a dead stream, so one placeholder goes
+                # out. It lands in `reasoning_content`, which clients render as the
+                # MODEL's thinking — hence the prefix: this is the gateway talking,
+                # not the model, and the client should not read it as reasoning.
                 thinking_sent = True
-                yield (f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': 'Javob tayyorlanmoqda...'}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
+                yield (f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': '[gateway] waiting for the model...'}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
     except asyncio.CancelledError:
         task.cancel()
         raise
@@ -1182,7 +1186,7 @@ async def images_generations(req: ImageRequest, request: Request):
     """
     prompt = (req.prompt or "").strip()
     if not prompt:
-        raise HTTPException(status_code=400, detail="`prompt` bo'sh bo'lmasligi kerak")
+        raise HTTPException(status_code=400, detail="`prompt` must not be empty")
 
     balancer: ClusterBalancer = request.app.state.balancer
     count = max(1, min(int(req.n or 1), cfg.MAX_IMAGES_PER_REQUEST))
@@ -1209,7 +1213,7 @@ async def images_generations(req: ImageRequest, request: Request):
 
     if not images:
         raise HTTPException(status_code=502,
-                            detail="Model rasm qaytarmadi — boshqa tavsif bilan urinib ko'ring")
+                            detail="The model returned no image — try a different description")
 
     log.info("image model=%s effort=%s count=%d phases=%s time=%.1fs", used_model,
              run_meta.get("upstream_effort") or "-", len(images),
@@ -1236,7 +1240,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
     """
     prompt = (req.prompt or "").strip()
     if not prompt:
-        raise HTTPException(status_code=400, detail="`prompt` bo'sh bo'lmasligi kerak")
+        raise HTTPException(status_code=400, detail="`prompt` must not be empty")
     sources = req.image if isinstance(req.image, list) else ([req.image] if req.image else [])
     sources = [x for x in sources if isinstance(x, str) and x.strip()]
     if not sources:
@@ -1256,7 +1260,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
         except attach.AttachmentError as e:
             raise ClusterError(400, e.code, str(e), details=e.details) from e
         if not all(a.is_image for a in files):
-            raise HTTPException(status_code=400, detail="`image` faqat rasm bo'lishi kerak")
+            raise HTTPException(status_code=400, detail="`image` must be an image")
         t_start = time.monotonic()
         run_meta = runmeta.start(image_only=True)
         try:
