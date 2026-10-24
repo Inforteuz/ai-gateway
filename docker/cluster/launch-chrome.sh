@@ -110,9 +110,9 @@ if [ "${SF_CHROME_BLOCK_TRACKERS:-1}" != 0 ]; then
     BLOCK_ARGS=(--host-resolver-rules="$rules")
 fi
 
-# 2x2 grid of 960x540 windows on the 1920x1080 display
-POS_X=$(( (IDX % 2) * 960 ))
-POS_Y=$(( ((IDX / 2) % 2) * 540 ))
+# Each instance has a display to itself, so the window fills it: a quarter-screen
+# window would only make the provider's page harder to read over VNC.
+WINDOW_SIZE="${SF_CHROME_WINDOW_SIZE:-1920,1080}"
 
 # Small disk cache and software GL keep memory low. The DevTools port listens on 127.0.0.1
 # inside the container only; nothing outside the container can reach it.
@@ -136,8 +136,9 @@ POS_Y=$(( ((IDX / 2) % 2) * 540 ))
     --disk-cache-size=33554432 \
     --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader \
     --lang="${SF_CHROME_LANG:-en-US}" \
-    --window-size=960,540 \
-    --window-position=$POS_X,$POS_Y \
+    --window-size="$WINDOW_SIZE" \
+    --window-position=0,0 \
+    --start-maximized \
     "${PROXY_ARGS[@]}" \
     "${BLOCK_ARGS[@]}" \
     "$START_URL" 2>"${SF_CHROME_STDERR:-/dev/null}" &

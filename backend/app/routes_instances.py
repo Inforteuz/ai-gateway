@@ -213,7 +213,9 @@ async def vnc_ws(websocket: WebSocket, ticket: str = ""):
     t0, ok, detail = time.time(), False, ""
     writer = None
     try:
-        reader, writer = await vnc.connect_upstream(cfg.vnc_host, cfg.vnc_port, cfg.vnc_password)
+        # Each instance has a screen of its own: instance N listens on vnc_port + N
+        reader, writer = await vnc.connect_upstream(cfg.vnc_host, cfg.vnc_port + t.instance,
+                                                    cfg.vnc_password)
         leftover = await vnc.client_handshake(websocket)
         ok = True
         await vnc.pipe(websocket, reader, writer, leftover, VNC_MAX_SECONDS)

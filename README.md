@@ -87,7 +87,9 @@ Re-run `./install.sh` at any time to reconfigure; existing secrets are kept.
 
 ### After installing
 
-- **Mode 1** - open the admin panel → **VNC** and sign in to each Chrome window.
+- **Mode 1** - open the admin panel → **VNC** on an instance and sign in there. Each
+  instance has a screen of its own showing only its own Chrome window, so running the
+  same provider on several accounts does not leave you guessing which window is which.
   Logins are stored in the `cluster-data` Docker volume and survive restarts.
 - **Mode 2** - import your session per instance:
 

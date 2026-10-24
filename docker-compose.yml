@@ -133,7 +133,8 @@ services:
       - cluster-data:/data
     ports:
       # Optional raw VNC for an SSH tunnel; the admin panel has a built-in VNC viewer
-      - "127.0.0.1:${VNC_PORT:-15900}:5900"
+      # One screen per instance: instance N is on the Nth port of this range.
+      - "127.0.0.1:${VNC_PORTS:-15900-15909}:5900-5909"
 
   ollama:
     profiles: ["ollama"]

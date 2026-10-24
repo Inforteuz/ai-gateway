@@ -298,7 +298,9 @@ def test_vnc_proxy_end_to_end_password_stays_on_server(env):
     srv_ = FakeVncServer(VNC_PW)
     try:
         with_vnc(env)
-        env.app.state.config.vnc_port = srv_.port
+        # Each instance has its own screen: instance N is served on vnc_port + N, so
+        # the base is set so that instance 2 lands on the fake server's port.
+        env.app.state.config.vnc_port = srv_.port - 2
         fake_cluster(env, ok_cluster)
         as_admin(env)
         r = env.client.post("/portal/admin/instances/2/vnc-ticket", headers=CSRF)

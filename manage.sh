@@ -104,12 +104,15 @@ instances)
     ;;
 vnc)
     . ./.env
+    VNC_PORTS="${VNC_PORTS:-15900-15909}"
     cat <<EOF
-Built-in viewer: log in to the admin panel and open "VNC" - all Chrome windows share one screen.
+Built-in viewer: log in to the admin panel and open "VNC" on an instance - each one
+has a screen of its own, showing only that instance's Chrome window.
 
-Raw VNC via an SSH tunnel (from your computer):
-  ssh -L ${VNC_PORT:-15900}:127.0.0.1:${VNC_PORT:-15900} <user>@<this-server>
-  then connect a VNC client to localhost:${VNC_PORT:-15900}
+Raw VNC via an SSH tunnel (from your computer). Instance N is on the Nth port of
+VNC_PORTS (${VNC_PORTS:-15900-15909}), so instance 0 is ${VNC_PORTS%%-*}:
+  ssh -L ${VNC_PORTS%%-*}:127.0.0.1:${VNC_PORTS%%-*} <user>@<this-server>
+  then connect a VNC client to localhost:${VNC_PORTS%%-*}
   The VNC password is SF_VNC_PASSWORD in .env.
 EOF
     ;;
