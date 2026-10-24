@@ -92,7 +92,7 @@ def _as_cluster_error(e: BaseException) -> ClusterError:
         return ClusterError(e.status_code, "invalid_request" if e.status_code < 500 else "server_error",
                             str(e.detail))
     log.exception("unexpected error", exc_info=e)
-    return ClusterError(500, "internal_error", "Ichki xato. Birozdan keyin qayta urinib ko'ring.")
+    return ClusterError(500, "internal_error", "Internal error. Try again shortly.")
 
 
 def _error_body(err: ClusterError) -> dict:
@@ -796,7 +796,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 if not extracted.strip() and not images:
                     if not can_retry():
                         raise ClusterError(502, "invalid_output",
-                                           "Model yaroqli javob qaytarmadi. Qayta urinib ko'ring.", 10)
+                                           "The model did not return a valid answer. Try again.", 10)
                     log.warning("reasoning template invalid, re-asking without template")
                     answer, used_model, worker, images = await call(base_prompt)
                 else:
