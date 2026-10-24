@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -87,6 +87,23 @@ MIGRATIONS: dict[int, list[str]] = {
     # without it the column simply stays empty (see security.encrypt_secret).
     6: [
         "ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS secret_enc TEXT",
+    ],
+    # v7: 'archived' for users. An account is never deleted - the ledger and usage rows
+    # behind it must stay - so archiving hides it from the admin list and revokes its
+    # keys instead. The CHECK is dropped by definition, not by name, like the one on
+    # ledger.kind above: a surviving old constraint would reject every archive.
+    7: [
+        """DO $$
+        DECLARE r record;
+        BEGIN
+          FOR r IN SELECT conname FROM pg_constraint
+                   WHERE conrelid = 'users'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%status%'
+          LOOP
+            EXECUTE format('ALTER TABLE users DROP CONSTRAINT %I', r.conname);
+          END LOOP;
+          ALTER TABLE users ADD CONSTRAINT users_status_check
+            CHECK (status IN ('active','suspended','archived'));
+        END $$""",
     ],
 }
 

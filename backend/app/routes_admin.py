@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, EmailStr, Field
 
-from . import captcha, security, topup_telegram, topups
+from . import audit, captcha, security, topup_telegram, topups
 from .billing import BillingError, TASHKENT, credit, month_start_ts
 from .common import ApiError, create_user, csrf_guard, get_db, require_admin
 from .db import Database, now
@@ -39,8 +39,11 @@ FROM users u LEFT JOIN wallets w ON w.user_id=u.id
 
 
 @router.get("/users")
-def list_users(q: str = "", db: Database = Depends(get_db)):
-    rows = db.all(USER_SELECT + " WHERE (u.email ILIKE :q OR u.name ILIKE :q) ORDER BY u.id DESC LIMIT 500",
+def list_users(q: str = "", archived: bool = False, db: Database = Depends(get_db)):
+    """Archived accounts are out of the way by default; `archived=1` lists only those."""
+    rows = db.all(USER_SELECT + " WHERE (u.email ILIKE :q OR u.name ILIKE :q)"
+                  + (" AND u.status = 'archived'" if archived else " AND u.status <> 'archived'")
+                  + " ORDER BY u.id DESC LIMIT 500",
                   {"ms": month_start_ts(), "q": f"%{q.strip()}%"})
     return {"items": [user_row_out(r) for r in rows]}
 
@@ -89,6 +92,50 @@ def patch_user(user_id: int, body: UserPatch, admin=Depends(require_admin), db: 
         if new_status != "active":
             c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
     return {"item": user_row_out(db.one(USER_SELECT + " WHERE u.id=:id", {"ms": month_start_ts(), "id": user_id}))}
+
+
+@router.post("/users/{user_id}/archive")
+def archive_user(user_id: int, admin=Depends(require_admin), db: Database = Depends(get_db)):
+    """Takes an account out of use without deleting it.
+
+    The account is never removed: its ledger and usage rows are what the balance
+    invariants rest on, and the app role has no DELETE on those tables by design. So
+    the account is marked archived (gone from the list), every key it owns is revoked
+    and its sessions are dropped - it cannot sign in or spend.
+    """
+    row = db.one("SELECT * FROM users WHERE id=?", (user_id,))
+    if row is None:
+        raise ApiError(404, "user_not_found", "Foydalanuvchi topilmadi.")
+    if row["status"] == "archived":
+        raise ApiError(400, "already_archived", "Bu akkaunt allaqachon arxivlangan.")
+    if user_id == admin["id"]:
+        raise ApiError(400, "self_archive", "O'z akkauntingizni arxivlab bo'lmaydi.")
+    if row["role"] == "admin" and row["status"] == "active" and _admin_count(db) <= 1:
+        raise ApiError(400, "last_admin", "Oxirgi faol administratorni arxivlab bo'lmaydi.")
+    ts = now()
+    with db.tx() as c:
+        c.execute("UPDATE users SET status='archived' WHERE id=?", (user_id,))
+        c.execute("UPDATE api_keys SET status='revoked', revoked_at=? WHERE user_id=? AND status='active'",
+                  (ts, user_id))
+        c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    audit.record(db, admin=dict(admin), action="user_archive", target=f"user:{user_id}", ok=True,
+                 detail=row["email"])
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/restore")
+def restore_user(user_id: int, admin=Depends(require_admin), db: Database = Depends(get_db)):
+    """Brings an archived account back. Its keys stay revoked - new ones are made as usual."""
+    row = db.one("SELECT * FROM users WHERE id=?", (user_id,))
+    if row is None:
+        raise ApiError(404, "user_not_found", "Foydalanuvchi topilmadi.")
+    if row["status"] != "archived":
+        raise ApiError(400, "not_archived", "Bu akkaunt arxivlanmagan.")
+    with db.tx() as c:
+        c.execute("UPDATE users SET status='suspended' WHERE id=?", (user_id,))
+    audit.record(db, admin=dict(admin), action="user_restore", target=f"user:{user_id}", ok=True,
+                 detail=row["email"])
+    return {"ok": True}
 
 
 class CreditIn(BaseModel):

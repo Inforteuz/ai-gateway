@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS users (
   name          TEXT NOT NULL DEFAULT '',
   password_hash TEXT NOT NULL,
   role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
-  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
+  -- 'archived': hidden from the admin list, keys revoked. Accounts are not deleted,
+  -- because the ledger and usage rows behind them have to stay.
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','archived')),
   created_at    BIGINT NOT NULL,
   last_login_at BIGINT,
   -- IP at signup — to detect multiple accounts and bonus farming.

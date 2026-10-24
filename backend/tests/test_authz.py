@@ -95,3 +95,30 @@ def test_api_key_of_another_user_is_its_own_principal(env):
     r = env.client.post("/v1/chat/completions", json=CHAT, headers=bearer(raw_b))
     assert r.status_code == 402
     assert env.db.scalar("SELECT balance FROM wallets WHERE user_id=?", (a,)) == 100 * 1_000_000
+
+
+def test_archive_hides_the_account_and_revokes_its_keys(env):
+    """Accounts are archived, never deleted: the ledger behind them has to stay."""
+    admin_mail = "arxiv-admin@test.uz"
+    add_user(env, email=admin_mail, role="admin")
+    uid = add_user(env, email="arxiv@test.uz")
+    add_key(env, uid)
+    login(env.client, admin_mail)
+
+    def emails(query=""):
+        return [u["email"] for u in env.client.get("/portal/admin/users" + query).json()["items"]]
+
+    assert "arxiv@test.uz" in emails()
+
+    assert env.client.post(f"/portal/admin/users/{uid}/archive", headers=CSRF).status_code == 200
+    assert "arxiv@test.uz" not in emails()                     # gone from the list
+    arch = env.client.get("/portal/admin/users?archived=1").json()["items"]
+    assert [u["email"] for u in arch] == ["arxiv@test.uz"]
+    assert arch[0]["active_keys"] == 0                         # its keys were revoked
+
+    # the row itself survives, and archiving twice is refused
+    assert env.client.get(f"/portal/admin/users/{uid}").status_code == 200
+    assert env.client.post(f"/portal/admin/users/{uid}/archive", headers=CSRF).status_code == 400
+
+    assert env.client.post(f"/portal/admin/users/{uid}/restore", headers=CSRF).status_code == 200
+    assert "arxiv@test.uz" in emails()

@@ -93,6 +93,16 @@ function Detail({ id, onClose, onChanged, onSecret }) {
             </button>
             <button className="btn btn--small" disabled={busy} onClick={() => run(async () => { const r = await api.post(`/portal/admin/users/${id}/reset-password`); onSecret({ title: 'Yangi parol', email: u.email, password: r.temp_password }) })}>Parolni tiklash</button>
             {u.id !== me.id && <button className="btn btn--small" disabled={busy} onClick={() => run(() => api.patch(`/portal/admin/users/${id}`, { role: u.role === 'admin' ? 'user' : 'admin' }), 'Rol o\'zgardi')}>{u.role === 'admin' ? 'Administratorlikdan olish' : 'Administrator qilish'}</button>}
+            {/* Archiving, not deleting: the ledger and usage rows behind an account have to stay */}
+            {u.id !== me.id && u.status !== 'archived' && (
+              <button className="btn btn--small btn--danger" disabled={busy} onClick={() => {
+                if (!window.confirm(`${u.email} arxivlansinmi?\n\nAkkaunt ro'yxatdan yo'qoladi, barcha kalitlari bekor qilinadi va sessiyalari uziladi. Hisob tarixi va balansi saqlanib qoladi — keyin qaytarish mumkin.`)) return
+                run(() => api.post(`/portal/admin/users/${id}/archive`), 'Akkaunt arxivlandi')
+              }}>Arxivlash</button>
+            )}
+            {u.status === 'archived' && (
+              <button className="btn btn--small" disabled={busy} onClick={() => run(() => api.post(`/portal/admin/users/${id}/restore`), 'Akkaunt qaytarildi')}>Arxivdan qaytarish</button>
+            )}
           </div>
 
           <div>
@@ -136,7 +146,8 @@ export default function Users() {
   const [q, setQ] = useState('')
   const [dq, setDq] = useState('')
   useEffect(() => { const t = setTimeout(() => setDq(q), 250); return () => clearTimeout(t) }, [q])
-  const { data, error, reload } = useLoad(() => api.get('/portal/admin/users' + qs({ q: dq })), [dq])
+  const [archived, setArchived] = useState(false)
+  const { data, error, reload } = useLoad(() => api.get('/portal/admin/users' + qs({ q: dq, archived: archived ? 1 : '' })), [dq, archived])
   const [adding, setAdding] = useState(false)
   const [open, setOpen] = useState(null)
   const [secret, setSecret] = useState(null)
@@ -146,7 +157,12 @@ export default function Users() {
         <div><h1>Foydalanuvchilar</h1><p>Hamkor uchun hisob oching, hisobini to'ldiring va kalitlarini boshqaring.</p></div>
         <button className="btn btn--primary" onClick={() => setAdding(true)}>Foydalanuvchi qo'shish</button>
       </div>
-      <input className="input" style={{ maxWidth: 340, marginBottom: 18 }} placeholder="Email yoki ism bo'yicha qidirish" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Qidirish" />
+      <div className="hstack" style={{ gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <input className="input" style={{ maxWidth: 340 }} placeholder="Email yoki ism bo'yicha qidirish" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Qidirish" />
+        <button className="btn btn--small" onClick={() => setArchived(!archived)}>
+          {archived ? 'Faol akkauntlar' : 'Arxivlanganlar'}
+        </button>
+      </div>
       <ErrorNote error={error} retry={reload} />
       {!data && !error && <Loading rows={4} />}
       {data && data.items.length === 0 && <Empty title="Hech kim topilmadi">Boshqa so'z bilan qidirib ko'ring yoki yangi foydalanuvchi qo'shing.</Empty>}
@@ -156,7 +172,7 @@ export default function Users() {
           <tbody>
             {data.items.map((u) => (
               <tr key={u.id} className="is-click" onClick={() => setOpen(u.id)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(u.id)}>
-                <td><b>{u.name || u.email}</b> {u.role === 'admin' && <span className="tag">admin</span>} {u.status !== 'active' && <span className="tag tag--bad">to'xtatilgan</span>}<div className="dim small">{u.email}</div></td>
+                <td><b>{u.name || u.email}</b> {u.role === 'admin' && <span className="tag">admin</span>} {u.status === 'archived' ? <span className="tag tag--bad">arxivlangan</span> : u.status !== 'active' && <span className="tag tag--bad">to'xtatilgan</span>}<div className="dim small">{u.email}</div></td>
                 <td className="num"><b>{fmtSom(u.balance)}</b></td>
                 <td className="num muted">{fmtSom(u.month_cost)}</td>
                 <td className="num muted">{u.active_keys}</td>
