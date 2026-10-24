@@ -16,6 +16,39 @@ def test_gemini_is_registered_and_detected_by_host():
     assert detect_model_from_url("https://accounts.google.com/signin") is None
 
 
+def test_chip_stands_for_the_configured_model():
+    """The chip shows a short, translated name; the menu shows the full one."""
+    assert GeminiAdapter._chip_is("Pro", "3.1 Pro")
+    assert GeminiAdapter._chip_is("Flash", "3.6 Flash")
+    assert GeminiAdapter._chip_is("Flash-Lite", "3.5 Flash-Lite")
+    assert GeminiAdapter._chip_is("Argon", "4 Argon")
+    # "Flash" must not pass for Flash-Lite, nor Pro for Flash
+    assert not GeminiAdapter._chip_is("Flash", "3.5 Flash-Lite")
+    assert not GeminiAdapter._chip_is("Pro", "3.6 Flash")
+    # An account with no paid plan sits on "Auto": the menu has to be opened
+    assert not GeminiAdapter._chip_is("Gemini Авто", "3.1 Pro")
+    assert not GeminiAdapter._chip_is("", "3.1 Pro")
+
+
+def test_variant_is_offered_only_when_a_fallback_model_differs(monkeypatch):
+    from cluster import settings as ccfg
+    g = GeminiAdapter()
+    monkeypatch.setattr(ccfg, "GEMINI_MODEL", "3.1 Pro")
+    monkeypatch.setattr(ccfg, "GEMINI_FALLBACK_MODEL", "")
+    assert not g.has_variant("fallback")
+    monkeypatch.setattr(ccfg, "GEMINI_FALLBACK_MODEL", "3.1 Pro")
+    assert not g.has_variant("fallback")
+    monkeypatch.setattr(ccfg, "GEMINI_FALLBACK_MODEL", "3.6 Flash")
+    assert g.has_variant("fallback")
+
+
+def test_unconfigured_picker_is_left_alone(monkeypatch):
+    """The default must not touch the account's own choice."""
+    from cluster import settings as ccfg
+    monkeypatch.setattr(ccfg, "GEMINI_MODEL", "")
+    assert asyncio.run(GeminiAdapter().select_variant(object(), None)) is None
+
+
 def test_code_label_moves_into_opening_fence_only():
     assert _fix_code_labels("Python\n```\nx = 1\n```") == "```python\nx = 1\n```"
     # A code line right before the closing fence ("fi") is not taken as a language name

@@ -4,6 +4,7 @@ import re
 from typing import Optional
 
 from .. import cdp, logs
+from .. import settings as cfg
 from .base_adapter import READ_TEXT_JS, BaseAIAdapter, Capabilities
 
 # gemini.google.com (measured on the live page):
@@ -75,6 +76,88 @@ class GeminiAdapter(BaseAIAdapter):
 
     def __init__(self):
         super().__init__("gemini")
+
+    # --- Mode picker ----------------------------------------------------------------
+    #
+    # MEASURED on two live accounts. The chip next to the composer is found by class,
+    # never by its label: that is translated ("Pro" on an English account, "Gemini Авто"
+    # on a Russian one). The chip shows a SHORT name while the menu shows the full one,
+    # so the two are compared with `_chip_is`, not for equality.
+    #
+    # Menu items are `[role=menuitem]`, first line the model name, second its (translated)
+    # description, e.g. "3.6 Flash | All-around help" and "3.1 Pro | Расширенные
+    # возможности рассуждения". The current one carries the class `selected`. The last
+    # item ("Thinking level") is a submenu, not a model - matching the first line exactly
+    # keeps it out. An account with no paid plan is offered fewer models.
+    _CHIP = 'button[class*="input-area-swit"]'
+    _CUR_MODEL_JS = ("((document.querySelector('button[class*=\"input-area-swit\"]') || {}).innerText || '')"
+                     ".replace(/\\s+/g, ' ').trim()")
+    _TRIGGER_JS = """(() => { const b = document.querySelector('button[class*="input-area-swit"]');
+        if (!b) return null; const r = b.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()"""
+    _ITEM_JS = """(name => { const want = name.trim().toLowerCase();
+        for (const el of document.querySelectorAll('[role="menuitem"]')) {
+            const first = (el.innerText || '').split('\\n')[0].trim().toLowerCase();
+            if (first !== want) continue;
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+        return null; })"""
+
+    @staticmethod
+    def _chip_is(chip: str, target: str) -> bool:
+        """Does the chip's short name stand for `target`?
+
+        "Pro" stands for "3.1 Pro", "Flash" for "3.6 Flash". "Gemini Авто" (an account
+        without a plan) stands for none of them, so the menu gets opened and the model
+        is chosen properly.
+        """
+        short = re.sub(r"^gemini\b", "", chip.strip(), flags=re.I).strip().lower()
+        return bool(short) and target.strip().lower().endswith(short)
+
+    def has_variant(self, variant: str) -> bool:
+        return variant == "fallback" and bool(cfg.GEMINI_FALLBACK_MODEL) \
+            and cfg.GEMINI_FALLBACK_MODEL != cfg.GEMINI_MODEL
+
+    async def select_variant(self, ws, variant: Optional[str]) -> Optional[str]:
+        """Picks the requested Gemini model, checking it on EVERY request.
+
+        The choice sticks to the account, so a model left over from an earlier request
+        would silently answer the next one. If the account cannot offer the requested
+        model — an error, and the balancer sends the request to another instance; there
+        is no silent switch to whatever happens to be selected.
+        """
+        target = {None: cfg.GEMINI_MODEL, "fallback": cfg.GEMINI_FALLBACK_MODEL}.get(variant, variant)
+        if not target:
+            return None
+        cur = await cdp.evaluate(ws, self._CUR_MODEL_JS, timeout=10) or ""
+        if self._chip_is(cur, target):
+            return target
+        # The menu animates open: an item read while it is still moving is clicked in the
+        # wrong place. So it is clicked only once two reads agree on the position.
+        for _ in range(2):
+            pos = await cdp.evaluate(ws, self._TRIGGER_JS, timeout=10)
+            if not isinstance(pos, dict):
+                break
+            await cdp.click_at(ws, pos["x"], pos["y"])
+            prev = None
+            for _ in range(15):
+                await asyncio.sleep(0.25)
+                item = await cdp.evaluate(ws, f"({self._ITEM_JS})({json.dumps(target)})", timeout=10)
+                if isinstance(item, dict) and item == prev:
+                    await cdp.click_at(ws, item["x"], item["y"])
+                    break
+                prev = item if isinstance(item, dict) else None
+            for _ in range(12):
+                await asyncio.sleep(0.25)
+                cur = await cdp.evaluate(ws, self._CUR_MODEL_JS, timeout=10) or ""
+                if self._chip_is(cur, target):
+                    log.info("gemini: model selected — %s", target)
+                    return target
+            await cdp.key(ws, "Escape", "Escape", 27)
+            await asyncio.sleep(0.3)
+        raise RuntimeError(f"gemini: '{target}' modeli tanlanmadi (hozirgisi: {cur or '?'})")
 
     # How long to wait for the "Временный чат" button on a cold load (seconds)
     TEMP_BUTTON_WAIT = 8.0

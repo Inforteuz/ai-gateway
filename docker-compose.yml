@@ -121,6 +121,13 @@ services:
       SF_CLUSTER_OVERFLOW_FILE: ${SF_CLUSTER_OVERFLOW_FILE:-1}
       # Seconds a worker rests after the provider rate-limits it (other healthy workers serve meanwhile)
       SF_CLUSTER_RATE_LIMIT_COOLDOWN: ${SF_CLUSTER_RATE_LIMIT_COOLDOWN:-900}
+      # A renderer heavier than this (MB) is recycled in the background. Raise it on a
+      # machine with memory to spare: a recycle costs the tab its chat, so it should be rare.
+      SF_CLUSTER_MEM_GUARD_MB: ${SF_CLUSTER_MEM_GUARD_MB:-900}
+      # Gemini's mode picker, by the name its menu shows ("3.6 Flash", "3.1 Pro",
+      # "4 Argon"). Empty leaves the account's own choice alone.
+      SF_CLUSTER_GEMINI_MODEL: ${SF_CLUSTER_GEMINI_MODEL:-}
+      SF_CLUSTER_GEMINI_FALLBACK_MODEL: ${SF_CLUSTER_GEMINI_FALLBACK_MODEL:-}
       # 1 = analytics/tracking hosts are not resolved in Chrome (lighter tabs)
       SF_CHROME_BLOCK_TRACKERS: ${SF_CHROME_BLOCK_TRACKERS:-1}
       # 1 = stream answers while the provider writes them (see README)

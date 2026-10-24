@@ -429,6 +429,14 @@ QWEN_TEMPORARY_CHAT = os.getenv("SF_CLUSTER_QWEN_TEMPORARY", "1") not in ("0", "
 # `sf_allow_fallback`. Only the model names and the "sticky" period live here.
 QWEN_PRIMARY_MODEL = os.getenv("SF_CLUSTER_QWEN_MODEL", "Qwen3.7-Plus")
 QWEN_FALLBACK_MODEL = os.getenv("SF_CLUSTER_QWEN_FALLBACK_MODEL", "Qwen3.8-Max")
+
+# Gemini's mode picker, the same idea. The name is the one the menu shows on its first
+# line ("3.6 Flash", "3.1 Pro", "4 Argon"); the line under it is translated, the name is
+# not. Empty (the default) leaves whatever the account already has selected, which is
+# what an account without a paid plan needs - it is only offered "Auto" and a couple of
+# models, so asking for one it does not have sends the request to another instance.
+GEMINI_MODEL = os.getenv("SF_CLUSTER_GEMINI_MODEL", "").strip()
+GEMINI_FALLBACK_MODEL = os.getenv("SF_CLUSTER_GEMINI_FALLBACK_MODEL", "").strip()
 # After the primary model reports "high demand", requests go straight to the fallback for this many seconds
 FALLBACK_STICKY_SECONDS = int(os.getenv("SF_CLUSTER_FALLBACK_STICKY", "60"))
 
