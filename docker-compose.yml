@@ -131,6 +131,10 @@ services:
       # "4 Argon"). Empty leaves the account's own choice alone.
       SF_CLUSTER_GEMINI_MODEL: ${SF_CLUSTER_GEMINI_MODEL:-}
       SF_CLUSTER_GEMINI_FALLBACK_MODEL: ${SF_CLUSTER_GEMINI_FALLBACK_MODEL:-}
+      # Background deletion of old chats on the provider account. The accounts are
+      # people's own, and their personal chats live there too, so this stays OFF
+      # unless the owner of the account has asked for it.
+      SF_CLUSTER_CHAT_CLEANUP: ${SF_CLUSTER_CHAT_CLEANUP:-0}
       # 1 = analytics/tracking hosts are not resolved in Chrome (lighter tabs)
       SF_CHROME_BLOCK_TRACKERS: ${SF_CHROME_BLOCK_TRACKERS:-1}
       # 1 = stream answers while the provider writes them (see README)
