@@ -212,6 +212,61 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
     return [], (text or "")
 
 
+def should_retry(calls: Sequence[Any], tool_choice: Any) -> bool:
+    """Is the answer worth asking for a second time?
+
+    Yes when tools were offered, nothing was called, and the client did not
+    forbid calling. A text-only answer is legal under `tool_choice: "auto"` —
+    it is how a turn ends — but the model also produces one when it merely
+    ANNOUNCES the action, and from the outside the two look the same. The
+    owner's call (2026-10-25): one extra request costs less than an agent
+    that stops halfway.
+    """
+    if calls:
+        return False
+    return not (isinstance(tool_choice, str) and tool_choice == "none")
+
+
+def retry_instruction(allowed: Sequence[str], tool_choice: Any = "auto") -> str:
+    """Short reminder appended when the first answer carried no `actions:` block.
+
+    WHY this exists: the model often ANNOUNCES the action in prose ("let me
+    update the file and add ...") and stops there. The agent is then left with
+    nothing to run and the turn dies — measured 2026-10-25 with opencode on
+    qwen, where one turn called a tool and the next only narrated.
+
+    It is deliberately short and goes at the very END of the prompt: the first
+    attempt already carried the full protocol, and in a long request the model
+    had drifted away from it by the time it answered.
+    """
+    names = ", ".join(f"`{n}`" for n in list(allowed)[:12]) or "yuqoridagi ro'yxat"
+    lines = [
+        "[Eslatma — javobing qabul qilinmadi]",
+        "Oldingi javobingda bajariladigan `actions:` bloki yo'q edi: sen nima",
+        "qilishingni AYTDING, lekin vositani CHAQIRMADING. Aytilgan ish",
+        "o'z-o'zidan bajarilmaydi.",
+        "",
+        "Agar ish bajarilishi kerak bo'lsa — faqat shu blokni yoz:",
+        "```yaml",
+        "actions:",
+        "  - name: <vosita nomi>",
+        "    arguments:",
+        "      <parametr>: <qiymat>",
+        "```",
+        f"Mavjud vositalar: {names}.",
+        "",
+        "Agar ish ALLAQACHON tugagan bo'lsa va chaqirish kerak bo'lmasa —",
+        "yakuniy javobni yoz, `actions` blokisiz. Bahona yozma.",
+    ]
+    if isinstance(tool_choice, Mapping):
+        forced = str(((tool_choice.get("function") or {}).get("name")) or "")
+        if forced:
+            lines.append(f"- MAJBURIY: aynan `{forced}` vositasini chaqir.")
+    elif tool_choice == "required":
+        lines.append("- MAJBURIY: albatta vositalardan birini chaqir.")
+    return "\n".join(lines)
+
+
 def render_tool_message(msg: Mapping[str, Any]) -> str:
     """Render a `role: "tool"` message as readable prompt text.
 

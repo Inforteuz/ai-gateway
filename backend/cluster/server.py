@@ -834,6 +834,22 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             calls: list[dict] = []
             if tool_names:
                 calls, answer = tool_proto.parse_tool_calls(answer, tool_names)
+                # The model often ANNOUNCES the action and stops ("let me update the
+                # file and add ..."), leaving the agent nothing to run: the turn dies
+                # silently. Ask once more with the protocol repeated at the very end.
+                #
+                # The first answer is kept if the retry brings no call either: that
+                # answer was the model's own final word, while the retry was produced
+                # under pressure to call something. This way a retry can only help.
+                if tool_proto.should_retry(calls, req.tool_choice) and can_retry():
+                    log.warning("tools: no action block, re-asking once")
+                    first_answer = answer
+                    answer, used_model, worker, images = await call(
+                        prompt_text + "\n\n"
+                        + tool_proto.retry_instruction(tool_names, req.tool_choice))
+                    calls, answer = tool_proto.parse_tool_calls(answer, tool_names)
+                    if not calls:
+                        answer = first_answer
             answer = tighten_filename_fences(mask_brand(answer))
 
             # Requested format: validate; if invalid, re-ask once; if still
