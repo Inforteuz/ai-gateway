@@ -40,8 +40,11 @@ SKIP_PG = {"schema_meta"}
 # Referral LINKS and REWARDS live in separate tables — if those are not empty the export still stops
 # (the old schema also rejects ledger entries of kind 'referral').
 # Telegram message (v4): only used to update the message, not needed by the old code.
+# Encrypted key copy (v6): losing it only costs the owner the "show my key" button -
+# `key_hash` still authenticates every key, so nothing stops working after a rollback.
 DROPPABLE_ON_EXPORT = {("users", "ref_code"), ("users", "signup_device"), ("users", "referral_paused"),
-                       ("topup_requests", "tg_chat_id"), ("topup_requests", "tg_message_id")}
+                       ("topup_requests", "tg_chat_id"), ("topup_requests", "tg_message_id"),
+                       ("api_keys", "secret_enc")}
 
 
 class Abort(Exception):

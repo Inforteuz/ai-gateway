@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -82,6 +82,12 @@ MIGRATIONS: dict[int, list[str]] = {
     ],
     # v5: reservations + app_instances (in-flight request accounting) — new tables, created in schema.sql.
     5: [],
+    # v6: an encrypted copy of the API key, so its owner can look at it again.
+    # The encryption key is SF_KEY_SECRET in the environment, never in the database;
+    # without it the column simply stays empty (see security.encrypt_secret).
+    6: [
+        "ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS secret_enc TEXT",
+    ],
 }
 
 # Advisory lock key for the write queue ("SFDB"). Other processes on the same

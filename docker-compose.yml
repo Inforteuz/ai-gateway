@@ -78,6 +78,9 @@ services:
       SF_VNC_PASSWORD: ${SF_VNC_PASSWORD:-}
       SF_RECAPTCHA_SITE_KEY: ${SF_RECAPTCHA_SITE_KEY:-}
       SF_RECAPTCHA_SECRET: ${SF_RECAPTCHA_SECRET:-}
+      # Encrypts the stored copy of each API key so its owner can read it back.
+      # Unset = keys stay hash-only and the "show" button reports nothing to show.
+      SF_KEY_SECRET: ${SF_KEY_SECRET:-}
       # Only these two hops may set X-Forwarded-For: the host (a reverse proxy on the host reaches the
       # container from the network gateway, .1) and the bundled Caddy (fixed address, .10).
       # Other containers on the network (cluster, db, ollama) are not trusted.

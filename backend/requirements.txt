@@ -8,3 +8,4 @@ psycopg[binary]==3.2.13
 psycopg-pool==3.2.8
 curl-cffi>=0.7.4
 deepseek-pow>=0.1.0
+cryptography>=42

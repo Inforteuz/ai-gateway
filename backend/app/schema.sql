@@ -64,7 +64,11 @@ CREATE TABLE IF NOT EXISTS api_keys (
   name          TEXT NOT NULL,
   prefix        TEXT NOT NULL,             -- displayed prefix of the key
   last4         TEXT NOT NULL,
-  key_hash      TEXT NOT NULL UNIQUE,      -- sha256; the key itself is not stored
+  key_hash      TEXT NOT NULL UNIQUE,      -- sha256; this is what authenticates a request
+  -- Encrypted copy so the OWNER can look at their own key again (SF_KEY_SECRET lives in
+  -- the environment, not here, so a database dump on its own reveals nothing). NULL when
+  -- SF_KEY_SECRET is unset, and for keys created before the column existed.
+  secret_enc    TEXT,
   status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','revoked')),
   rpm_limit     BIGINT,                    -- NULL = global default
   monthly_limit BIGINT,                    -- NULL = unlimited (micro-UZS)

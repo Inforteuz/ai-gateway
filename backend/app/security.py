@@ -1,10 +1,18 @@
-"""Password, session token and API key helpers. Standard library only."""
+"""Password, session token and API key helpers.
+
+Standard library only, except for the optional reversible key storage at the bottom,
+which uses `cryptography` when SF_KEY_SECRET is set.
+"""
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
+import logging
+import os
 import secrets
+
+log = logging.getLogger("security")
 
 KEY_PREFIX = "sk-sf-"
 
@@ -58,6 +66,47 @@ def new_api_key() -> tuple[str, str, str, str]:
     """(full key, displayed prefix, last 4 characters, sha256)."""
     raw = KEY_PREFIX + secrets.token_urlsafe(32)
     return raw, raw[:12], raw[-4:], sha256_hex(raw)
+
+
+# --- Reversible key storage ----------------------------------------------------------
+#
+# `key_hash` authenticates a key and cannot be read back, which is the right default but
+# leaves the owner with nothing if they lose the one copy they were shown. Alongside it
+# an encrypted copy is kept so the owner can look at their OWN key again.
+#
+# The encryption key lives in SF_KEY_SECRET (the environment, not the database), so a
+# database dump on its own reveals nothing. With no SF_KEY_SECRET set, nothing is
+# encrypted and nothing can be revealed — the feature is simply off.
+
+
+def _fernet():
+    secret = os.getenv("SF_KEY_SECRET", "").strip()
+    if not secret:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(secret.encode())
+    except Exception:
+        log.warning("SF_KEY_SECRET is not a valid Fernet key; key reveal stays off")
+        return None
+
+
+def encrypt_secret(raw: str) -> str | None:
+    f = _fernet()
+    return f.encrypt(raw.encode()).decode() if f else None
+
+
+def decrypt_secret(enc: str | None) -> str | None:
+    if not enc:
+        return None
+    f = _fernet()
+    if f is None:
+        return None
+    try:
+        return f.decrypt(enc.encode()).decode()
+    except Exception:
+        # Wrong or rotated SF_KEY_SECRET: the key cannot be shown, which is not an error
+        return None
 
 
 def new_temp_password() -> str:

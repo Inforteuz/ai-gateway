@@ -8,6 +8,47 @@ import { fmtAgo, fmtDateTime, fmtSom, microToSom, somToMicro } from '../format.j
 import { LevelSelect, levelShort } from '../reasoning.jsx'
 import { useT } from '../i18n/index.jsx'
 
+function KeyReveal({ item }) {
+  // The key is also kept encrypted (see security.encrypt_secret), so its owner can read
+  // it back instead of having to revoke and re-issue after losing the one copy they saw.
+  const t = useT()
+  const toast = useToast()
+  const [full, setFull] = useState('')
+  const [busy, setBusy] = useState(false)
+  const masked = `${item.prefix}${'•'.repeat(14)}${item.last4}`
+
+  async function show() {
+    if (full) { setFull(''); return }
+    setBusy(true)
+    try {
+      const { key } = await api.get(`/portal/keys/${item.id}/reveal`)
+      if (key) setFull(key)
+      else toast(t('keys.revealNone'))      // made before this existed, or no SF_KEY_SECRET
+    } catch (e) {
+      toast(e.message || t('keys.revealNone'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="copy-row">
+        <div className="who"><b className="mono">{full || masked}</b></div>
+        {full && <CopyIcon text={full} title={t('keys.apiKey')} />}
+      </div>
+      <div className="hstack" style={{ gap: 8, marginTop: 8 }}>
+        <button className="btn btn--small" onClick={show} disabled={busy}>
+          {full ? t('keys.hide') : t('keys.reveal')}
+        </button>
+      </div>
+      <span className="dim small" style={{ marginTop: 6, display: 'block' }}>
+        {t('keys.onceNote')}
+      </span>
+    </>
+  )
+}
+
 function CreateKey({ onClose, onDone }) {
   const { freeMode } = useAuth()
   const t = useT()
@@ -157,14 +198,7 @@ export default function Keys() {
             <div className="key-grid">
               <div className="mini-card">
                 <span className="mini-card__label">{t('keys.apiKey')}</span>
-                <div className="copy-row">
-                  <div className="who"><b className="mono">{k.prefix}{'\u2022'.repeat(14)}{k.last4}</b></div>
-                </div>
-                {/* The full key is not stored (only its hash), so it can't be copied from here.
-                    A button that copied the masked form used to sit here and was misleading. */}
-                <span className="dim small" style={{ marginTop: 6, display: 'block' }}>
-                  {t('keys.onceNote')}
-                </span>
+                <KeyReveal item={k} />
               </div>
               {!freeMode && (
                 <div className="mini-card mini-card--mint">

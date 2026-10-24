@@ -268,9 +268,11 @@ def create_key(body: KeyIn, user=Depends(require_user), db: Database = Depends(g
     raw, prefix, last4, digest = security.new_api_key()
     with db.tx() as c:
         cur = c.execute(
-            """INSERT INTO api_keys(user_id, name, prefix, last4, key_hash, monthly_limit, reasoning_effort, created_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (user["id"], body.name.strip(), prefix, last4, digest, body.monthly_limit, reasoning_db(body.reasoning_effort), now()),
+            """INSERT INTO api_keys(user_id, name, prefix, last4, key_hash, secret_enc, monthly_limit,
+                                    reasoning_effort, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (user["id"], body.name.strip(), prefix, last4, digest, security.encrypt_secret(raw),
+             body.monthly_limit, reasoning_db(body.reasoning_effort), now()),
         )
     row = db.one("SELECT * FROM api_keys WHERE id=?", (cur.lastrowid,))
     return {"key": raw, "item": key_out(row)}  # the full key is shown only in this response
@@ -292,6 +294,19 @@ def patch_key(key_id: int, body: KeyPatch, user=Depends(require_user), db: Datab
     with db.tx() as c:
         c.execute("UPDATE api_keys SET name=?, monthly_limit=?, reasoning_effort=? WHERE id=?", (name, limit, effort, key_id))
     return {"item": key_out(db.one("SELECT * FROM api_keys WHERE id=?", (key_id,)))}
+
+
+@router.get("/keys/{key_id}/reveal")
+def reveal_key(key_id: int, user=Depends(require_user), db: Database = Depends(get_db)):
+    """The owner's own key in full, so they can copy it again.
+
+    Only ever the caller's own key (`_own_key` filters by user_id). Returns null for
+    keys made before this existed, and when SF_KEY_SECRET is not configured — the
+    caller shows "revoke it and make a new one" in that case.
+    """
+    row = _own_key(db, key_id, user["id"])
+    enc = row["secret_enc"] if "secret_enc" in row.keys() else None
+    return {"key": security.decrypt_secret(enc)}
 
 
 @router.post("/keys/{key_id}/revoke")
