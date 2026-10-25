@@ -430,6 +430,7 @@ class ClusterBalancer:
                         worker.model_name, worker.browser_port, worker.short_tab,
                         requested_model, worker.health_score,
                     )
+                    meta["dispatch_wait_ms"] = round((time.monotonic() - t0) * 1000)
                     ans, images = await asyncio.wait_for(
                         worker.execute_prompt(
                             prompt_text, timeout=timeout_per_worker,

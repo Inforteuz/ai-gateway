@@ -472,6 +472,9 @@ class WorkerTab:
             return
         async with self.lock:
             try:
+                if await self._reuse_clean_chat():
+                    self.warm_since = time.time()
+                    return
                 await self._reset_phase()
                 async with await self.connect(open_timeout=5) as ws:
                     await self.adapter.wait_for_input(ws, timeout=15)
@@ -480,6 +483,21 @@ class WorkerTab:
             except Exception as e:
                 self.warm_since = 0.0
                 log.debug("prewarm skipped model=%s: %s", self.model_name, e)
+
+    async def _reuse_clean_chat(self, for_images: bool = False) -> bool:
+        """DOM state, not the age of our hint, decides whether a chat is empty.
+
+        A ten-minute-old blank temporary chat was being navigated again on
+        every low-traffic request. Never reuse a conversation or image chat;
+        each adapter must affirm its strict fresh-chat contract right now.
+        """
+        if for_images or not cfg.PREWARM_ENABLED:
+            return False
+        try:
+            async with await self.connect(open_timeout=5) as ws:
+                return await self.adapter.is_fresh_chat(ws) is True
+        except Exception:
+            return False
 
     def _on_challenge(self, sign: str) -> None:
         """Captcha: long cooldown + operator flag (cluster_watch notifies via Telegram)."""
@@ -579,14 +597,8 @@ class WorkerTab:
         # A pre-opened page is used only if the adapter STRICTLY confirms it is clean.
         # Image requests do not use the pre-opened (temporary) chat, because
         # ChatGPT does not draw images in a temporary chat.
-        warm = False
-        if (not want_images and self.warm_since
-                and time.time() - self.warm_since < cfg.PREWARM_MAX_AGE):
-            try:
-                async with await self.connect(open_timeout=5) as ws0:
-                    warm = await self.adapter.is_fresh_chat(ws0)
-            except Exception:
-                warm = False
+        warm = await self._reuse_clean_chat(for_images=want_images)
+        runmeta.get()["chat_reused"] = warm
         self.warm_since = 0.0
         if not warm:
             await self._reset_phase(for_images=want_images)
@@ -794,8 +806,13 @@ class WorkerTab:
         # Keep a human-like gap between two requests on the same account and
         # honour the hourly cap. Raises when the cap is reached, and the balancer
         # then moves the request to another worker.
+        phases = runmeta.get().setdefault("phases", {})
+        t_phase = time.monotonic()
         await self._pace()
+        phases["pace"] = round(phases.get("pace", 0) + time.monotonic() - t_phase, 3)
+        t_phase = time.monotonic()
         await self._preflight_session()
+        phases["session"] = round(phases.get("session", 0) + time.monotonic() - t_phase, 3)
         if self.account_key[0] in cfg.PARALLEL_TAB_MODELS:
             # The gap a parallel sibling must keep is measured from the real send
             _ACCOUNT_LAST_SEND[self.account_key] = time.time()

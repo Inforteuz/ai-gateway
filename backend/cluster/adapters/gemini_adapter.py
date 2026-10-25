@@ -285,9 +285,10 @@ class GeminiAdapter(BaseAIAdapter):
     async def is_fresh_chat(self, ws) -> bool:
         ok = await cdp.evaluate(ws, """(() => {
             const p = location.pathname.replace(/\\/+$/, '');
-            return (p === '/app' || p === '') && document.querySelectorAll('model-response').length === 0
-                && !!document.querySelector('rich-textarea .ql-editor');
-        })()""", timeout=8)
+            return (p === '/app' || p === '') && document.querySelectorAll('model-response, user-query').length === 0
+                && [...document.querySelectorAll('rich-textarea .ql-editor')].some(e => e.offsetWidth && e.offsetHeight)
+                && ![...document.querySelectorAll('button')].some(b => __STOP__.test(b.getAttribute('aria-label') || ''));
+        })()""".replace("__STOP__", _STOP_RE), timeout=8)
         if ok is not True:
             return False
         # A pre-warmed page must be in temporary mode. If the button has not appeared yet
@@ -321,6 +322,7 @@ class GeminiAdapter(BaseAIAdapter):
         }})()"""
         if not await cdp.evaluate(ws, focus_js, timeout=10):
             return False
+        submitted_before = await cdp.evaluate(ws, "document.querySelectorAll('user-query').length", timeout=5) or 0
         want = len("".join(prompt_text.split()))
         # 2) FASTEST: the editor's own Quill object (`.ql-container.__quill`) — `setText`
         #    sets 47k characters in 0.12 s (MEASURED; Input.insertText took 16-44 s).
@@ -363,6 +365,7 @@ class GeminiAdapter(BaseAIAdapter):
                 return False
 
         sent_js = f"""(() => {{
+            if (document.querySelectorAll('user-query').length > {int(submitted_before)}) return true;
             if (document.querySelectorAll('model-response').length > 0) return true;
             if ([...document.querySelectorAll('button')].some(b => {_STOP_RE}.test(b.getAttribute('aria-label') || ''))) return true;
             const el = document.querySelector({json.dumps(GEMINI_INPUT)});
@@ -376,14 +379,10 @@ class GeminiAdapter(BaseAIAdapter):
         }})()"""
 
         async def confirm_sent(sec: float) -> bool:
-            for _ in range(int(sec / 0.5)):
-                await asyncio.sleep(0.5)
-                try:
-                    if await cdp.evaluate(ws, sent_js, timeout=8):
-                        return True
-                except Exception:
-                    pass
-            return False
+            # Inspect immediately: the old half-second sleep ran even when
+            # the provider had already accepted this prompt. Polling changes
+            # latency, not the confirmation signal or retry time budget.
+            return await self.wait_until(ws, sent_js, timeout=sec, interval=0.1)
 
         for attempt in range(2):
             pos = None

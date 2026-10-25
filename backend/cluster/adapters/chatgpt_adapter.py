@@ -562,7 +562,8 @@ class ChatGPTAdapter(BaseAIAdapter):
                 if val.get("inSidebar"):
                     _ledger_add(str(val["id"]))
                     return
-                await asyncio.sleep(0.8)
+                if _attempt + 1 < tries:
+                    await asyncio.sleep(0.8)
         except Exception:
             pass
 

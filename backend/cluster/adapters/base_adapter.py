@@ -830,6 +830,11 @@ class BaseAIAdapter(ABC):
         reduce reliability.
         """
         started = time.time()
+        # Scalars only: split provider latency from stability wait; no content.
+        reads = runmeta.get().setdefault("answer_reads", [])
+        timing = {"first_text_ms": None, "settle_ms": None, "polls": 0, "read_ms": 0}
+        if len(reads) < 8:
+            reads.append(timing)
         # Start reading early (live streaming), but never decide "finished" before
         # `initial_delay`: until the provider shows its stop button a placeholder can
         # look like a stable, finished answer.
@@ -851,6 +856,7 @@ class BaseAIAdapter(ABC):
 
         while time.time() < deadline:
             await asyncio.sleep(cfg.POLL_INTERVAL)
+            read_started = time.monotonic()
             try:
                 val = await cdp.evaluate(ws, script, timeout=20)
             except RuntimeError:
@@ -861,6 +867,9 @@ class BaseAIAdapter(ABC):
                 if js_errors >= 5:
                     raise
                 continue
+            finally:
+                timing["polls"] += 1
+                timing["read_ms"] += round((time.monotonic() - read_started) * 1000, 2)
             js_errors = 0
             if not isinstance(val, dict):
                 continue
@@ -874,6 +883,8 @@ class BaseAIAdapter(ABC):
                 raise asyncio.TimeoutError("Provider never started answering")
             if not cur:
                 continue
+            if timing["first_text_ms"] is None:
+                timing["first_text_ms"] = round((time.time() - started) * 1000)
 
             if cur != prev:
                 prev = cur
@@ -894,6 +905,7 @@ class BaseAIAdapter(ABC):
             stable_for = time.time() - stable_since
             need = need_done if not gen else need_generating
             if need is not None and stable_for >= need and time.time() >= done_not_before:
+                timing["settle_ms"] = round(stable_for * 1000)
                 return self.clean_text(cur)
 
         if generating:

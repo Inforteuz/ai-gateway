@@ -978,6 +978,9 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                      bool(run_meta.get("fallback")),
                      ",".join(f"{k}:{v}" for k, v in (run_meta.get("phases") or {}).items()) or "-",
                      time.monotonic() - t_start, use_reasoning, spec.kind, len(calls))
+            log.info("speed model=%s prompt_chars=%d dispatch_wait_ms=%s chat_reused=%s reads=%s",
+                     used_model, len(prompt_text), run_meta.get("dispatch_wait_ms", 0),
+                     run_meta.get("chat_reused", False), json.dumps(run_meta.get("answer_reads", []), separators=(",", ":")))
             if live is not None:
                 live.final_answer = answer
             return _completion_payload(

@@ -328,7 +328,7 @@ def test_prewarm_marks_fresh_page(monkeypatch):
         return True
     w.adapter.wait_for_input = wait_input
     asyncio.run(w.prewarm())
-    assert w.resets == 1 and w.warm_since > 0
+    assert w.resets == 0 and w.warm_since > 0  # an already clean page needs no navigation
 
 
 def test_startup_prewarm_targets_available_qwen_workers():
