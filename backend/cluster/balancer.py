@@ -395,7 +395,11 @@ class ClusterBalancer:
                             prompt_text, timeout=timeout_per_worker,
                             attachment_paths=attachment_paths,
                             images_only=images_only, want_images=want_images),
-                        timeout=max(0.001, min(float(timeout_per_worker + 15), self._remaining(t0))),
+                        # The adapter enforces the per-tab limit itself and may extend it
+                        # while the answer is still growing; this outer bound only catches
+                        # a tab that hangs outright.
+                        timeout=max(0.001, min(max(float(timeout_per_worker), cfg.ANSWER_MAX_SECONDS) + 15,
+                                               self._remaining(t0))),
                     )
                     if (ans and ans.strip()) or images:
                         latency = (time.monotonic() - t0) * 1000

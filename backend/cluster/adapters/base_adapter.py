@@ -878,6 +878,9 @@ class BaseAIAdapter(ABC):
             if cur != prev:
                 prev = cur
                 stable_since = time.time()
+                # Still writing: keep the tab (see ANSWER_GROWTH_GRACE)
+                deadline = max(deadline, min(time.time() + cfg.ANSWER_GROWTH_GRACE,
+                                             started + cfg.ANSWER_MAX_SECONDS))
                 if on_progress is not None:
                     try:
                         on_progress(self.partial_text(cur))

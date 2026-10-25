@@ -42,6 +42,16 @@ REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_REQUEST_TIMEOUT", "60"))
 # button, so long reasoning is not cut. 0 disables the check.
 ANSWER_START_TIMEOUT = float(os.getenv("SF_CLUSTER_ANSWER_START_TIMEOUT", "30"))
 
+# An answer that is still GROWING is not cut at REQUEST_TIMEOUT: each new piece of
+# text moves the tab's deadline ANSWER_GROWTH_GRACE seconds on, up to
+# ANSWER_MAX_SECONDS in all. Measured 2026-10-25: qwen writing a whole HTML file
+# for a coding agent needed over 60 s; the tab was killed mid-answer, the second
+# tab started from zero and was killed too, and the request failed after 126 s
+# with the model working the whole time. A tab that shows nothing is still given
+# up early (ANSWER_START_TIMEOUT); one whose text stops changing, at the old limit.
+ANSWER_GROWTH_GRACE = float(os.getenv("SF_CLUSTER_ANSWER_GROWTH_GRACE", "30"))
+ANSWER_MAX_SECONDS = float(os.getenv("SF_CLUSTER_ANSWER_MAX_SECONDS", "170"))
+
 # Context and history
 # Context window. Web-chat providers accept long text, but the whole
 # conversation goes into ONE text field, so the limit is set on our side. It

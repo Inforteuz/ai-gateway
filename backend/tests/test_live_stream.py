@@ -353,3 +353,48 @@ def test_qwen_falls_back_quickly_when_the_rendered_page_has_no_marker(monkeypatc
     t0 = time.monotonic()
     asyncio.run(Q.QwenAdapter().reset_chat(None))
     assert fell_back and time.monotonic() - t0 < Q.QwenAdapter.TEMP_CONFIRM_WAIT + 1.5
+
+
+def test_a_growing_answer_outlives_the_tab_timeout(monkeypatch):
+    # 2026-10-25: qwen writing a whole HTML file needed over 60 s and was killed
+    # mid-answer on two tabs in a row. Growth now keeps the tab.
+    polls = {"n": 0}
+
+    async def fake_eval(ws, script, timeout=20):
+        polls["n"] += 1
+        if polls["n"] < 40:                      # ~0.8 s of steady growth
+            return {"answer": "x" * polls["n"], "generating": True}
+        return {"answer": "x" * 40, "generating": False}
+
+    monkeypatch.setattr(BA.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(cfg, "POLL_INTERVAL", 0.02)
+    monkeypatch.setattr(cfg, "POLL_FIRST_DELAY", 0.02)
+    monkeypatch.setattr(cfg, "ANSWER_GROWTH_GRACE", 0.3)
+    monkeypatch.setattr(cfg, "ANSWER_MAX_SECONDS", 10)
+
+    async def run():
+        runmeta.start()
+        return await _poll_adapter().poll_answer(None, "script", timeout=0.3, initial_delay=0.05)
+
+    assert asyncio.run(run()) == "x" * 40
+
+
+def test_a_stalled_answer_is_still_cut(monkeypatch):
+    # Growth extends the deadline; text that stops changing while "generating" does not.
+    async def fake_eval(ws, script, timeout=20):
+        return {"answer": "half an answer", "generating": True}
+
+    monkeypatch.setattr(BA.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(cfg, "POLL_INTERVAL", 0.02)
+    monkeypatch.setattr(cfg, "POLL_FIRST_DELAY", 0.02)
+    monkeypatch.setattr(cfg, "ANSWER_GROWTH_GRACE", 0.3)
+    monkeypatch.setattr(cfg, "ANSWER_MAX_SECONDS", 10)
+
+    async def run():
+        runmeta.start()
+        t0 = time.monotonic()
+        with pytest.raises(asyncio.TimeoutError):
+            await _poll_adapter().poll_answer(None, "script", timeout=0.5, initial_delay=0.05)
+        return time.monotonic() - t0
+
+    assert asyncio.run(run()) < 2
