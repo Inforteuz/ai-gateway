@@ -33,7 +33,7 @@ The final-answer optimization removes a redundant generation; it does not shorte
 
 ## Validation
 
-- Backend suite: 665 passed, covering ownership, zero-use/revoked keys, admin filters, daily/model consistency, multi-tool overlap, explicit final envelopes and short tool preflight.
+- Backend suite: 667 passed, covering ownership, zero-use/revoked keys, admin filters, daily/model consistency, multi-tool overlap, explicit final envelopes and short tool preflight.
 - Production frontend build and three-language dictionary checks pass.
 - 12 browser scenarios: user/admin × Uzbek/English/Russian × desktop/mobile. Key selection, unused-key zero totals, tool warning and viewport width checks pass.
 - A local opencode configuration that still disabled `sable-4.0` tools was backed up and enabled only after the deployed tool/result round trip succeeded. No credentials were copied into the repository.
@@ -57,3 +57,7 @@ Every turn completed with structured SSE and no stream error. The model requeste
 The production user analytics endpoint returned 200 for account and key filters, seven daily points and estimated-token totals. The same ordinary QA session received 403 for administrator analytics. Local browser checks cover all three languages and both viewport sizes; the production checks use the real public gateway and database.
 
 A final parser hardening accepts fenced/raw JSON and native `function` envelopes as well as YAML. An empty allowlist now admits no tool (including `tool_choice: none`), and invalid JSON/scalar arguments are rejected rather than wrapped into invented arguments. Tests require malformed calls to repair before reaching the client. These changes avoid discarding valid serialized calls and keep unknown tools blocked.
+
+### Output accounting correction
+
+Serialized tool names and arguments now contribute to cluster completion-token estimates. Previously the parser removed the call block from visible answer text before counting characters, so a code-writing call with no prose could be reported as a one-token response. JSON/SSE regressions cover a multi-line code-writing call. Arguments remain transient and are never copied into usage metadata or analytics. Historical token counts are unchanged; future estimates reflect the actual tool payload.

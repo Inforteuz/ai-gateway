@@ -1132,7 +1132,12 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
 
     # Image cost comes from a fixed per-image token count, NOT the base64 length:
     # measured, a 1 MB PNG inside markdown counted as 544,000 "tokens".
-    text_tokens = int((len(answer or "") + len(reasoning_content)) / cfg.CHARS_PER_TOKEN)
+    # Parsed calls have already been stripped from `answer`. Their file/code
+    # arguments are model output too; otherwise an agent writing a whole file
+    # was reported as a one-token response. Count but never persist the args.
+    tool_chars = sum(len(str((call.get("function") or {}).get("name") or ""))
+                     + len(str((call.get("function") or {}).get("arguments") or "")) for call in calls)
+    text_tokens = int((len(answer or "") + len(reasoning_content) + tool_chars) / cfg.CHARS_PER_TOKEN)
     if images:
         md = "\n\n".join(f"![rasm {i + 1}](data:{mime};base64,{b64})"
                           for i, (mime, b64) in enumerate(images))

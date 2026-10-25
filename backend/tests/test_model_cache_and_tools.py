@@ -161,3 +161,16 @@ def test_invalid_arguments_are_repaired_before_reaching_client(cluster_client, a
     assert response.status_code == 200 and len(bal.prompts) == 2
     args = response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
     assert json.loads(args) == {"path": "/workspace/probe.txt"}
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_tool_arguments_count_as_completion_tokens(cluster_client, stream):
+    content = "print('hello')\n" * 400
+    raw = json.dumps({"actions": [{"name": "write_file", "arguments": {"content": content}}]})
+    response, _ = cluster_client([raw], {"messages": MSG, "tools": [{"type": "function", "function": {"name": "write_file"}}], "stream": stream})
+    if stream:
+        events = [json.loads(line[5:]) for line in response.text.splitlines() if line.startswith("data:") and "[DONE]" not in line]
+        usage = next(e["usage"] for e in events if "usage" in e)
+    else:
+        usage = response.json()["usage"]
+    assert usage["completion_tokens"] > 1000
