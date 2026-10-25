@@ -29,8 +29,9 @@ from . import logs
 
 log = logs.get("tools")
 
-# ```yaml ... ``` or ``` ... ``` blocks
-_FENCE = re.compile(r"```(?:ya?ml)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+# The model can answer the YAML protocol with JSON or native OpenAI-shaped
+# function objects. Both are data, and both must keep the same allowlist.
+_FENCE = re.compile(r"```(?:ya?ml|json)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 # A bare "tool_calls:" block start (for the unfenced case)
 _BARE = re.compile(r"(?:^|\n)((?:actions|tool_calls|calls):\s*\n(?:[ \t]+.*\n?)+)",
                    re.MULTILINE)
@@ -39,7 +40,7 @@ _MAX_TOOL_CALLS = 8
 
 
 # Bump when the tool protocol changes; this invalidates cache keys.
-PROTOCOL_VERSION = "tools-4-explicit-final"
+PROTOCOL_VERSION = "tools-4.1-strict-allowlist"
 
 
 def _schema_outline(schema: Mapping[str, Any], indent: int = 6) -> list[str]:
@@ -172,7 +173,7 @@ def parse_final_answer(text: str) -> Optional[str]:
     stripped = (text or "").strip()
     match = _FENCE.fullmatch(stripped)
     candidate = match.group(1) if match else stripped
-    if not candidate.lstrip().startswith("final_answer:"):
+    if not candidate.lstrip().startswith(("final_answer:", "{")):
         return None
     try:
         data = yaml.safe_load(candidate)
@@ -189,7 +190,7 @@ def _candidates(text: str) -> list[str]:
     out = [m.group(1) for m in _FENCE.finditer(text or "")]
     out += [m.group(1) for m in _BARE.finditer(text or "")]
     stripped = (text or "").strip()
-    if stripped.startswith(("actions:", "tool_calls:", "calls:")):
+    if stripped.startswith(("actions:", "tool_calls:", "calls:", "{")):
         out.append(stripped)
     return out
 
@@ -203,6 +204,8 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
     agent must not call a function that does not exist.
     """
     allowed_set = {str(a) for a in allowed}
+    if not allowed_set:
+        return [], (text or "")
     for chunk in _candidates(text):
         try:
             data = yaml.safe_load(chunk)
@@ -223,8 +226,11 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
         for item in raw[:_MAX_TOOL_CALLS]:
             if not isinstance(item, Mapping):
                 continue
+            item = item.get("function") or item
+            if not isinstance(item, Mapping):
+                continue
             name = str(item.get("name") or item.get("tool") or "").strip()
-            if not name or (allowed_set and name not in allowed_set):
+            if not name or name not in allowed_set:
                 log.warning("unknown tool dropped: %r", name[:40])
                 continue
             args = item.get("arguments")
@@ -235,9 +241,10 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
                 try:
                     args = json.loads(args)
                 except ValueError:
-                    args = {"value": args}
+                    log.warning("invalid JSON arguments dropped for tool %r", name[:40])
+                    continue
             if not isinstance(args, Mapping):
-                args = {"value": args}
+                continue
             calls.append({
                 "id": "call_" + uuid.uuid4().hex[:20],
                 "type": "function",
@@ -248,6 +255,8 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
             # Strip the block from the text; the rest is the model's commentary
             leftover = _FENCE.sub("", text or "")
             leftover = _BARE.sub("", leftover).strip()
+            if chunk.strip() == (text or "").strip():
+                leftover = ""
             return calls, leftover
     return [], (text or "")
 

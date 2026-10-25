@@ -136,3 +136,28 @@ def test_tool_stream_uses_short_preflight(cluster_client, monkeypatch):
     monkeypatch.setattr(cfg, "TOOL_PREFLIGHT_SECONDS", .02)
     response, _ = cluster_client([(.08, CALL)], {"messages": MSG, "tools": TOOLS, "stream": True})
     assert response.status_code == 200 and timeouts[0] == .02
+
+
+@pytest.mark.parametrize("fenced", [False, True])
+def test_native_json_tool_envelope_does_not_require_repair(cluster_client, fenced):
+    raw = json.dumps({"tool_calls": [{"type": "function", "function": {"name": "read_file", "arguments": json.dumps({"path": "/workspace/probe.txt"})}}]})
+    if fenced:
+        raw = '```json\n' + raw + '\n```'
+    response, bal = cluster_client([raw], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})
+    assert response.status_code == 200 and len(bal.prompts) == 1
+    assert response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "read_file"
+
+
+def test_none_choice_never_emits_model_invented_tool_call(cluster_client):
+    response, bal = cluster_client([CALL], {"messages": MSG, "tools": TOOLS, "tool_choice": "none"})
+    assert response.status_code == 200 and len(bal.prompts) == 1
+    assert "tool_calls" not in response.json()["choices"][0]["message"]
+
+
+@pytest.mark.parametrize("arguments", ['{"path": }', ["not-an-object"], 42])
+def test_invalid_arguments_are_repaired_before_reaching_client(cluster_client, arguments):
+    invalid = json.dumps({"actions": [{"name": "read_file", "arguments": arguments}]})
+    response, bal = cluster_client([invalid, CALL], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})
+    assert response.status_code == 200 and len(bal.prompts) == 2
+    args = response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(args) == {"path": "/workspace/probe.txt"}

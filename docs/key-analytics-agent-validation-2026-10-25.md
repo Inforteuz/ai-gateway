@@ -33,9 +33,27 @@ The final-answer optimization removes a redundant generation; it does not shorte
 
 ## Validation
 
-- Backend suite: 659 passed, covering ownership, zero-use/revoked keys, admin filters, daily/model consistency, multi-tool overlap, explicit final envelopes and short tool preflight.
+- Backend suite: 665 passed, covering ownership, zero-use/revoked keys, admin filters, daily/model consistency, multi-tool overlap, explicit final envelopes and short tool preflight.
 - Production frontend build and three-language dictionary checks pass.
 - 12 browser scenarios: user/admin × Uzbek/English/Russian × desktop/mobile. Key selection, unused-key zero totals, tool warning and viewport width checks pass.
 - A local opencode configuration that still disabled `sable-4.0` tools was backed up and enabled only after the deployed tool/result round trip succeeded. No credentials were copied into the repository.
 
 Live measurements for the new protocol are recorded after the final rollout; baseline results above apply to the preceding deployed revision.
+
+## Post-deployment evidence
+
+The owner authorized production recreation. Both images were rebuilt from the same revision, preserving server-local process/deployment configuration. Source/configuration and PostgreSQL backups, plus immutable rollback image tags, were retained before the first rollout. No browser profiles or provider accounts were edited. All **13/13** browser ports/workers were discovered afterward. Public site returned 200, unauthenticated public models returned 401. Ledger, held-funds and usage invariants passed before/after the first rollout.
+
+Bounded synthetic two-turn streams through the public domain:
+
+| Model/request | First stream bytes | Tool-call turn | Final-answer turn | Repair |
+|---|---:|---:|---:|---|
+| ChatGPT, before final optimization | ordinary 12s preflight | 24.109 s | 18.465 s | one retry per turn |
+| ChatGPT, optimized | 1.724 / 1.853 s | 25.173 s | 8.645 s | tool turn retried once; final did not retry |
+| Large-context Gemini request, routed to Qwen | 1.761 / 1.684 s | 8.254 s | 8.800 s | neither turn retried |
+
+Every turn completed with structured SSE and no stream error. The model requested exactly the allowed synthetic path, and the final answer matched the file's unpredictable contents. No fallback header appeared for ChatGPT. Both large-context turns exposed public `input_size` routing headers. The final-answer gain is a **9.820 s difference in these individual observations**, not an aggregate speed guarantee. ChatGPT's first call still required repair, so sustained agent reliability must continue to be monitored.
+
+The production user analytics endpoint returned 200 for account and key filters, seven daily points and estimated-token totals. The same ordinary QA session received 403 for administrator analytics. Local browser checks cover all three languages and both viewport sizes; the production checks use the real public gateway and database.
+
+A final parser hardening accepts fenced/raw JSON and native `function` envelopes as well as YAML. An empty allowlist now admits no tool (including `tool_choice: none`), and invalid JSON/scalar arguments are rejected rather than wrapped into invented arguments. Tests require malformed calls to repair before reaching the client. These changes avoid discarding valid serialized calls and keep unknown tools blocked.
