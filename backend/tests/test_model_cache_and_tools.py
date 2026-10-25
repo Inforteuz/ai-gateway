@@ -203,12 +203,25 @@ def _ask(monkeypatch, answers, **extra):
     return TestClient(srv.app).post("/v1/chat/completions", json=body), bal
 
 
-@pytest.mark.parametrize("second", [UpstreamFailed("timeout"), BROKEN])
-def test_stand_in_answers_the_reask_the_model_could_not(cluster_client, monkeypatch, second):
-    response, bal = _ask(monkeypatch, {"qwen": [BROKEN, second], "deepseek": [CALL]}, sf_stand_in="deepseek")
+def test_stand_in_answers_the_reask_the_model_could_not(cluster_client, monkeypatch):
+    # Prose first, then every qwen tab fails the re-ask: the stand-in answers it.
+    response, bal = _ask(monkeypatch, {"qwen": ["Let me read it.", UpstreamFailed("timeout")], "deepseek": [CALL]},
+                         sf_stand_in="deepseek")
     assert response.status_code == 200 and bal.models == ["qwen", "qwen", "deepseek"]
     message = response.json()["choices"][0]["message"]
     assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {"path": "/workspace/probe.txt"}
+
+
+def test_broken_call_goes_straight_to_the_stand_in(cluster_client, monkeypatch):
+    # Same-model re-asks of a broken call broke it again every time (2026-10-25)
+    response, bal = _ask(monkeypatch, {"qwen": [BROKEN], "deepseek": [CALL]}, sf_stand_in="deepseek")
+    assert response.status_code == 200 and bal.models == ["qwen", "deepseek"]
+    assert "read_file" in response.text
+
+
+def test_broken_call_without_a_stand_in_is_re_asked_on_the_same_model(cluster_client, monkeypatch):
+    response, bal = _ask(monkeypatch, {"qwen": [BROKEN, CALL]})
+    assert response.status_code == 200 and bal.models == ["qwen", "qwen"]
 
 
 def test_broken_call_never_reaches_the_agent_as_text(cluster_client, monkeypatch):

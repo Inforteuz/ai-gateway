@@ -889,19 +889,25 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         tool_status["retried"] = True
                         reminder = prompt_text + "\n\n" + tool_proto.retry_instruction(tool_names, req.tool_choice)
                         dispatch_error: Optional[DispatchError] = None
-                        try:
-                            retry_answer, retry_model, retry_worker, retry_images = await call(reminder)
-                            calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
-                        except DispatchError as e:
-                            dispatch_error = e
+                        stand_in = (req.sf_stand_in or "").lower()
+                        has_stand_in = bool(stand_in) and stand_in != requested
+                        # A BROKEN call goes straight to the stand-in. Measured 2026-10-25:
+                        # every time qwen broke a call (three turns), the same-model re-ask
+                        # broke it again, costing 18-30 s before the stand-in fixed it in
+                        # 5-11 s. A prose answer is still re-asked on the same model first.
+                        if not (broken and has_stand_in):
+                            try:
+                                retry_answer, retry_model, retry_worker, retry_images = await call(reminder)
+                                calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
+                            except DispatchError as e:
+                                dispatch_error = e
                         # The requested model could not answer the re-ask (every tab
                         # timed out or was busy), or answered the call broken: try the
                         # stand-in once. Not for a plain prose answer — that may be the
                         # model's legitimate final word, and asking a second model every
                         # time would only add delay.
-                        stand_in = (req.sf_stand_in or "").lower()
-                        if (not calls and (dispatch_error or broken) and stand_in
-                                and stand_in != requested and can_retry()):
+                        if (not calls and (dispatch_error or broken) and has_stand_in
+                                and can_retry()):
                             log.warning("tools: re-ask on stand-in model=%s -> %s (%s)", requested, stand_in,
                                         "dispatch failed" if dispatch_error else "broken call")
                             try:
