@@ -19,6 +19,31 @@ log = logs.get("venice")
 
 VENICE_INPUT = "textarea.chakra-textarea, textarea"
 
+# The landing page's decorative 1080p loop costs several CPU cores with
+# software rendering. Match the known asset AND its hidden decoration wrapper,
+# never arbitrary muted videos or media inside a conversation. A document-level
+# play listener also catches the SPA remounting/restarting the background.
+QUIET_BACKGROUND_JS = r"""(() => {
+    const quiet = video => {
+        if (!(video instanceof HTMLVideoElement) || !video.loop || !video.muted
+                || video.controls || !video.closest('[aria-hidden="true"]')
+                || video.closest('[data-chat-turn-anchor], .assistant, .assistant-content')) return;
+        let url;
+        try { url = new URL(video.currentSrc || video.src, location.href); }
+        catch (_) { return; }
+        if (url.origin !== 'https://media.venice.ai'
+                || !/^\/assets\/light-waves-loop(?:-v\d+)?\.mp4$/.test(url.pathname)) return;
+        if (!video.paused) video.pause();
+    };
+    if (!window.__gatewayQuietVeniceBackground) {
+        const onMedia = event => quiet(event.target);
+        document.addEventListener('play', onMedia, true);
+        document.addEventListener('loadeddata', onMedia, true);
+        window.__gatewayQuietVeniceBackground = true;
+    }
+    document.querySelectorAll('video').forEach(quiet);
+})()"""
+
 # "Worked for 3s · 1 step" / "Worked for < 1s · 2 steps" - the agent's own progress line
 # The agent prefixes its answer with a progress line: "Thinking..." while it runs,
 # "Worked for 3s · 1 step" once it is done. Neither is part of the answer.
@@ -34,11 +59,27 @@ class VeniceAdapter(BaseAIAdapter):
     def __init__(self):
         super().__init__("venice")
 
+    async def _quiet_background_media(self, ws) -> None:
+        try:
+            await cdp.evaluate(ws, QUIET_BACKGROUND_JS, timeout=2)
+        except Exception as exc:
+            # Optional resource saving must never prevent sending a request.
+            log.debug("venice: background media check skipped (%s)", type(exc).__name__)
+
+    async def check_session(self, ws, timeout: float = 5.0,
+                            recover: bool = True) -> tuple[bool, str]:
+        result = await super().check_session(ws, timeout=timeout, recover=recover)
+        if result[0]:
+            await self._quiet_background_media(ws)
+        return result
+
     async def is_fresh_chat(self, ws) -> bool:
+        await self._quiet_background_media(ws)
         n = await cdp.evaluate(ws, "document.querySelectorAll('[data-chat-turn-anchor]').length", timeout=8)
         return n == 0
 
     async def send_prompt(self, ws, prompt_text: str) -> bool:
+        await self._quiet_background_media(ws)
         # The text is REPLACED, not inserted at the cursor: anything left in the box
         # from an unsent request would otherwise be merged into this one.
         fill = f"""(() => {{

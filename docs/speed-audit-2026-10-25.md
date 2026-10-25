@@ -64,3 +64,24 @@ A restart-readiness connection refusal was observed in the first immediate probe
 A second uncached ChatGPT probe used the verified pre-opened blank chat and completed in **6.667 s**. `new_chat` was **0.01 s**, compared with **2.24 s** on the preceding cold probe; telemetry confirmed `chat_reused=True`. First answer text arrived at 2.363 s. End-to-end generation varies, so the direct measured mechanism is the 2.23-second reduction in chat preparation rather than attributing the entire 3.726-second baseline difference to code.
 
 The first full rerun caught the existing elapsed-time guard using adjustable wall-clock time: the initial-delay test finished at 0.415 seconds despite a 0.6-second guard. The answer polling loop now uses monotonic time consistently for initial delay, stabilization, growth and first-text deadlines. This preserves elapsed-time guarantees across clock corrections.
+
+After the first-text budget was deployed, another uncached short Gemini probe completed in **41.697 s**: send 10.71 s, answer 26.52 s, first text 25.777 s, stabilization 0.745 s. It succeeded on the first account; **no failover occurred**. Therefore the difference from the earlier 90–92 s probes cannot be attributed to the new timeout. Provider-side variability and send delay remain material.
+
+## Idle browser CPU bottleneck
+
+The server has 20 logical CPUs. Inspection found load averages around 29/23/21 and cluster CPU around 1,459% (about 14.6 logical CPUs). The API and database were mostly idle. Most CPU was in Chrome's software-rendering GPU processes, especially Venice's landing-page background video.
+
+That background is a muted, looping 1920×1080 decorative asset inside an `aria-hidden` wrapper. A reversible live A/B sampled the **same GPU process** over three-second intervals after settling:
+
+| Venice decoration | GPU process CPU (100% = one logical CPU) |
+|---|---:|
+| Playing | 991.6% |
+| Paused | 342.3% |
+
+The observed difference frees about **6.5 logical CPUs**. This is process CPU, not request latency or total server CPU. A later paused sample was 376.3%; concurrent work makes individual samples variable. Temporarily hiding the video/wrapper gave inconsistent additional savings, so no hiding or general animation suppression is included.
+
+The Venice adapter now pauses only the known decorative asset, requiring a hidden wrapper, muted looping playback and no player controls. Videos inside chat turns/assistant content, arbitrary media URLs and videos with controls are left alone. An idempotent document listener catches playback restarting or a replacement element appearing during SPA navigation. Healthy session checks, clean-chat checks and sending reinstall the guard after a document reload. There is no background polling timer or mutation observer. A failed optional media check cannot block a prompt.
+
+Validation: **44 targeted tests**, then **725 full backend tests passed**. The JavaScript behavioral regression ran under Node and checks excluded media, repeated installation, replacement videos and navigation. Live CDP verification confirmed the guard installs, the composer remains present, and an attempted restart of the decoration is paused again. No Chrome startup flags, profiles, account settings or display services were changed.
+
+Capacity recommendation: remove idle rendering load before adding browser instances. Extra tabs on an already CPU-bound host can increase contention; additional independent capacity should follow measured queue wait and provider throughput, not just instance count.
