@@ -13,9 +13,8 @@ log = logs.get("venice")
 #     no send button to click;
 #   - every exchange sits in `[data-chat-turn-anchor]`, and inside it the answer is
 #     `.assistant-content`, which starts with a "Worked for 3s · 1 step" line;
-#   - nothing marks generation as running, but the action buttons
-#     (`.minds-chat-message-actions`) only appear once the answer is complete - that
-#     is the signal this adapter waits for.
+#   - the agentic-thinking-indicator contains a spinner/shimmer while working;
+#     its "Loading... / Thinking..." text is UI, never an answer.
 
 VENICE_INPUT = "textarea.chakra-textarea, textarea"
 
@@ -122,12 +121,26 @@ class VeniceAdapter(BaseAIAdapter):
             if (!assistant) return { answer: '', generating: true };
             const block = assistant.querySelector('.assistant-content') || assistant;
 
-            let text = __READ__(block);
+            const indicators = [...block.querySelectorAll('[data-testid="agentic-thinking-indicator"]')];
+            const generating = indicators.some(e => e.querySelector('.chakra-spinner, .loading-shimmer'));
+            // Read from the live DOM to preserve code formatting. Hide only the
+            // measured progress widget and restore it in the same synchronous
+            // step, as READ_TEXT_JS does for other provider UI controls.
+            const saved = indicators.map(e => [e, e.style.getPropertyValue('display'),
+                                               e.style.getPropertyPriority('display')]);
+            let text;
+            try {
+                indicators.forEach(e => e.style.setProperty('display', 'none', 'important'));
+                text = __READ__(block);
+            } finally {
+                for (const [e, value, priority] of saved) {
+                    if (value) e.style.setProperty('display', value, priority);
+                    else e.style.removeProperty('display');
+                }
+            }
             text = text.replace(__PRE__, '').trim();
-            return { answer: text, generating: false };
+            return { answer: text, generating: generating };
         })()""".replace("__READ__", READ_TEXT_JS).replace("__PRE__", _PREAMBLE))
-        # Nothing on the page says "still writing": the action buttons appear while the
-        # answer is still arriving, so they cannot be trusted. The end is found the only
-        # way left - the text stops changing - which is why this waits longer than the
-        # adapters that have a stop button to watch.
+        # Action buttons can appear before text finishes. After the explicit
+        # thinking state ends, still allow the text to settle before returning.
         return await self.poll_answer(ws, script, timeout=timeout, stable_needed=6)

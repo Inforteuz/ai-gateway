@@ -127,3 +127,53 @@ assert.equal(newPage.listeners.play.length, 1);
 """
     subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(va.QUIET_BACKGROUND_JS),
                    text=True, capture_output=True, check=True, timeout=10)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node runs the browser reader regression")
+def test_thinking_widget_is_not_answer_text_and_is_restored():
+    captured = []
+
+    async def poll(ws, script, **kwargs):
+        captured.append(script)
+
+    adapter = va.VeniceAdapter()
+    adapter.poll_answer = poll
+    asyncio.run(adapter.read_response(None))
+    script = r"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const source = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+function check(answer, running, label, fail = false) {
+    const style = {value: 'flex', priority: 'important',
+        getPropertyValue() { return this.value; },
+        getPropertyPriority() { return this.priority; },
+        setProperty(name, value, priority) { this.value = value; this.priority = priority; },
+        removeProperty() { this.value = ''; this.priority = ''; }};
+    const indicator = {style, querySelector: () => running ? {} : null};
+    const block = {
+        querySelectorAll: selector => selector === '[data-testid="agentic-thinking-indicator"]' ? [indicator] : [],
+        get innerText() {
+            if (fail) throw Error('transient DOM read failure');
+            return (style.value === 'none' ? '' : label + '\n\n') + answer;
+        }
+    };
+    const assistant = {querySelector: () => block};
+    const turn = {querySelector: () => assistant};
+    const context = {document: {querySelectorAll: () => [turn]}};
+    if (fail) assert.throws(() => vm.runInNewContext(source, context));
+    else {
+        const result = vm.runInNewContext(source, context);
+        assert.equal(result.answer, answer);
+        assert.equal(result.generating, running);
+    }
+    assert.equal(style.value, 'flex');
+    assert.equal(style.priority, 'important');
+}
+check('', true, 'Loading...\n\nThinking...');
+check('Partial answer', true, 'Loading...\n\nThinking...');
+check('586', false, 'Worked for 3s · 1 step');
+check('The user said Thinking...', false, 'Worked for 3s · 1 step');
+check('', true, 'Loading...', true);
+"""
+    subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(captured[0]),
+                   text=True, capture_output=True, check=True, timeout=10)
