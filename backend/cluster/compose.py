@@ -379,3 +379,18 @@ def split_for_file(prompt: str, limit: int) -> tuple[str, str] | None:
     if len(text) > limit:
         return None
     return text, head.strip() + "\n"
+
+
+# Keywords for detecting an image request; they decide whether to look for
+# images in the answer (avoids needless DOM scans).
+_IMAGE_REQUEST_HINTS = (
+    "rasm chiz", "rasm yarat", "rasm generat", "surat chiz", "surat yarat",
+    "draw ", "generate an image", "generate image", "create an image",
+    "make an image", "picture of", "нарисуй", "сгенерируй изображ", "создай изображ",
+)
+
+
+def wants_image(prompt: str) -> bool:
+    """Shared image intent for routing and cluster dispatch (current user text only)."""
+    low = (prompt or "").lower().translate({ord(ch): "\'" for ch in "‘’ʻʼ`"})
+    return any(h in low for h in _IMAGE_REQUEST_HINTS)

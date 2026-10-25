@@ -6,6 +6,10 @@ from . import billing
 REASONING_LEVELS = ["none", "low", "medium", "high"]
 
 
+def processing_class(model) -> str:
+    return "third_party" if model["provider"] in ("external", "cluster") or model["refine"] else "private"
+
+
 def _cluster_caps(upstream: str) -> dict:
     """Capabilities of a cluster model (vision, file input, agent mode, image generation).
 
@@ -88,7 +92,7 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
             **extra,
         },
         # "third_party": request content is also sent to an external partner model while serving it
-        "data_processing": "third_party" if (third_party_provider or checked) else "private",
+        "data_processing": processing_class(r),
         "price_in_per_1m": r["price_in_per_1m"], "price_out_per_1m": r["price_out_per_1m"],
         "enabled": bool(r["enabled"]),
     }

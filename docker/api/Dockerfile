@@ -20,6 +20,9 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 
 COPY backend/app ./app
+# Adapter limits/capabilities and prompt composition are the routing source of
+# truth. Importing these modules does not launch the cluster or any browsers.
+COPY backend/cluster ./cluster
 COPY docker/api/bootstrap.py ./bootstrap.py
 COPY --from=web /web/dist ./web
 

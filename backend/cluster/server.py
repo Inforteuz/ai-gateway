@@ -27,7 +27,7 @@ from . import runmeta
 from . import tools as tool_proto
 from . import settings as cfg
 from .balancer import ClusterBalancer, DispatchError
-from .compose import compile_prompt, mask_brand, tighten_filename_fences
+from .compose import compile_prompt, mask_brand, tighten_filename_fences, wants_image as _wants_image
 from .live import LiveStream
 from .pool import CLASS_OK, ClusterPool, classify_response, is_degenerate_response
 from . import proxy_health
@@ -582,15 +582,6 @@ def _prepare_request(messages: List[ChatMessage], store: attach.AttachmentStore,
     return prompt, found, require, tool_names
 
 
-# Keywords for detecting an image request; they decide whether to look for
-# images in the answer (avoids needless DOM scans).
-_IMAGE_REQUEST_HINTS = (
-    "rasm chiz", "rasm yarat", "rasm generat", "surat chiz", "surat yarat",
-    "draw ", "generate an image", "generate image", "create an image",
-    "make an image", "picture of", "нарисуй", "сгенерируй изображ", "создай изображ",
-)
-
-
 # A request to EDIT an attached image; the result is an image too.
 # Only checked when the request carries an image (an edit verb alone means nothing).
 _IMAGE_EDIT_HINTS = (
@@ -629,11 +620,6 @@ def _model_can(pool, requested: str, cap: str) -> bool:
     """Does the requested model (or, for `auto`, any worker) have this capability?"""
     workers = pool.workers if requested in ("", "auto") else pool.workers_for_model(requested)
     return any(getattr(w.adapter.caps, cap, False) for w in workers)
-
-
-def _wants_image(prompt: str) -> bool:
-    low = _norm_apos(prompt)
-    return any(h in low for h in _IMAGE_REQUEST_HINTS)
 
 
 def _wants_image_edit(prompt: str, has_image: bool) -> bool:

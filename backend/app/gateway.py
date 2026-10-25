@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import admission, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted
+from . import admission, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted, routing
 from .common import ApiError, FALLBACK_SUFFIX, client_ip
 from .db import Database, now
 
@@ -418,7 +418,9 @@ async def proxy(request: Request, endpoint: str):
     try:
         response = await _execute(request, endpoint, ticket, body, model, max_out, stream)
     except ApiError as exc:
-        stand_in = _stand_in_for(model, exc)
+        candidate = await run_in_threadpool(state.db.one, "SELECT * FROM models WHERE id=? AND enabled=1", (model.get("fallback_to"),))
+        candidate = dict(candidate) if candidate else None
+        stand_in = _stand_in_for(model, exc, candidate, endpoint, ticket.attribution.get("provider"))
         if not stand_in:
             raise
         log.info("fallback: %s -> %s after %s (%s)", model["id"], stand_in, exc.code, request_id)
@@ -427,7 +429,9 @@ async def proxy(request: Request, endpoint: str):
         retry_id = request_id + FALLBACK_SUFFIX
         try:
             ticket2, body2, model2, max_out2, stream2 = await _prepare(
-                request, endpoint, key, retry_id, t0, ctx, force_model=stand_in)
+                request, endpoint, key, retry_id, t0, ctx, force_model=stand_in,
+                price_source={**model, "id": ticket.model_id, "price_in_per_1m": ticket.price_in, "price_out_per_1m": ticket.price_out},
+                route_reason="provider_capacity" if exc.code == "server_busy" else "upstream_failure")
         except ApiError as exc2:
             exc2.headers = {**exc2.headers, "X-Request-Id": retry_id}
             await _log_rejection(state, key, retry_id, endpoint, ctx, exc2, client_ip(request))
@@ -436,21 +440,31 @@ async def proxy(request: Request, endpoint: str):
         response = await _execute(request, endpoint, ticket2, body2, {**model2, "fallback_to": None},
                                   max_out2, stream2)
         response.headers["X-Fallback-Model"] = stand_in
+        response.headers["X-SF-Routed-Model"] = stand_in
+        response.headers["X-SF-Route-Reason"] = ticket2.attribution["route_reason"]
+    if ticket.attribution.get("route_reason") == "input_size" and "X-Fallback-Model" not in response.headers:
+        response.headers["X-SF-Routed-Model"] = model["id"]
+        response.headers["X-SF-Route-Reason"] = "input_size"
     extra = legacy_headers(ctx.get("requested") or "", ctx.get("legacy_sunset") or "")
     for k, v in extra.items():
         response.headers[k] = v
     return response
 
 
-def _stand_in_for(model, exc: ApiError) -> str | None:
+def _stand_in_for(model, exc: ApiError, target=None, endpoint="chat/completions", actual_provider=None) -> str | None:
     """The model to retry on, or None to let the error through.
 
-    Only for failures another model would not share: the provider being offline, busy
-    or erroring. A rejected or oversized request, a bad key, an exhausted balance or a
-    rate limit would fail exactly the same way on the stand-in, and `server_busy` is
-    this gateway being full - retrying would only add to the load.
+    Provider errors may retry once. A provider queue timeout may retry in a
+    different provider pool; per-key/billing limits apply to every pool.
     """
-    if exc.status not in (502, 503, 504) or exc.code == "server_busy":
+    # server_busy is a PROVIDER queue deadline, not a gateway-wide limit.
+    # too_many_concurrent is per KEY (both process and database); never bypass it.
+    if exc.code == "server_busy":
+        if not target or target["provider"] == (actual_provider or model["provider"]):
+            return None
+    elif exc.status not in (502, 503, 504):
+        return None
+    if target is not None and not routing.compatible(model, target, endpoint):
         return None
     stand_in = model.get("fallback_to") if isinstance(model, dict) else None
     return stand_in if stand_in and stand_in != model.get("id") else None
@@ -473,7 +487,7 @@ async def _log_rejection(state, key: dict, request_id: str, endpoint: str, ctx: 
 
 
 async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, t0: float, ctx: dict,
-                   force_model: str | None = None):
+                   force_model: str | None = None, price_source=None, route_reason=None):
     """Validation and the funds hold. Raises ApiError on rejection (which gets logged).
 
     `force_model` ignores the model the client asked for: it is how a fallback runs the
@@ -505,7 +519,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
 
     model_id = force_model or body.get("model")
     ctx["model"] = model_id if isinstance(model_id, str) and model_id else "-"
-    ctx["requested"] = model_id if isinstance(model_id, str) else ""
+    ctx["requested"] = body.get("model") if isinstance(body.get("model"), str) else ""
     ctx["stream"] = bool(body.get("stream"))
     # A direction name (model-free/core/code/pro) maps to an existing row: price, privacy and billing come from that row.
     row_id, public_id = directions.resolve(model_id) if isinstance(model_id, str) else (model_id, model_id)
@@ -538,13 +552,23 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
 
     # max_tokens: always capped, so the worst-case cost is known up front.
     settings = await run_in_threadpool(db.get_settings)
+    route_meta = {}
+    if endpoint == "chat/completions" and not force_model and model["provider"] == "cluster":
+        candidates = [dict(r) for r in await run_in_threadpool(db.all, "SELECT * FROM models WHERE enabled=1 AND listed=1 AND provider='cluster'")]
+        selected = routing.size_target(model, candidates, body)
+        if selected:
+            price_source = model
+            model, route_meta = selected
+            model = {**model, "public_id": public_id}
+            log.info("size route: %s -> %s chars=%d (%s)", price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
     ctx["legacy_sunset"] = settings.get("legacy_models_sunset") or ""
     if model["provider"] == "external" and not ((settings.get("external_base_url") or "").strip() and (settings.get("external_api_key") or "").strip()):
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
     if model["provider"] == "cluster" and not (settings.get("cluster_base_url") or "").strip():
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
     # Daily token limit on free models (for accounts without a deposit). Over the limit: rejected, not rerouted to another model.
-    if model["id"] in billing.free_limit_models(settings) and not key["free"]:
+    billing_model = price_source or model
+    if billing_model["id"] in billing.free_limit_models(settings) and not key["free"]:
         quota = await run_in_threadpool(billing.free_quota, db, user_id=key["user_id"], settings=settings)
         if quota is not None and quota.exhausted:
             raise free_limit_error(quota)
@@ -595,6 +619,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
                            f"yoki kattaroq kontekstli modelni tanlang.")
     free_mode = settings.get("free_mode") == "1"       # free mode: nothing is charged and no balance is required
     price_in, price_out = (0, 0) if free_mode else (model["price_in_per_1m"], model["price_out_per_1m"])
+    if price_source is not None and not free_mode:
+        price_in, price_out = routing.price_ceiling(price_source, model)
     hold = billing.cost_for(est_prompt, price_in) + billing.cost_for(max_out, price_out)
 
     # Concurrent requests per key. The local counter is checked and taken with no await in between
@@ -605,14 +631,14 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     state.inflight[key["id"]] = state.inflight.get(key["id"], 0) + 1
 
     quota_limit = 0
-    if model["id"] in billing.free_limit_models(settings) and not key["free"]:
+    if billing_model["id"] in billing.free_limit_models(settings) and not key["free"]:
         quota_limit = int(settings.get("free_daily_token_limit") or 0)
         if quota_limit > 0 and await run_in_threadpool(billing.has_deposit, db, key["user_id"]):
             quota_limit = 0
     admitted = False
     try:
         reserved = await run_in_threadpool(
-            billing.reserve, db, request_id=request_id, user_id=key["user_id"], key_id=key["id"], model=model["id"],
+            billing.reserve, db, request_id=request_id, user_id=key["user_id"], key_id=key["id"], model=billing_model["id"],
             amount=hold, tokens=est_prompt + max_out, free=bool(key["free"]), monthly_limit=key["monthly_limit"],
             owner=state.instance_id, ttl=reservation_ttl(cfg), max_concurrent=cfg.per_key_concurrent,
             quota_limit=quota_limit, quota_models=billing.free_limit_models(settings))
@@ -629,11 +655,17 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             with anyio.CancelScope(shield=True):
                 await run_in_threadpool(billing.release, db, request_id=request_id, user_id=key["user_id"])
 
-    ticket = Ticket(state=state, request_id=request_id, key=key, model_id=model["id"], endpoint=endpoint,
+    ticket = Ticket(state=state, request_id=request_id, key=key, model_id=billing_model["id"], endpoint=endpoint,
                     price_in=price_in, price_out=price_out, reserved=reserved,
                     stream=stream, ip=client_ip(request), t0=t0, est_prompt=est_prompt, reasoning=ctx["reasoning"],
                     free_mode=free_mode, reasoning_auto=ctx["reasoning_auto"])
     ticket.key_slot = True
+    ticket.attribution = attribution.request_meta(request.headers, body)
+    ticket.attribution.update(route_meta)
+    if price_source is not None:
+        ticket.attribution["requested_model"] = ctx["requested"]
+    if route_reason:
+        ticket.attribution["route_reason"] = route_reason
     state.open_tickets.add(ticket)
     return ticket, body, model, max_out, stream
 
@@ -805,11 +837,11 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             log.info("fast path: %s -> %s (%s)", model.get("public_id") or model["id"],
                      model["upstream_name"], request_id)
         client, base, headers, sem = _target(state, model, settings)
-        ticket.attribution.update(provider=model["provider"], route_model=_public_id(model))
+        ticket.attribution.update(provider=model["provider"], route_model=model["id"])
         queued_at = time.monotonic()
         await _acquire(state, ticket, sem)
         ticket.attribution["queue_ms"] += round((time.monotonic() - queued_at) * 1000)
-        ticket.attribution.update(provider=model["provider"], route_model=_public_id(model))
+        ticket.attribution.update(provider=model["provider"], route_model=model["id"])
 
         payload = fastpath.payload(body, model["upstream_name"], max_out) if fast else dict(body)
         payload["model"] = model["upstream_name"]
