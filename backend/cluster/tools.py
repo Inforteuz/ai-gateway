@@ -39,7 +39,7 @@ _MAX_TOOL_CALLS = 8
 
 
 # Bump when the tool protocol changes; this invalidates cache keys.
-PROTOCOL_VERSION = "tools-3-client-execution"
+PROTOCOL_VERSION = "tools-4-explicit-final"
 
 
 def _schema_outline(schema: Mapping[str, Any], indent: int = 6) -> list[str]:
@@ -137,6 +137,12 @@ def build_instruction(tools: Sequence[Mapping[str, Any]],
         "- Natija `[Vosita natijasi]` sifatida qaytadi. Shundan keyin yo yana",
         "  vosita chaqir, yo YAKUNIY javobni yoz.",
         "- Yakuniy javob yozganda `actions` blokini QO'SHMA.",
+        "- Vosita natijasi kelib, ish tugagan bo'lsa, yakuniy javobni aniq belgilab yoz:",
+        "  ```yaml",
+        "  final_answer: |",
+        "    Foydalanuvchiga yakuniy javob matni.",
+        "  ```",
+        "  Bu belgi natija tayyorligini bildiradi; bajarilmagan ishni bajarildi dema.",
         "- Vosita nomini o'zingdan to'qima: faqat yuqoridagi ro'yxatdan tanla.",
         "- Bu protokol sening ichki vositalaringga aloqasi yo'q — faqat yuqoridagi",
         "  ro'yxatdagi nomlarni shu YAML formatida ishlat.",
@@ -148,6 +154,34 @@ def build_instruction(tools: Sequence[Mapping[str, Any]],
     elif isinstance(tool_choice, str) and tool_choice == "none":
         rules.append("- Bu safar vosita chaqirma, faqat matn bilan javob ber.")
     return "\n".join(rules)
+
+
+def dispatch_hint(allowed: Sequence[str], tool_choice: Any = "auto") -> str:
+    """Last instruction: serialize for the client, not the browser's native tools."""
+    if not allowed or tool_choice == "none":
+        return ""
+    mandatory = tool_choice == "required" or isinstance(tool_choice, Mapping)
+    return ("[Client transport]\nReturn a YAML request object for the API client using actions/name/arguments. "
+            "The CLIENT executes it in its own workspace; do not search for native browser tools or claim execution. "
+            + ("A tool call is required for this turn." if mandatory else
+               "After receiving tool results, a completed turn may return YAML final_answer: | followed by the final text."))
+
+
+def parse_final_answer(text: str) -> Optional[str]:
+    """Only a complete, unambiguous final-answer envelope is recognized."""
+    stripped = (text or "").strip()
+    match = _FENCE.fullmatch(stripped)
+    candidate = match.group(1) if match else stripped
+    if not candidate.lstrip().startswith("final_answer:"):
+        return None
+    try:
+        data = yaml.safe_load(candidate)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict) or set(data) != {"final_answer"}:
+        return None
+    value = data["final_answer"]
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _candidates(text: str) -> list[str]:

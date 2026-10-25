@@ -30,7 +30,7 @@ def observe(meta, data):
         meta["cache_hit"] = cached
     protocol = (data.get("gateway") or {}).get("tool_protocol")
     if isinstance(protocol, dict):
-        meta["tool_protocol"] = {k: protocol[k] for k in ("initial_calls", "retried", "recovered", "missing_calls")
+        meta["tool_protocol"] = {k: protocol[k] for k in ("initial_calls", "retried", "recovered", "missing_calls", "final_answer")
                                  if isinstance(protocol.get(k), bool)}
         elapsed = protocol.get("retry_ms")
         if isinstance(elapsed, int) and 0 <= elapsed <= 3600000:

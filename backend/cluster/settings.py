@@ -65,6 +65,7 @@ REQUEST_DEADLINE = int(os.getenv("SF_CLUSTER_REQUEST_DEADLINE", "200"))
 # Errors detected within this window (queue full, unsupported, no model) return
 # the proper HTTP status; later ones become an SSE `error` event.
 STREAM_PREFLIGHT_SECONDS = float(os.getenv("SF_CLUSTER_STREAM_PREFLIGHT", "12"))
+TOOL_PREFLIGHT_SECONDS = max(0.0, float(os.getenv("SF_CLUSTER_TOOL_PREFLIGHT", "1")))
 
 # How long to hold a request while an instance is recovering (seconds).
 # If it recovers in time the request is resent, otherwise it fails.

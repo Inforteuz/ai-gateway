@@ -96,3 +96,43 @@ def test_cached_rows_do_not_distort_monitoring_latency(env):
     quality = monitor.quality(env.db, 0)
     assert quality["requests"] == 3 and quality["latency_p50"] == 12000
     assert quality["cache_hits_in_latency_sample"] == 2 and quality["latency_samples"] == 1
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_explicit_final_after_tool_result_skips_unnecessary_retry(cluster_client, stream):
+    messages = [*MSG, {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "call_1", "name": "read_file", "content": "probe-code"}]
+    response, bal = cluster_client(['```yaml\nfinal_answer: |\n  probe-code\n```'], {"messages": messages, "tools": TOOLS, "stream": stream})
+    assert response.status_code == 200 and len(bal.prompts) == 1
+    assert "probe-code" in response.text and "final_answer:" not in response.text
+    if not stream:
+        status = response.json()["gateway"]["tool_protocol"]
+        assert status["final_answer"] and not status["retried"] and not status["missing_calls"]
+
+
+def test_final_marker_cannot_bypass_required_call_or_new_task(cluster_client):
+    marker = '```yaml\nfinal_answer: done\n```'
+    required, bal = cluster_client([marker, marker], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})
+    assert required.status_code == 502 and len(bal.prompts) == 2
+    auto, bal = cluster_client([marker, CALL], {"messages": MSG, "tools": TOOLS})
+    assert auto.status_code == 200 and len(bal.prompts) == 2
+    assert auto.json()["choices"][0]["finish_reason"] == "tool_calls"
+
+
+@pytest.mark.parametrize("text", ['final_answer: 42', 'final_answer: ""', 'final_answer: done\nactions: []', 'prefix\n```yaml\nfinal_answer: done\n```', 'final_answer: !!python/object:builtins.object {}'])
+def test_ambiguous_final_marker_is_not_accepted(text):
+    from cluster.tools import parse_final_answer
+    assert parse_final_answer(text) is None
+
+
+def test_tool_stream_uses_short_preflight(cluster_client, monkeypatch):
+    from cluster import settings as cfg
+    original = srv.asyncio.wait
+    timeouts = []
+    async def tracked(*args, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(srv.asyncio, "wait", tracked)
+    monkeypatch.setattr(cfg, "TOOL_PREFLIGHT_SECONDS", .02)
+    response, _ = cluster_client([(.08, CALL)], {"messages": MSG, "tools": TOOLS, "stream": True})
+    assert response.status_code == 200 and timeouts[0] == .02

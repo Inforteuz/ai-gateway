@@ -15,7 +15,7 @@ export default function RequestAttribution({ item, admin = false }) {
       <dt>{tr('Birinchi token')}</dt><dd>{tr(item.ttfb_ms == null ? '—' : `${item.ttfb_ms} ms`)}</dd>
       {a.route_reason && <><dt>{tr('Javob bergan model')}</dt><dd><code>{a.route_model}</code> · {tr(({ input_size: 'Kontekst hajmi', provider_capacity: 'Provayder navbati', upstream_failure: 'Zaxira yo‘li' })[a.route_reason] || a.route_reason)}</dd></>}
       {a.cache_hit != null && <><dt>{tr('Javob keshi')}</dt><dd>{tr(a.cache_hit ? 'Keshdan' : 'Yangi javob')}</dd></>}
-      {a.tool_protocol && <><dt>{tr('Vosita qayta so‘rovi')}</dt><dd>{tr(a.tool_protocol.retried ? (a.tool_protocol.recovered ? 'Chaqiruv tiklandi' : 'Chaqiruv qaytmadi') : 'Qayta so‘ralmagan')} · {a.tool_protocol.retry_ms || 0} ms</dd></>}
+      {a.tool_protocol && <><dt>{tr('Vosita qayta so‘rovi')}</dt><dd>{tr(a.tool_protocol.final_answer ? 'Yakuniy javob' : a.tool_protocol.retried ? (a.tool_protocol.recovered ? 'Chaqiruv tiklandi' : 'Chaqiruv qaytmadi') : 'Qayta so‘ralmagan')} · {a.tool_protocol.retry_ms || 0} ms</dd></>}
       {a.reasoning_tokens != null && <><dt>{tr('Fikrlash tokenlari')}</dt><dd>{a.reasoning_tokens}</dd></>}
       {admin && <><dt>{tr('Yo‘nalish')}</dt><dd>{tr(a.provider || '—')} · {tr(a.route_model || item.model)}</dd></>}
     </dl>

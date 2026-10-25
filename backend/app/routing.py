@@ -42,6 +42,10 @@ def text_profile(body):
             flat.append({**message, "content": content})
     offered = body.get("tools") or []
     prompt = compose.compile_prompt(flat, tools_instruction=tools.build_instruction(offered, body.get("tool_choice", "auto")) if offered else "")
+    tool_names = [str((t.get("function") or t).get("name")) for t in offered if (t.get("function") or t).get("name")]
+    hint = tools.dispatch_hint(tool_names, body.get("tool_choice", "auto"))
+    if hint:
+        prompt += "\n\n" + hint
     spec = output_format.parse(body.get("response_format"))
     if spec.is_json:
         prompt += "\n\n" + output_format.instruction(spec)

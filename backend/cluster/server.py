@@ -581,6 +581,9 @@ def _prepare_request(messages: List[ChatMessage], store: attach.AttachmentStore,
 
     prompt = compile_prompt(flat, attachments_note=attach.describe(found),
                             tools_instruction=instruction)
+    hint = tool_proto.dispatch_hint(tool_names, tool_choice)
+    if hint:
+        prompt += "\n\n" + hint
     return prompt, found, require, tool_names
 
 
@@ -833,6 +836,12 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 allowed_names = [] if req.tool_choice == "none" else ([forced] if forced in tool_names else tool_names)
                 required = req.tool_choice == "required" or bool(forced)
                 calls, answer = tool_proto.parse_tool_calls(answer, allowed_names)
+                final = tool_proto.parse_final_answer(answer) if not required and not calls else None
+                if final is not None:
+                    answer = final
+                # Only a turn which actually received a tool result may use
+                # the explicit final marker to skip the old auto repair policy.
+                final_ready = final is not None and req.messages[-1].role == "tool"
                 # The model often ANNOUNCES the action and stops ("let me update the
                 # file and add ..."), leaving the agent nothing to run: the turn dies
                 # silently. Ask once more with the protocol repeated at the very end.
@@ -841,10 +850,11 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 # answer was the model's own final word, while the retry was produced
                 # under pressure to call something. This way a retry can only help.
                 tool_status = {"initial_calls": bool(calls), "retried": False,
-                               "recovered": False, "missing_calls": not bool(calls), "retry_ms": 0}
+                               "recovered": False, "final_answer": final_ready,
+                               "missing_calls": not bool(calls) and not final_ready, "retry_ms": 0}
                 retry_error = False
                 try:
-                    if tool_proto.should_retry(calls, req.tool_choice) and can_retry():
+                    if not final_ready and tool_proto.should_retry(calls, req.tool_choice) and can_retry():
                         log.warning("tools: no action block, re-asking once model=%s", requested)
                         first_answer = answer
                         retry_started = time.monotonic()
@@ -867,10 +877,11 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         finally:
                             tool_status["retry_ms"] = round((time.monotonic() - retry_started) * 1000)
                 finally:
-                    tool_status["missing_calls"] = not bool(calls)
+                    tool_status["missing_calls"] = not bool(calls) and not final_ready
                     metrics.get().record_tools(requested, initial=tool_status["initial_calls"],
                         retried=tool_status["retried"], recovered=tool_status["recovered"],
-                        missing=tool_status["missing_calls"], retry_ms=tool_status["retry_ms"], retry_error=retry_error)
+                        missing=tool_status["missing_calls"], retry_ms=tool_status["retry_ms"], retry_error=retry_error,
+                        final=final_ready)
                     log.info("tools result model=%s initial=%s retried=%s recovered=%s missing=%s retry_ms=%d retry_error=%s",
                              requested, tool_status["initial_calls"], tool_status["retried"], tool_status["recovered"],
                              tool_status["missing_calls"], tool_status["retry_ms"], retry_error)
@@ -927,7 +938,11 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
         # of a stream that starts with 200 and carries the error as text.
         task = asyncio.ensure_future(run(True))
         if live is None:
-            done, _ = await asyncio.wait({task}, timeout=cfg.STREAM_PREFLIGHT_SECONDS)
+            # Tool calls are atomic, so no partial tool arguments go out.
+            # A short preflight still catches immediate errors, but clients
+            # get a role/keepalive instead of twelve seconds of silence.
+            preflight = min(cfg.STREAM_PREFLIGHT_SECONDS, cfg.TOOL_PREFLIGHT_SECONDS) if tool_names else cfg.STREAM_PREFLIGHT_SECONDS
+            done, _ = await asyncio.wait({task}, timeout=preflight)
         else:
             # Live streaming: the preflight ends as soon as the first words may go out
             # (waiting the full preflight would hold back an answer that is already arriving)

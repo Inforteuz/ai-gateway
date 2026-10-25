@@ -15,10 +15,11 @@ function ToolHealth() {
     <p className="hint">{tr('Klaster ishga tushganidan beri. Kesh javoblari model tezligidan alohida hisoblanadi.')}</p>
     <ErrorNote error={error} retry={reload} />
     {data && <div className="table-wrap"><table className="table">
-      <thead><tr>{['Model', 'So‘rovlar', 'Qayta so‘rashlar', 'Chaqiruv tiklandi', 'Chaqiruv qaytmadi', 'Qayta so‘rov p95', 'Javob keshi'].map(label => <th key={label}>{tr(label)}</th>)}</tr></thead>
+      <thead><tr>{['Model', 'So‘rovlar', 'Qayta so‘rashlar', 'Chaqiruv tiklandi', 'Yakuniy javob', 'Chaqiruv qaytmadi', 'Qayta so‘rov p95', 'Javob keshi'].map(label => <th key={label}>{tr(label)}</th>)}</tr></thead>
       <tbody>{rows.map(row => <tr key={row.model}>
         <td><code>{row.model}</code></td><td>{fmtInt(row.tool_protocol?.requests || 0)}</td>
         <td>{fmtInt(row.tool_protocol?.retries || 0)}</td><td>{fmtInt(row.tool_protocol?.recovered || 0)}</td>
+        <td>{fmtInt(row.tool_protocol?.final_answers || 0)}</td>
         <td>{fmtInt(row.tool_protocol?.missing_calls || 0)}</td><td>{fmtInt(row.tool_protocol?.retry_ms_p95 || 0)} ms</td>
         <td>{fmtInt(row.cache_hits || 0)}</td>
       </tr>)}</tbody>
