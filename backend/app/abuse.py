@@ -188,7 +188,9 @@ def check_request(state, key: dict, ip: str) -> Optional[str]:
                 429, "ip_rate_limit_exceeded",
                 f"Bu internet manzilidan daqiqasiga {ip_limit} ta so'rov chegarasi oshdi. "
                 f"{retry} soniyadan keyin urinib ko'ring.",
-                "rate_limit_error", {"Retry-After": str(retry)})
+                "rate_limit_error", {"Retry-After": str(retry)},
+                en=f"Rate limit of {ip_limit} requests per minute from this IP address exceeded. "
+                   f"Try again in {retry} s.")
 
     # 2) Is the key used from many places? Do not block, slow it down
     max_ips = setting(db, "key_max_ips_per_hour")
@@ -206,5 +208,8 @@ def check_request(state, key: dict, ip: str) -> Optional[str]:
                 f"shuning uchun tezligi daqiqasiga {shared_rpm} ta so'rovga tushirildi. "
                 f"Har bir foydalanuvchi uchun alohida kalit yarating. "
                 f"{retry} soniyadan keyin urinib ko'ring.",
-                "rate_limit_error", {"Retry-After": str(retry)})
+                "rate_limit_error", {"Retry-After": str(retry)},
+                en=(f"This key was used from {distinct} addresses in the last hour, so it is slowed to "
+                    f"{shared_rpm} requests per minute. Create a separate key for each user. "
+                    f"Try again in {retry} s."))
     return f"shared_key:{distinct}_ips"

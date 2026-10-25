@@ -44,10 +44,10 @@ def _cluster_caps(upstream: str) -> dict:
 # response's `gateway.verified` field.
 VERIFICATION_POLICY = {
     "mode": "conditional",
-    "applies_to": "faqat matnli so'rovlar: vositasiz (tools), JSON rejimisiz, n=1, "
-                  "rasm/fayl biriktirmasiz; qoralama to'liq va bo'sh bo'lmasa",
-    "skipped_when": "shartlar bajarilmasa yoki tekshiruvchi vaqtida javob bermasa — "
-                    "javob tekshirilmagan holda qaytadi",
+    "applies_to": "text-only requests: no tools, no JSON mode, n=1, no image or file "
+                  "attachments, and a complete, non-empty draft",
+    "skipped_when": "a condition is not met or the verifier does not answer in time; "
+                    "the answer is then returned unverified",
     "response_field": "gateway.verified",
 }
 

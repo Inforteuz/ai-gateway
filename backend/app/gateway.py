@@ -77,7 +77,8 @@ async def check_rate(request: Request, key: dict) -> None:
             429, "rate_limit_exceeded",
             f"Daqiqasiga {limit} ta so'rov chegarasi oshdi. {retry} soniyadan keyin urinib ko'ring.",
             "rate_limit_error",
-            {"Retry-After": str(retry),
+            en=f"Rate limit of {limit} requests per minute exceeded. Try again in {retry} s.",
+            headers={"Retry-After": str(retry),
              "X-RateLimit-Limit": str(limit),
              "X-RateLimit-Remaining": str(remaining),
              "X-RateLimit-Reset": str(retry)})
@@ -614,9 +615,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         if need > int(model["context_window"]):
             raise ApiError(400, "context_length_exceeded",
                            f"This model's maximum context length is {model['context_window']} tokens, "
-                           f"but the request needs about {need} tokens. Modelning maksimal konteksti "
-                           f"{model['context_window']} token, so'rov taxminan {need} token — suhbatni qisqartiring "
-                           f"yoki kattaroq kontekstli modelni tanlang.")
+                           f"but the request needs about {need} tokens. Shorten the conversation or "
+                           f"choose a model with a larger context.")
     free_mode = settings.get("free_mode") == "1"       # free mode: nothing is charged and no balance is required
     price_in, price_out = (0, 0) if free_mode else (model["price_in_per_1m"], model["price_out_per_1m"])
     if price_source is not None and not free_mode:
@@ -1015,7 +1015,7 @@ async def _refined_stream_body(cand: refine.RefineStream, ticket: Ticket, data: 
             yield sse({**meta, "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}]})
             if time.monotonic() - started > cfg.max_stream_seconds:
                 error = "stream_too_long"
-                yield err_event("Javob juda uzoq davom etdi va to'xtatildi.", "stream_too_long")
+                yield err_event("The response ran too long and was stopped.", "stream_too_long")
                 break
         if error is None:
             yield sse({**meta, "choices": [{"index": 0, "delta": {}, "finish_reason": cand.finish_reason or "stop"}]})
@@ -1024,10 +1024,10 @@ async def _refined_stream_body(cand: refine.RefineStream, ticket: Ticket, data: 
             yield b"data: [DONE]\n\n"
     except httpx.TimeoutException:
         error = "stream_stalled"
-        yield err_event("Tekshiruvchi model jim qoldi, javob to'liq emas.", "stream_stalled")
+        yield err_event("The verifying model went silent; the answer is incomplete.", "stream_stalled")
     except (httpx.HTTPError, OSError) as e:
         error = f"stream_interrupted: {type(e).__name__}"
-        yield err_event("Tekshiruvchi model bilan aloqa uzildi, javob to'liq emas.", "stream_interrupted")
+        yield err_event("The connection to the verifying model was lost; the answer is incomplete.", "stream_interrupted")
     except BaseException:
         error = "client_disconnected"
         raise
@@ -1173,7 +1173,7 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                     break
             if time.monotonic() - started > ticket.state.config.max_stream_seconds:
                 error = "stream_too_long"
-                err = {"error": {"message": "Javob juda uzoq davom etdi va to'xtatildi.", "type": "server_error", "code": "stream_too_long"}}
+                err = {"error": {"message": "The response ran too long and was stopped.", "type": "server_error", "code": "stream_too_long"}}
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
                 break
     except local_guard.GuardStopped as exc:
@@ -1186,11 +1186,11 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
         yield b"data: [DONE]\n\n"
     except httpx.TimeoutException:
         error = "stream_stalled"
-        err = {"error": {"message": f"Model {ticket.state.config.stream_idle_timeout} soniya jim qoldi, so'rov to'xtatildi.", "type": "server_error", "code": "stream_stalled"}}
+        err = {"error": {"message": f"The model sent nothing for {ticket.state.config.stream_idle_timeout} s; the request was stopped.", "type": "server_error", "code": "stream_stalled"}}
         yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
     except (httpx.HTTPError, OSError) as e:
         error = f"stream_interrupted: {type(e).__name__}"
-        err = {"error": {"message": "Model bilan aloqa uzildi.", "type": "server_error", "code": "stream_interrupted"}}
+        err = {"error": {"message": "The connection to the model was lost.", "type": "server_error", "code": "stream_interrupted"}}
         yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
     except BaseException:
         error = "client_disconnected"

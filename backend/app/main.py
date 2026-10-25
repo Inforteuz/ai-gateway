@@ -134,17 +134,21 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
                             status_code=exc.status, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error(_: Request, exc: RequestValidationError):
+    async def validation_error(request: Request, exc: RequestValidationError):
         first = exc.errors()[0] if exc.errors() else {}
         loc = ".".join(str(p) for p in first.get("loc", []) if p not in ("body", "query"))
-        message = f"{loc}: {first.get('msg', 'noto‘g‘ri qiymat')}" if loc else first.get("msg", "Noto‘g‘ri so‘rov")
+        english = request.url.path.startswith("/v1/")
+        bad_value, bad_request = ("invalid value", "Invalid request") if english else ("noto‘g‘ri qiymat", "Noto‘g‘ri so‘rov")
+        message = f"{loc}: {first.get('msg', bad_value)}" if loc else first.get("msg", bad_request)
         return JSONResponse({"error": {"message": message, "type": "invalid_request_error", "code": "validation_error"}},
                             status_code=422)
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_error(_: Request, exc: StarletteHTTPException):
+    async def http_error(request: Request, exc: StarletteHTTPException):
         code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
-        message = "Manzil topilmadi." if exc.status_code == 404 else str(exc.detail)
+        english = request.url.path.startswith("/v1/")
+        message = (("Not found." if english else "Manzil topilmadi.") if exc.status_code == 404
+                   else str(exc.detail))
         return JSONResponse({"error": {"message": message, "type": "invalid_request_error", "code": code}},
                             status_code=exc.status_code, headers=getattr(exc, "headers", None))
 

@@ -64,6 +64,11 @@ API_ERRORS_EN = {
     "upstream_timeout": "The model did not answer in time.",
     "upstream_error": "The model server returned an error. Try again shortly.",
     "invalid_output": "The model's answer could not be used. Try again.",
+    "generation_failed": "The model's answer got stuck repeating itself. Try again.",
+    "rate_limit_exceeded": "Rate limit exceeded. Try again shortly.",
+    "ip_rate_limit_exceeded": "Rate limit for this IP address exceeded. Try again shortly.",
+    "key_shared_rate_limit": "This key is used from too many addresses and has been slowed down.",
+    "not_found": "Not found.",
 }
 
 
