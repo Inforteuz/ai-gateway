@@ -733,11 +733,13 @@ def put_settings(body: SettingsIn, request: Request, db: Database = Depends(get_
 @router.get("/usage")
 def all_usage(db: Database = Depends(get_db), limit: int = 50, offset: int = 0,
               user_id: int | None = None, days: int = 30, q: str = "", failed: bool = False,
-              client: str = "", tool: str = "", project: str = ""):
+              client: str = "", tool: str = "", project: str = "", key_id: int | None = None):
     limit, offset = page_args(limit, offset)
     where, args = ["u.created_at>=?"], [now() - max(1, min(days, 365)) * 86400]
     if user_id:
         where.append("u.user_id=?"); args.append(user_id)
+    if key_id is not None:
+        where.append("u.key_id=?"); args.append(key_id)
     if failed:
         where.append("(u.status_code>=400 OR u.error IS NOT NULL)")
     if q.strip():
@@ -761,6 +763,12 @@ def all_usage(db: Database = Depends(get_db), limit: int = 50, offset: int = 0,
                   args + [limit, offset])
     return {"total": totals["requests"], "totals": totals,
             "items": [usage_out(r) | {"email": r["email"], "user_id": r["user_id"]} for r in rows]}
+
+
+@router.get("/usage/analytics")
+def usage_analytics(days: int = 30, user_id: int | None = None, key_id: int | None = None, db: Database = Depends(get_db)):
+    from .usage_analytics import analytics
+    return analytics(db, user_id=user_id, key_id=key_id, days=days, admin=True)
 
 
 @router.get("/stats")

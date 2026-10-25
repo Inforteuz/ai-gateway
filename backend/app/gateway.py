@@ -911,7 +911,7 @@ async def _execute_refined(state, ticket: Ticket, body: dict, payload: dict, mod
 
     attribution.observe(ticket.attribution, data)
     usage = usage_of(data)
-    estimated = usage is None
+    estimated = usage is None or ticket.attribution.get("provider") == "cluster"
     choice = (data.get("choices") or [{}])[0]
     message = choice.get("message") or {}
     if usage is None:
@@ -1069,7 +1069,7 @@ async def _respond_json(resp: httpx.Response, ticket: Ticket, public_model: str)
             await ticket.finish(status_code=502, error="repetition_loop")
             raise ApiError(502, "generation_failed", "Model javobi takrorlanib qoldi. Qayta urinib ko'ring.", "server_error")
     usage = usage_of(data)
-    estimated = usage is None
+    estimated = usage is None or ticket.attribution.get("provider") == "cluster"
     if usage is None:  # rare: without usage, estimate from the text length
         text = json.dumps(data.get("choices", ""), ensure_ascii=False)
         usage = (ticket.est_prompt, max(1, math.ceil(len(text) / CHARS_PER_TOKEN_EST)))
@@ -1193,7 +1193,8 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
             except Exception:
                 pass
         if usage is not None and not looped:
-            await ticket.finish(status_code=200, prompt_tokens=usage[0], completion_tokens=usage[1], error=error)
+            await ticket.finish(status_code=200, prompt_tokens=usage[0], completion_tokens=usage[1],
+                                estimated=ticket.attribution.get("provider") == "cluster", error=error)
         elif chars > 0:
             await ticket.finish(status_code=200, prompt_tokens=ticket.est_prompt,
                                 completion_tokens=max(1, math.ceil(chars / CHARS_PER_TOKEN_EST)),

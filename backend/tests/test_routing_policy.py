@@ -101,6 +101,7 @@ def test_gateway_size_route_price_and_attribution(env, stream):
     row = env.db.one("SELECT * FROM usage_logs ORDER BY id DESC LIMIT 1")
     meta = json.loads(row["attribution"])
     assert row["model"] == "sized" and meta["route_model"] == "wide" and meta["requested_model"] == "sized"
+    assert row["estimated"] == 1  # Browser token counts are character estimates, not native tokenizer usage.
     assert before - wallet(env, uid)[0] == row["cost"] == 20
     assert wallet(env, uid)[1] == 0 and not env.db.all("SELECT * FROM inference_slots")
 

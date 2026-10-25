@@ -1,4 +1,5 @@
 import RequestAttribution from '../components/RequestAttribution.jsx'
+import UsageAnalytics from '../components/UsageAnalytics.jsx'
 import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useEffect, useState } from 'react'
 import { api, qs } from '../api.js'
@@ -25,7 +26,7 @@ export default function Usage() {
   const [query, setQuery] = useState('')
   useEffect(() => { const id = setTimeout(() => { setQuery(q); setOffset(0) }, 300); return () => clearTimeout(id) }, [q])
   const keys = useLoad(() => api.get('/portal/keys'), [])
-  const daily = useLoad(() => api.get('/portal/usage/daily?days=30'), [], { refreshMs: 15_000 })
+  const daily = useLoad(() => api.get('/portal/usage/daily' + qs({ days: 30, key_id: keyId })), [keyId], { refreshMs: 15_000 })
   const sum = useLoad(() => api.get('/portal/account/summary'), [], { refreshMs: 15_000 })
   const { data, error, loading, reload } = useLoad(
     () => api.get('/portal/usage' + qs({ limit: LIMIT, offset, key_id: keyId, failed, q: query })),
@@ -71,8 +72,10 @@ export default function Usage() {
         <div className="panel-head" style={{ marginBottom: 8 }}>
           <div className="panel-head__t"><h3><span className="ico-chip ico-chip--sm"><IconLayers /></span> {t('usage.byModel')}</h3></div>
         </div>
-        <ModelBreakdown days={30} freeMode={freeMode} />
+        <ModelBreakdown days={30} freeMode={freeMode} keyId={keyId} />
       </section>
+
+      <UsageAnalytics keyId={keyId} onKeyChange={value => { setKeyId(value); setOffset(0) }} />
 
       <div className="filter-bar block">
         <label className="search-field">
@@ -97,7 +100,7 @@ export default function Usage() {
               <thead>
                 <tr>
                   <th>{t('usage.colTime')}</th><th>{t('usage.colModel')}</th><th>{t('usage.colTokens')}</th><th>{t('usage.colType')}</th>
-                  <th>{t('usage.colLatency')}</th><th>{t('usage.colCost')}</th><th>{tr('Tafsilotlar')}</th><th>{t('usage.colStatus')}</th>
+                  <th>{t('usage.colLatency')}</th><th>{t('usage.colCost')}</th><th>{t('usage.colStatus')}</th><th>{tr('Tafsilotlar')}</th>
                 </tr>
               </thead>
               <tbody>

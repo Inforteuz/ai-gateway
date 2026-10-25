@@ -341,16 +341,17 @@ def fallback_models(db: Database, user_id: int, rows) -> dict[str, str]:
 
 
 def usage_out(r, retried_on: dict[str, str] | None = None) -> dict:
+    meta = attribution.unpack(r["attribution"]) if "attribution" in r.keys() else {}
     return {
         # The answer the client actually got, when the first model was down.
         "retried_on": (retried_on or {}).get(r["request_id"]),
         "id": r["id"], "request_id": r["request_id"], "created_at": r["created_at"], "model": r["model"],
         "endpoint": r["endpoint"], "key_id": r["key_id"], "key_name": r["key_name"] if "key_name" in r.keys() else None,
         "prompt_tokens": r["prompt_tokens"], "completion_tokens": r["completion_tokens"], "cost": r["cost"],
-        "status_code": r["status_code"], "stream": bool(r["stream"]), "estimated": bool(r["estimated"]),
+        "status_code": r["status_code"], "stream": bool(r["stream"]), "estimated": bool(r["estimated"]) or meta.get("provider") == "cluster",
         "latency_ms": r["latency_ms"], "ttfb_ms": r["ttfb_ms"], "error": r["error"], "category": r["category"],
         "reasoning": r["reasoning"],
-        "attribution": attribution.unpack(r["attribution"]) if "attribution" in r.keys() else {},
+        "attribution": meta,
         "reason": error_label(r["error"], r["status_code"]) if r["category"] else None,
     }
 
@@ -395,7 +396,7 @@ def daily_series(db: Database, where: str, args: list, days: int) -> list[dict]:
 
 
 @router.get("/usage/models")
-def usage_by_model(days: int = 30, user=Depends(require_user), db: Database = Depends(get_db)):
+def usage_by_model(days: int = 30, key_id: int | None = None, user=Depends(require_user), db: Database = Depends(get_db)):
     """The user's usage per model (requests, tokens, sum) over the last `days` days.
 
     Legacy model names (sf-fast etc.) are merged under their current name.
@@ -406,7 +407,8 @@ def usage_by_model(days: int = 30, user=Depends(require_user), db: Database = De
         "SELECT model, COUNT(*) AS requests,"
         " COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens,"
         " COALESCE(SUM(cost), 0) AS cost"
-        " FROM usage_logs WHERE user_id=? AND created_at>=? GROUP BY model", (user["id"], since))
+        " FROM usage_logs WHERE user_id=? AND created_at>=?" + (" AND key_id=?" if key_id is not None else "") + " GROUP BY model",
+        [user["id"], since] + ([key_id] if key_id is not None else []))
     legacy = {old: new for new, olds in _LEGACY_NAMES.items() for old in olds}
     known = {r["id"] for r in db.all("SELECT id FROM models")}
     totals: dict[str, dict] = {}
@@ -426,8 +428,15 @@ def usage_by_model(days: int = 30, user=Depends(require_user), db: Database = De
 
 
 @router.get("/usage/daily")
-def usage_daily(days: int = 30, user=Depends(require_user), db: Database = Depends(get_db)):
-    return {"items": daily_series(db, "user_id=?", [user["id"]], days)}
+def usage_daily(days: int = 30, key_id: int | None = None, user=Depends(require_user), db: Database = Depends(get_db)):
+    return {"items": daily_series(db, "user_id=?" + (" AND key_id=?" if key_id is not None else ""),
+                                  [user["id"]] + ([key_id] if key_id is not None else []), days)}
+
+
+@router.get("/usage/analytics")
+def usage_analytics(days: int = 30, key_id: int | None = None, user=Depends(require_user), db: Database = Depends(get_db)):
+    from .usage_analytics import analytics
+    return analytics(db, user_id=user["id"], key_id=key_id, days=days)
 
 
 @router.get("/ledger")

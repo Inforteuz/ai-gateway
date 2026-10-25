@@ -9,10 +9,10 @@ import { useT } from '../i18n/index.jsx'
  * next to it — tokens, requests, som. One measure (tokens) in one color, largest
  * first; values are in text color, the bar only shows the proportion.
  */
-export default function ModelBreakdown({ days = 30, freeMode = false }) {
+export default function ModelBreakdown({ days = 30, freeMode = false, keyId = '' }) {
   useLocaleRefresh()
   const t = useT()
-  const { data } = useLoad(() => api.get(`/portal/usage/models?days=${days}`), [days], { refreshMs: 15_000 })
+  const { data } = useLoad(() => api.get(`/portal/usage/models?days=${days}${keyId ? `&key_id=${encodeURIComponent(keyId)}` : ''}`), [days, keyId], { refreshMs: 15_000 })
   if (!data) return <Loading rows={2} />
   const items = data.items || []
   if (!items.length) return <p className="muted small" style={{ margin: 0 }}>{t('breakdown.empty')}</p>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, qs } from '../../api.js'
 import { ErrorNote, Loading, Pager, StatCard, useLoad } from '../../components/ui.jsx'
 import RequestAttribution from '../../components/RequestAttribution.jsx'
+import UsageAnalytics from '../../components/UsageAnalytics.jsx'
 import { fmtDateTime, fmtInt, fmtSom } from '../../format.js'
 import { translateText as tr, useLang } from '../../i18n/index.jsx'
 
@@ -17,12 +18,13 @@ export default function AdminUsage() {
   const [client, setClient] = useState('')
   const [project, setProject] = useState('')
   const [tool, setTool] = useState('')
+  const [keyId, setKeyId] = useState('')
   useEffect(() => {
     const id = setTimeout(() => { setQ(search); setOffset(0) }, 300)
     return () => clearTimeout(id)
   }, [search])
-  const { data, error, loading, reload } = useLoad(() => api.get('/portal/admin/usage' + qs({ days, offset, limit: LIMIT, q, failed, client, project, tool })),
-    [days, offset, q, failed, client, project, tool], { refreshMs: 30_000 })
+  const { data, error, loading, reload } = useLoad(() => api.get('/portal/admin/usage' + qs({ days, offset, limit: LIMIT, q, failed, client, project, tool, key_id: keyId })),
+    [days, offset, q, failed, client, project, tool, keyId], { refreshMs: 30_000 })
   const totals = data?.totals
   const filter = (setter) => (e) => { setter(e.target.value); setOffset(0) }
   return <>
@@ -36,6 +38,7 @@ export default function AdminUsage() {
       <StatCard icon={<IconActivity />} label={tr('Xatolar')} value={fmtInt(totals.errors)} />
       <StatCard icon={<IconClock />} label={tr('Javob vaqti p95')} value={totals.p95_ms == null ? '—' : `${(totals.p95_ms / 1000).toFixed(1)} s`} />
     </div>}
+    <UsageAnalytics admin keyId={keyId} onKeyChange={setKeyId} />
     <div className="filter-bar block">
       <input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder={tr('Email, kalit, model yoki so‘rov ID')} aria-label={tr('So‘rov qidirish')} />
       <select className="input" value={days} onChange={e => { setDays(Number(e.target.value)); setOffset(0) }} aria-label={tr('Davr')}>

@@ -2864,3 +2864,28 @@ select.input:disabled { cursor: not-allowed; opacity: 0.6; }
   .table--requests .request-details-cell { padding-top: 12px; }
   .table--requests .request-details { max-width: none; }
 }
+
+/* Token attribution by API key; real values stay readable alongside the bars. */
+.key-analytics { min-width: 0; }
+.key-analytics .filter-bar { flex-wrap: wrap; margin: 16px 0; }
+.key-analytics .input { width: auto; max-width: 100%; }
+.key-analytics-summary { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 14px 0; }
+.key-analytics-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; margin: 18px 0 28px; }
+.key-analytics h3 { margin-bottom: 10px; }
+.key-analytics-bars { max-height: 360px; overflow-y: auto; margin: 12px 0; }
+.key-analytics-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(50px, 1fr) minmax(110px, auto); align-items: center; gap: 14px; padding: 12px 8px; width: 100%; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; color: inherit; font: inherit; }
+button.key-analytics-row { cursor: pointer; border-radius: 8px; }
+button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var(--accent-soft, #eaf8f2); }
+.key-analytics-label { min-width: 0; overflow-wrap: anywhere; }
+.key-analytics-label b { display: block; font-size: 13px; }
+.key-analytics-label small, .key-analytics-value small { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.key-analytics-track { height: 10px; overflow: hidden; border-radius: 8px; background: var(--border); }
+.key-analytics-track > span { display: block; height: 100%; background: var(--accent, #008e68); border-radius: inherit; }
+.key-analytics-value { text-align: right; font-size: 13px; }
+@media (max-width: 1000px) { .key-analytics-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .key-analytics-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .key-analytics-track { grid-column: 1 / -1; grid-row: 2; }
+  .key-analytics .panel-head { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+  .key-analytics .filter-bar .input { width: 100%; }
+}
