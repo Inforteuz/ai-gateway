@@ -858,6 +858,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                                "missing_calls": not bool(calls) and not final_ready, "retry_ms": 0}
                 retry_error = False
                 broken = False
+                retry_started = 0.0
                 try:
                     if not final_ready and tool_proto.should_retry(calls, req.tool_choice) and can_retry():
                         log.warning("tools: no action block, re-asking once model=%s", requested)
@@ -890,7 +891,6 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                             except DispatchError as e:
                                 dispatch_error = e
                         retry_error = dispatch_error is not None
-                        tool_status["retry_ms"] = round((time.monotonic() - retry_started) * 1000)
                         if calls:
                             answer, used_model, worker, images = retry_answer, retry_model, retry_worker, retry_images
                             tool_status["recovered"] = True
@@ -899,6 +899,10 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                                 raise dispatch_error
                             answer = first_answer
                 finally:
+                    # Here, not after the re-ask: a client that hangs up mid re-ask
+                    # cancels the task, and the time spent must still be recorded.
+                    if retry_started:
+                        tool_status["retry_ms"] = round((time.monotonic() - retry_started) * 1000)
                     tool_status["missing_calls"] = not bool(calls) and not final_ready
                     metrics.get().record_tools(requested, initial=tool_status["initial_calls"],
                         retried=tool_status["retried"], recovered=tool_status["recovered"],
