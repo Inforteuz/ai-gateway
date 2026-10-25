@@ -119,7 +119,10 @@ class ChatGPTAdapter(BaseAIAdapter):
     # took the page from `?temporary-chat=true` to `/` — so after the first request
     # EVERY chat was saved to history. Now `reset_chat` restores temporary mode every
     # time, so in normal operation nothing is saved and the registry stays empty.
-    caps = Capabilities(tool_calling=False, vision=True, files=True, image_gen=True,
+    # Text protocol, executed by the API client, not native web-chat tools.
+    # Live 2026-10-25: explicit client-execution protocol yielded read_file
+    # in 8.25s; the old wording yielded no call in two bounded probes.
+    caps = Capabilities(tool_calling=True, vision=True, files=True, image_gen=True,
                         temporary_chat=True, delete_chats=True)
     # Manual cleanup from the admin panel is allowed ONLY for adapters with this
     # policy: deletion is limited to IDs in the gateway's registry.

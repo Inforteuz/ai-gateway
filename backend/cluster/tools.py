@@ -39,7 +39,7 @@ _MAX_TOOL_CALLS = 8
 
 
 # Bump when the tool protocol changes; this invalidates cache keys.
-PROTOCOL_VERSION = "tools-2"
+PROTOCOL_VERSION = "tools-3-client-execution"
 
 
 def _schema_outline(schema: Mapping[str, Any], indent: int = 6) -> list[str]:
@@ -93,6 +93,12 @@ def build_instruction(tools: Sequence[Mapping[str, Any]],
 
     rules = [
         "[Vositalar — MAJBURIY protokol]",
+        "BU MATNLI TRANSPORT PROTOKOLI: vositalarni shu veb-chat ichida IZLAMA yoki ISHGA TUSHIRMA.",
+        "YAML chaqiruvini javob sifatida yoz. Uni tashqi API mijoz-agent o'z ish muhitida",
+        "bajaradi va keyingi xabarda natijasini yuboradi. Quyidagi ro'yxat MIJOZ vositalaridir;",
+        "ular veb-chatning ichki vositalari ro'yxatida bo'lishi shart emas.",
+        "Fayl mavjudligini hozir tekshira olmaysan: chaqiruv yozish uning mavjudligini",
+        "yoki bajarilganini da'vo qilish emas. Natija kelmaguncha bajarildi deb yozma.",
         "Senda quyidagi vositalar bor. Sen fayllarni, kataloglarni va tashqi",
         "ma'lumotni FAQAT shu vositalar orqali ko'rasan:",
         *specs,
@@ -242,6 +248,8 @@ def retry_instruction(allowed: Sequence[str], tool_choice: Any = "auto") -> str:
     names = ", ".join(f"`{n}`" for n in list(allowed)[:12]) or "yuqoridagi ro'yxat"
     lines = [
         "[Eslatma — javobing qabul qilinmadi]",
+        "Vosita tashqi mijoz-agentda bajariladi. Bu chatda uni ishlatish talab qilinmaydi:",
+        "faqat YAML chaqiruvini yoz; mijoz bajargach natijasini qaytaradi.",
         "Oldingi javobingda bajariladigan `actions:` bloki yo'q edi: sen nima",
         "qilishingni AYTDING, lekin vositani CHAQIRMADING. Aytilgan ish",
         "o'z-o'zidan bajarilmaydi.",

@@ -766,6 +766,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         "response_format": spec.cache_token(),
                         "tools": req.tools, "tool_choice": req.tool_choice,
                         "reasoning_effort": req.reasoning_effort, "reasoning": use_reasoning,
+                        # Several catalog models can share an upstream name.
+                        # Their answers and policy revisions must never collide.
                         "public_model": req.sf_public_model,
                         "model_policy": req.sf_model_policy,
                         "allow_fallback": req.sf_allow_fallback,
@@ -824,8 +826,13 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             # Extract tool calls first so their arguments (file paths, code) are NOT
             # brand-masked; only the remaining text is masked afterwards.
             calls: list[dict] = []
+            tool_status = None
             if tool_names:
-                calls, answer = tool_proto.parse_tool_calls(answer, tool_names)
+                forced = ((req.tool_choice.get("function") or {}).get("name")
+                          if isinstance(req.tool_choice, dict) else None)
+                allowed_names = [] if req.tool_choice == "none" else ([forced] if forced in tool_names else tool_names)
+                required = req.tool_choice == "required" or bool(forced)
+                calls, answer = tool_proto.parse_tool_calls(answer, allowed_names)
                 # The model often ANNOUNCES the action and stops ("let me update the
                 # file and add ..."), leaving the agent nothing to run: the turn dies
                 # silently. Ask once more with the protocol repeated at the very end.
@@ -833,15 +840,42 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 # The first answer is kept if the retry brings no call either: that
                 # answer was the model's own final word, while the retry was produced
                 # under pressure to call something. This way a retry can only help.
-                if tool_proto.should_retry(calls, req.tool_choice) and can_retry():
-                    log.warning("tools: no action block, re-asking once")
-                    first_answer = answer
-                    answer, used_model, worker, images = await call(
-                        prompt_text + "\n\n"
-                        + tool_proto.retry_instruction(tool_names, req.tool_choice))
-                    calls, answer = tool_proto.parse_tool_calls(answer, tool_names)
-                    if not calls:
-                        answer = first_answer
+                tool_status = {"initial_calls": bool(calls), "retried": False,
+                               "recovered": False, "missing_calls": not bool(calls), "retry_ms": 0}
+                retry_error = False
+                try:
+                    if tool_proto.should_retry(calls, req.tool_choice) and can_retry():
+                        log.warning("tools: no action block, re-asking once model=%s", requested)
+                        first_answer = answer
+                        retry_started = time.monotonic()
+                        tool_status["retried"] = True
+                        try:
+                            retry_answer, retry_model, retry_worker, retry_images = await call(
+                                prompt_text + "\n\n"
+                                + tool_proto.retry_instruction(tool_names, req.tool_choice))
+                            calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
+                            if calls:
+                                answer, used_model, worker, images = retry_answer, retry_model, retry_worker, retry_images
+                                tool_status["recovered"] = True
+                            else:
+                                answer = first_answer
+                        except DispatchError:
+                            retry_error = True
+                            if required:
+                                raise
+                            answer = first_answer
+                        finally:
+                            tool_status["retry_ms"] = round((time.monotonic() - retry_started) * 1000)
+                finally:
+                    tool_status["missing_calls"] = not bool(calls)
+                    metrics.get().record_tools(requested, initial=tool_status["initial_calls"],
+                        retried=tool_status["retried"], recovered=tool_status["recovered"],
+                        missing=tool_status["missing_calls"], retry_ms=tool_status["retry_ms"], retry_error=retry_error)
+                    log.info("tools result model=%s initial=%s retried=%s recovered=%s missing=%s retry_ms=%d retry_error=%s",
+                             requested, tool_status["initial_calls"], tool_status["retried"], tool_status["recovered"],
+                             tool_status["missing_calls"], tool_status["retry_ms"], retry_error)
+                if required and not calls:
+                    raise ClusterError(502, "tool_call_required", "The model did not return the required tool call after a bounded retry.")
             answer = tighten_filename_fences(mask_brand(answer))
 
             # Requested format: validate; if invalid, re-ask once; if still
@@ -882,7 +916,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 stream=sse,
                 fingerprint=f"{worker.browser_port}-{worker.short_tab}", cached=False,
                 tool_names=tool_names, calls=calls, sse_parts=sse, res_id=res_id,
-                created_ts=created_ts, fallback=bool(run_meta.get("fallback")))
+                created_ts=created_ts, fallback=bool(run_meta.get("fallback")), tool_status=tool_status)
         finally:
             store.__exit__(None, None, None)
 
@@ -1066,6 +1100,7 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
                         sse_parts: bool = False,
                         fallback: bool = False,
                         reasoning_content: str = "",
+                        tool_status: Optional[dict] = None,
                         res_id: Optional[str] = None,
                         created_ts: Optional[int] = None):
     """Build the OpenAI-compatible response (same for the cache and normal path).
@@ -1104,6 +1139,8 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
     sf_meta = {"gateway": {"fallback_model": True}} if fallback else {}
     if cached:
         sf_meta.setdefault("gateway", {})["cache_hit"] = True
+    if tool_status:
+        sf_meta.setdefault("gateway", {})["tool_protocol"] = tool_status
     sf_headers = {"X-SF-Fallback-Model": "1"} if fallback else {}
 
     if stream:

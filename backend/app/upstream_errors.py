@@ -1,5 +1,6 @@
 """Stable upstream error codes; safe interpolation without guessing a message's language."""
 MESSAGES = {
+    "tool_call_required": ("Model majburiy vosita chaqiruvini qaytarmadi. Qayta urinib ko'ring.", "The model did not return the required tool call. Try again."),
     "attachment_too_large": ("Fayl juda katta: {size_kb} KB (chegara {limit_kb} KB)", "The file is too large: {size_kb} KB (limit {limit_kb} KB)"),
     "attachments_total_exceeded": ("Biriktirmalarning jami hajmi chegaradan oshdi", "The attachments exceed the total size limit"),
     "attachments_count_exceeded": ("Bitta so'rovda ko'pi bilan {limit} ta fayl", "At most {limit} files per request"),

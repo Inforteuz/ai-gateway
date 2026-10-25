@@ -23,12 +23,45 @@ def test_public_model_and_policy_isolate_cache_entries(cluster_client):
     assert not changed.json()["cached"]
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_tool_retry_recovered_and_observable(cluster_client, monkeypatch, stream):
+    measured = metrics.Metrics()
+    monkeypatch.setattr(metrics, "_instance", measured)
+    response, bal = cluster_client(["Let me read that.", CALL], {"messages": MSG, "tools": TOOLS, "tool_choice": "required", "stream": stream})
+    assert response.status_code == 200 and len(bal.prompts) == 2
+    if stream:
+        events = [json.loads(line[5:]) for line in response.text.splitlines() if line.startswith("data:") and "[DONE]" not in line]
+        result = next(e for e in events if (e.get("gateway") or {}).get("tool_protocol"))
+        assert any((c.get("delta") or {}).get("tool_calls") for e in events for c in e.get("choices", []))
+    else:
+        result = response.json()
+        assert result["choices"][0]["finish_reason"] == "tool_calls"
+    meta = {}
+    attribution.observe(meta, result)
+    assert meta["tool_protocol"]["retried"] and meta["tool_protocol"]["recovered"]
+    stats = measured.snapshot()["per_model"][0]["tool_protocol"]
+    assert (stats["requests"], stats["retries"], stats["recovered"], stats["missing_calls"]) == (1, 1, 1, 0)
 
 
+def test_required_tool_missing_twice_is_failure_and_not_cached(cluster_client):
+    response, bal = cluster_client(["I will read it.", "Cannot read it."], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})
+    assert response.status_code == 502 and response.json()["error"]["code"] == "tool_call_required"
+    assert len(bal.prompts) == 2
+    retry, _ = cluster_client([CALL], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})
+    assert retry.status_code == 200 and not retry.json()["cached"]
 
 
+def test_forced_tool_cannot_be_replaced_with_another_allowed_tool(cluster_client):
+    tools = TOOLS + [{"type": "function", "function": {"name": "write_file"}}]
+    response, _ = cluster_client([CALL, CALL], {"messages": MSG, "tools": tools, "tool_choice": {"type": "function", "function": {"name": "write_file"}}})
+    assert response.status_code == 502
 
 
+def test_auto_final_answer_preserved_when_repair_fails(cluster_client):
+    response, bal = cluster_client(["The task is finished.", "Still finished."], {"messages": MSG, "tools": TOOLS})
+    assert response.status_code == 200 and len(bal.prompts) == 2
+    assert response.json()["choices"][0]["message"]["content"] == "The task is finished."
+    assert response.json()["gateway"]["tool_protocol"]["missing_calls"]
 
 
 def test_cached_response_keeps_cache_attribution_in_sse(cluster_client):
@@ -42,6 +75,12 @@ def test_cached_response_keeps_cache_attribution_in_sse(cluster_client):
     assert meta["cache_hit"] is True
 
 
+def test_chatgpt_capability_uses_client_protocol():
+    assert get_adapter("chatgpt").caps.tool_calling
+    assert catalog._cluster_caps("chatgpt")["tool_calling"]
+    from cluster.tools import build_instruction
+    text = build_instruction(TOOLS, "required")
+    assert "tashqi API mijoz-agent" in text and "bajarilganini" in text
 
 
 def test_cached_rows_do_not_distort_monitoring_latency(env):

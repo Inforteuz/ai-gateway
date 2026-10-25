@@ -21,6 +21,13 @@ class _ModelStats:
     latency_ms: Deque[float] = field(default_factory=lambda: deque(maxlen=200))
     last_success_at: float = 0.0
     last_failure_at: float = 0.0
+    tool_requests: int = 0
+    tool_initial_calls: int = 0
+    tool_retries: int = 0
+    tool_recovered: int = 0
+    tool_missing: int = 0
+    tool_retry_errors: int = 0
+    tool_retry_ms: Deque[float] = field(default_factory=lambda: deque(maxlen=200))
     cache_hits: int = 0
 
 
@@ -63,6 +70,19 @@ class Metrics:
         with self._lock:
             self._bucket(model).cache_hits += 1
 
+    def record_tools(self, model: str, *, initial: bool, retried: bool, recovered: bool,
+                     missing: bool, retry_ms: float = 0, retry_error: bool = False) -> None:
+        with self._lock:
+            b = self._bucket(model)
+            b.tool_requests += 1
+            b.tool_initial_calls += int(initial)
+            b.tool_retries += int(retried)
+            b.tool_recovered += int(recovered)
+            b.tool_missing += int(missing)
+            b.tool_retry_errors += int(retry_error)
+            if retried:
+                b.tool_retry_ms.append(retry_ms)
+
     @staticmethod
     def _percentile(values: list[float], pct: float) -> float:
         if not values:
@@ -96,7 +116,16 @@ class Metrics:
                     },
                     "last_success_at": int(b.last_success_at) or None,
                     "last_failure_at": int(b.last_failure_at) or None,
+                    # Success latency excludes cache hits (recorded separately).
                     "cache_hits": b.cache_hits,
+                    "tool_protocol": {
+                        "requests": b.tool_requests, "initial_calls": b.tool_initial_calls,
+                        "retries": b.tool_retries, "recovered": b.tool_recovered,
+                        "missing_calls": b.tool_missing, "retry_errors": b.tool_retry_errors,
+                        "retry_success_rate": round(b.tool_recovered / b.tool_retries, 4) if b.tool_retries else None,
+                        "retry_ms_p50": round(self._percentile(list(b.tool_retry_ms), .5), 1),
+                        "retry_ms_p95": round(self._percentile(list(b.tool_retry_ms), .95), 1),
+                    },
                 })
             return {
                 "uptime_s": int(uptime),
