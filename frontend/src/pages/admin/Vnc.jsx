@@ -1,5 +1,6 @@
 import { translateText as tr, useLang as useLocaleRefresh } from '../../i18n/index.jsx'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../../api.js'
 import { useSite } from '../../auth.js'
@@ -76,7 +77,11 @@ export default function Vnc() {
     return disconnect
   }, [connect, disconnect])
 
-  return (
+  // Rendered into <body>, not in place: the routed page sits in an animated wrapper
+  // (.page-enter), and while a transform animation runs that wrapper — not the
+  // viewport — is the containing block for position: fixed. noVNC sizes its canvas
+  // from this box, so it must be the full screen from the first frame.
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#111', zIndex: 50 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 14px', background: 'var(--bg-elev)', color: 'var(--fg)', flexWrap: 'wrap' }}>
         <b>{tr("Instansiya #")}{tr(n)}</b>
@@ -89,6 +94,7 @@ export default function Vnc() {
         </span>
       </div>
       <div ref={box} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} />
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -2929,11 +2929,15 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   50%      { transform: scale(1.06) rotate(45deg); opacity: 1; }
 }
 
-/* Each routed page eases in: a short fade and a few pixels of rise. The end state is
-   `transform: none`, so once the entrance is over nothing is left establishing a
-   containing block for fixed-position children such as modals and toasts.
-   prefers-reduced-motion is covered by the global rule near the top of this file. */
-.page-enter { animation: page-in 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+/* Each routed page eases in: a short fade and a few pixels of rise.
+   Fill mode is `backwards`, never `both`/`forwards`: a transform animation that keeps
+   filling after it ends still makes Chrome treat the wrapper as the containing block
+   for position: fixed children, even though the held value is `transform: none`. The
+   full-screen VNC view (fixed, inset 0) was squeezed into the content area with no
+   height and showed an empty screen (2026-10-25). With `backwards` the animation is
+   gone once it finishes. prefers-reduced-motion is covered by the global rule near
+   the top of this file. */
+.page-enter { animation: page-in 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
 @keyframes page-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
