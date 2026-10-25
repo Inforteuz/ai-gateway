@@ -798,10 +798,16 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             # With attachments the model has to read the file, so allow more time
             timeout = cfg.REQUEST_TIMEOUT + (cfg.ATTACHMENT_EXTRA_TIMEOUT if files else 0)
 
+            # The stand-in also takes a request at once when every tab of the requested
+            # model is busy (see ClusterBalancer.execute)
+            spill = (req.sf_stand_in or "").lower()
+            spill = spill if spill and spill != requested else None
+
             async def call(text: str, model: Optional[str] = None):
                 return await balancer.execute(
                     prompt_text=text,
                     requested_model=model or requested,
+                    spill_to=spill if model is None else None,
                     timeout_per_worker=timeout,
                     require=require,
                     attachment_paths=[a.path for a in files],

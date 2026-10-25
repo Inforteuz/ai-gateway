@@ -187,9 +187,12 @@ class ClusterBalancer:
         attachment_paths: Optional[List[str]] = None,
         images_only: bool = False,
         want_images: bool = False,
+        spill_to: Optional[str] = None,
     ) -> Tuple[str, str, WorkerTab, List[Tuple[str, str]]]:
         """Send the request to a matching worker.
 
+        `spill_to`: a model that takes the request AT ONCE when every tab of the
+        requested model is busy, instead of the request waiting in the queue.
         Returns (answer, model used, worker, images).
         """
         await self.pool.scan(force=False)
@@ -219,7 +222,8 @@ class ClusterBalancer:
         return await self._dispatch(prompt_text, requested_model, timeout_per_worker,
                                     time.monotonic(), retried=False, require=require,
                                     attachment_paths=attachment_paths,
-                                    images_only=images_only, want_images=want_images)
+                                    images_only=images_only, want_images=want_images,
+                                    spill_to=spill_to)
 
     def _matching(self, requested_model: Optional[str], require: Sequence[str]) -> List[WorkerTab]:
         """Workers matching model and capabilities, REGARDLESS of busy/cooldown state."""
@@ -329,6 +333,7 @@ class ClusterBalancer:
         attachment_paths: Optional[List[str]] = None,
         images_only: bool = False,
         want_images: bool = False,
+        spill_to: Optional[str] = None,
     ) -> Tuple[str, str, WorkerTab, List[Tuple[str, str]]]:
         candidates = self.pick_candidates(requested_model, require)
 
@@ -359,6 +364,21 @@ class ClusterBalancer:
             if not candidates:
                 break
             worker = next((w for w in candidates if not _is_busy(w)), None)
+            if worker is None and spill_to:
+                # Every tab of the requested model is busy (or must keep its account's
+                # send gap): a free tab of the spill model answers now instead of the
+                # request queueing. Measured 2026-10-25: deepseek answered an 85k-char
+                # agent prompt (sent as context.txt) with a correct tool call in 5.6 s,
+                # while queued qwen requests waited up to 45 s and then took 10-110 s.
+                free = [w for w in self.pick_candidates(spill_to, require)
+                        if time.time() >= w.cooldown_until and not _is_busy(w)]
+                if free:
+                    log.info("all %s tabs busy, answering on %s", requested_model, spill_to)
+                    runmeta.get()["fallback"] = True
+                    return await self._dispatch(
+                        prompt_text, spill_to, timeout_per_worker, t0, retried=retried,
+                        require=require, attachment_paths=attachment_paths,
+                        images_only=images_only, want_images=want_images)
             if worker is None:
                 waited_busy = True
                 async with self._queue_slot(requested_model):
@@ -471,7 +491,7 @@ class ClusterBalancer:
                 return await self._dispatch(
                     prompt_text, requested_model, timeout_per_worker, t0, retried=True,
                     require=require, attachment_paths=attachment_paths,
-                    images_only=images_only, want_images=want_images)
+                    images_only=images_only, want_images=want_images, spill_to=spill_to)
 
         # If the instance froze, self-heal is restarting it. Returning 503 then
         # would be wrong: HOLD the request and wait for recovery. For streaming
@@ -486,7 +506,7 @@ class ClusterBalancer:
                 return await self._dispatch(
                     prompt_text, requested_model, timeout_per_worker, t0, retried=True,
                     healed=True, require=require, attachment_paths=attachment_paths,
-                    images_only=images_only, want_images=want_images)
+                    images_only=images_only, want_images=want_images, spill_to=spill_to)
 
         # Internal details (provider name, port) go to the log only, never to the client.
         log.warning("dispatch finished: attempts=%d busy=%s last=%s",

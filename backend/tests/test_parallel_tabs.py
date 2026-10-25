@@ -171,3 +171,46 @@ def test_no_extra_tab_when_enough_or_serialized(monkeypatch):
 
 def test_other_models_get_no_extra_tab(monkeypatch):
     assert _scan_with(monkeypatch, [{"type": "page", "url": "https://gemini.google.com/app", "id": "g"}]) == []
+
+
+# --- spill to the stand-in when every tab is busy ------------------------------
+class _Seat(_Tab):
+    def __init__(self, tab_id, starts, model, port):
+        WorkerTab.__init__(self, port, tab_id, model, "ws://unused", SimpleNamespace(clean_text=lambda t: t))
+        self.starts = starts
+
+
+def test_busy_qwen_spills_to_a_free_deepseek_at_once(monkeypatch):
+    # The second request does not queue behind qwen's send gap: deepseek takes it.
+    monkeypatch.setattr(cfg, "PARALLEL_SEND_GAP", 30)
+    monkeypatch.setattr(B.self_heal, "is_recovering", lambda p: False)
+    starts = []
+    bal = B.ClusterBalancer(_Pool([_Seat("q1", starts, "qwen", 19804), _Seat("q2", starts, "qwen", 19804),
+                                   _Seat("d1", starts, "deepseek", 19805)]))
+
+    async def run():
+        async def one():
+            runmeta.start()
+            out = await bal.execute("salom", requested_model="qwen", timeout_per_worker=5, spill_to="deepseek")
+            return out[1], runmeta.get().get("fallback", False)
+        t0 = time.monotonic()
+        results = await asyncio.gather(one(), one())
+        return results, time.monotonic() - t0
+
+    results, took = asyncio.run(run())
+    assert sorted(results) == [("deepseek", True), ("qwen", False)]
+    assert took < 1.5                                  # nobody waited 30 s
+
+
+def test_no_spill_without_a_stand_in(monkeypatch):
+    monkeypatch.setattr(cfg, "PARALLEL_TAB_MODELS", frozenset())
+    monkeypatch.setattr(B.self_heal, "is_recovering", lambda p: False)
+    starts = []
+    bal = B.ClusterBalancer(_Pool([_Seat("q1", starts, "qwen", 19806), _Seat("d1", starts, "deepseek", 19807)]))
+
+    async def run():
+        runmeta.start()
+        return await asyncio.gather(*(bal.execute("salom", requested_model="qwen", timeout_per_worker=5)
+                                      for _ in range(2)))
+
+    assert [r[1] for r in asyncio.run(run())] == ["qwen", "qwen"]
