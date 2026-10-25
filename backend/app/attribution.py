@@ -25,6 +25,9 @@ def request_meta(headers, body):
 
 
 def observe(meta, data):
+    cached = data.get("cached", (data.get("gateway") or {}).get("cache_hit"))
+    if isinstance(cached, bool):
+        meta["cache_hit"] = cached
     # Function names can arrive in fragments. Arguments are intentionally ignored.
     full = set(meta.get("_full_tool_names", []))
     fragments = meta.setdefault("_tool_fragments", {})

@@ -134,6 +134,15 @@ def test_key_limit_never_falls_back(env):
     assert response.status_code == 429 and not seen
 
 
+def test_gateway_does_not_accept_client_cache_namespace(env):
+    seen, _, key, _ = setup(env)
+    add_model(env, "normal", provider="cluster", upstream="gemini")
+    response = env.client.post("/v1/chat/completions", headers=bearer(key), json={"model": "normal", **body("normal request"),
+        "sf_public_model": "another-user-model", "sf_model_policy": {"injected": True}})
+    assert response.status_code == 200
+    assert seen[0]["sf_public_model"] == "normal" and "injected" not in seen[0]["sf_model_policy"]
+
+
 def test_private_fallback_does_not_disclose_prompt(env):
     seen, _, key, _ = setup(env)
     add_model(env, "private", provider="local", refine=0)

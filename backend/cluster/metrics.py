@@ -21,6 +21,7 @@ class _ModelStats:
     latency_ms: Deque[float] = field(default_factory=lambda: deque(maxlen=200))
     last_success_at: float = 0.0
     last_failure_at: float = 0.0
+    cache_hits: int = 0
 
 
 class Metrics:
@@ -58,6 +59,10 @@ class Metrics:
             b.failure += 1
             b.last_failure_at = time.time()
 
+    def record_cache_hit(self, model: str) -> None:
+        with self._lock:
+            self._bucket(model).cache_hits += 1
+
     @staticmethod
     def _percentile(values: list[float], pct: float) -> float:
         if not values:
@@ -91,6 +96,7 @@ class Metrics:
                     },
                     "last_success_at": int(b.last_success_at) or None,
                     "last_failure_at": int(b.last_failure_at) or None,
+                    "cache_hits": b.cache_hits,
                 })
             return {
                 "uptime_s": int(uptime),

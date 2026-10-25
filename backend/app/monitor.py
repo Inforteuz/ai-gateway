@@ -226,8 +226,10 @@ def quality(db: Database, since: int, until: int | None = None) -> dict:
     cats = {r["category"]: r["n"] for r in db.all(
         "SELECT category, COUNT(*) n FROM usage_logs WHERE category IS NOT NULL AND created_at>=? AND created_at<? GROUP BY category",
         (since, until))}
-    lat = db.all("""SELECT latency_ms, ttfb_ms FROM usage_logs WHERE category IS NULL AND latency_ms IS NOT NULL
+    lat = db.all("""SELECT latency_ms, ttfb_ms, attribution FROM usage_logs WHERE category IS NULL AND latency_ms IS NOT NULL
                     AND created_at>=? AND created_at<? ORDER BY id DESC LIMIT 20000""", (since, until))
+    from .attribution import unpack
+    measured = [r for r in lat if unpack(r["attribution"]).get("cache_hit") is not True]
     total, ok = t["n"], t["ok"] or 0
     platform = cats.get("platform", 0)
     return {
@@ -237,8 +239,9 @@ def quality(db: Database, since: int, until: int | None = None) -> dict:
         "reliability": round(100.0 * ok / (ok + platform), 2) if (ok + platform) else None,
         "by_category": [{"category": k, "label": CATEGORY_LABELS[k], "count": cats.get(k, 0)}
                         for k in ("platform", "billing", "limits", "client", "cancelled")],
-        "latency_p50": _pct([r["latency_ms"] for r in lat], 0.5), "latency_p95": _pct([r["latency_ms"] for r in lat], 0.95),
-        "ttfb_p50": _pct([r["ttfb_ms"] for r in lat if r["ttfb_ms"] is not None], 0.5),
+        "cache_hits_in_latency_sample": len(lat) - len(measured), "latency_samples": len(measured),
+        "latency_p50": _pct([r["latency_ms"] for r in measured], 0.5), "latency_p95": _pct([r["latency_ms"] for r in measured], 0.95),
+        "ttfb_p50": _pct([r["ttfb_ms"] for r in measured if r["ttfb_ms"] is not None], 0.5),
     }
 
 

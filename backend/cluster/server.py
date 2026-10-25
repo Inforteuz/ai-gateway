@@ -86,6 +86,8 @@ class ChatCompletionRequest(BaseModel):
     # sf_force_variant: an exact model variant, for measurements.
     sf_allow_fallback: bool = False
     sf_force_variant: Optional[str] = None
+    sf_public_model: Optional[str] = None
+    sf_model_policy: Optional[dict] = None
 
 
 class ClusterError(Exception):
@@ -764,6 +766,9 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         "response_format": spec.cache_token(),
                         "tools": req.tools, "tool_choice": req.tool_choice,
                         "reasoning_effort": req.reasoning_effort, "reasoning": use_reasoning,
+                        "public_model": req.sf_public_model,
+                        "model_policy": req.sf_model_policy,
+                        "allow_fallback": req.sf_allow_fallback,
                     })
                 hit = cache.get(cache_key)
                 if hit is not None and not _cacheable(hit.answer, hit.images, [], spec):
@@ -772,6 +777,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                     cache.purge(lambda e, _h=hit: e is _h)
                     hit = None
                 if hit is not None:
+                    metrics.get().record_cache_hit(requested)
                     log.info("cache hit model=%s hits=%d", hit.model or requested, hit.hits)
                     return _completion_payload(
                         answer=hit.answer, images=hit.images, used_model=hit.model or requested,
@@ -1096,6 +1102,8 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
     # (the internal model name is DELIBERATELY omitted, it is only logged).
     # The "gateway" key and X-SF-* header are part of the backend contract.
     sf_meta = {"gateway": {"fallback_model": True}} if fallback else {}
+    if cached:
+        sf_meta.setdefault("gateway", {})["cache_hit"] = True
     sf_headers = {"X-SF-Fallback-Model": "1"} if fallback else {}
 
     if stream:

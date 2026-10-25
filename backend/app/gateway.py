@@ -852,6 +852,8 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             payload.pop(k)
         if model["provider"] == "cluster":
             payload["sf_allow_fallback"] = settings.get("cluster_fallback_enabled") == "1"
+            payload["sf_public_model"] = model["id"]
+            payload["sf_model_policy"] = {k: model.get(k) for k in ("allow_thinking", "default_reasoning")}
         if model["provider"] == "local" and endpoint == "chat/completions":
             # Local models skip the cluster compose layer — the rule against instructions
             # embedded in documents is added here (app/untrusted.py).
@@ -1079,6 +1081,8 @@ async def _respond_json(resp: httpx.Response, ticket: Ticket, public_model: str)
     headers = {"X-Request-Id": ticket.request_id}
     if fallback:
         headers["X-SF-Fallback-Model"] = "1"
+    if "cache_hit" in ticket.attribution:
+        headers["X-SF-Cache"] = "hit" if ticket.attribution["cache_hit"] else "miss"
     if settled is not None:
         headers["X-SF-Cost"] = fmt_money(settled.cost)
         headers["X-SF-Balance"] = fmt_money(settled.balance_after)

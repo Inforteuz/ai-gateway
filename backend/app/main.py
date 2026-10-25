@@ -109,7 +109,7 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
         CORSMiddleware, allow_origins=["*"], allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type"],
         expose_headers=["X-Request-Id", "X-SF-Cost", "X-SF-Balance", "Retry-After",
-                        "X-Fallback-Model", "X-SF-Routed-Model", "X-SF-Route-Reason"], max_age=600,
+                        "X-Fallback-Model", "X-SF-Routed-Model", "X-SF-Route-Reason", "X-SF-Cache"], max_age=600,
     )
 
     @app.middleware("http")
