@@ -153,3 +153,28 @@ def test_private_fallback_does_not_disclose_prompt(env):
     env.up["mode"] = "500"
     response = env.client.post("/v1/chat/completions", headers=bearer(key), json={"model": "private", **body("confidential request")})
     assert response.status_code == 502 and not seen
+
+
+def test_cluster_learns_its_stand_in_only_for_tool_requests(env):
+    # Mid-stream the gateway can no longer fall back, so the cluster re-asks a
+    # failed tool call on the stand-in itself and has to know which model that is.
+    seen, _, key, _ = setup(env)
+    add_model(env, "agent", provider="cluster", upstream="qwen")
+    add_model(env, "backup", provider="cluster", upstream="deepseek")
+    with env.db.tx() as c:
+        c.execute("UPDATE models SET fallback_to='backup' WHERE id='agent'")
+    tools = [{"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}}]
+    assert env.client.post("/v1/chat/completions", headers=bearer(key),
+                           json={"model": "agent", **body("read the file"), "tools": tools}).status_code == 200
+    assert env.client.post("/v1/chat/completions", headers=bearer(key),
+                           json={"model": "agent", **body("plain question")}).status_code == 200
+    assert seen[0]["sf_stand_in"] == "deepseek"
+    assert "sf_stand_in" not in seen[1]
+
+
+def test_client_cannot_name_a_stand_in(env):
+    seen, _, key, _ = setup(env)
+    add_model(env, "agent", provider="cluster", upstream="qwen")
+    assert env.client.post("/v1/chat/completions", headers=bearer(key),
+                           json={"model": "agent", **body("hi"), "sf_stand_in": "chatgpt"}).status_code == 200
+    assert "sf_stand_in" not in seen[0]

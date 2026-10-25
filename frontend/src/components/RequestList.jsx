@@ -24,7 +24,7 @@ export default function RequestList({ items, empty }) {
                 {served
                   ? t('req.servedByStandIn', { model: r.retried_on })
                   : tr(failed
-                    ? t('req.failedNote', { reason: r.reason || r.error || t('req.failed') })
+                    ? t('req.failedNote', { reason: (r.reason || r.error) ? tr(r.reason || r.error) : t('req.failed') })
                     : t('req.tokensInOut', { in: fmtInt(r.prompt_tokens), out: fmtInt(r.completion_tokens) }))}
               </span>
             </span>

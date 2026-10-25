@@ -88,6 +88,10 @@ class ChatCompletionRequest(BaseModel):
     sf_force_variant: Optional[str] = None
     sf_public_model: Optional[str] = None
     sf_model_policy: Optional[dict] = None
+    # sf_stand_in: the cluster model behind the catalog model's fallback. Used only
+    # when a tool-call re-ask cannot be served by the requested model (see below):
+    # on a stream the gateway can no longer fall back itself, the 200 is already out.
+    sf_stand_in: Optional[str] = None
 
 
 class ClusterError(Exception):
@@ -793,10 +797,10 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             # With attachments the model has to read the file, so allow more time
             timeout = cfg.REQUEST_TIMEOUT + (cfg.ATTACHMENT_EXTRA_TIMEOUT if files else 0)
 
-            async def call(text: str):
+            async def call(text: str, model: Optional[str] = None):
                 return await balancer.execute(
                     prompt_text=text,
-                    requested_model=requested,
+                    requested_model=model or requested,
                     timeout_per_worker=timeout,
                     require=require,
                     attachment_paths=[a.path for a in files],
@@ -853,29 +857,47 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                                "recovered": False, "final_answer": final_ready,
                                "missing_calls": not bool(calls) and not final_ready, "retry_ms": 0}
                 retry_error = False
+                broken = False
                 try:
                     if not final_ready and tool_proto.should_retry(calls, req.tool_choice) and can_retry():
                         log.warning("tools: no action block, re-asking once model=%s", requested)
                         first_answer = answer
+                        broken = tool_proto.looks_like_call(first_answer)
                         retry_started = time.monotonic()
                         tool_status["retried"] = True
+                        reminder = prompt_text + "\n\n" + tool_proto.retry_instruction(tool_names, req.tool_choice)
+                        dispatch_error: Optional[DispatchError] = None
                         try:
-                            retry_answer, retry_model, retry_worker, retry_images = await call(
-                                prompt_text + "\n\n"
-                                + tool_proto.retry_instruction(tool_names, req.tool_choice))
+                            retry_answer, retry_model, retry_worker, retry_images = await call(reminder)
                             calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
-                            if calls:
-                                answer, used_model, worker, images = retry_answer, retry_model, retry_worker, retry_images
-                                tool_status["recovered"] = True
-                            else:
-                                answer = first_answer
-                        except DispatchError:
-                            retry_error = True
-                            if required:
-                                raise
+                        except DispatchError as e:
+                            dispatch_error = e
+                        # The requested model could not answer the re-ask (every tab
+                        # timed out or was busy), or answered the call broken: try the
+                        # stand-in once. Not for a plain prose answer — that may be the
+                        # model's legitimate final word, and asking a second model every
+                        # time would only add delay.
+                        stand_in = (req.sf_stand_in or "").lower()
+                        if (not calls and (dispatch_error or broken) and stand_in
+                                and stand_in != requested and can_retry()):
+                            log.warning("tools: re-ask on stand-in model=%s -> %s (%s)", requested, stand_in,
+                                        "dispatch failed" if dispatch_error else "broken call")
+                            try:
+                                retry_answer, retry_model, retry_worker, retry_images = await call(reminder, stand_in)
+                                calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
+                                dispatch_error = None
+                                run_meta["fallback"] = True
+                            except DispatchError as e:
+                                dispatch_error = e
+                        retry_error = dispatch_error is not None
+                        tool_status["retry_ms"] = round((time.monotonic() - retry_started) * 1000)
+                        if calls:
+                            answer, used_model, worker, images = retry_answer, retry_model, retry_worker, retry_images
+                            tool_status["recovered"] = True
+                        else:
+                            if dispatch_error is not None and required:
+                                raise dispatch_error
                             answer = first_answer
-                        finally:
-                            tool_status["retry_ms"] = round((time.monotonic() - retry_started) * 1000)
                 finally:
                     tool_status["missing_calls"] = not bool(calls) and not final_ready
                     metrics.get().record_tools(requested, initial=tool_status["initial_calls"],
@@ -887,6 +909,12 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                              tool_status["missing_calls"], tool_status["retry_ms"], retry_error)
                 if required and not calls:
                     raise ClusterError(502, "tool_call_required", "The model did not return the required tool call after a bounded retry.")
+                # A half-written call is not an answer. Passed on as text, the agent
+                # shows it and stops; an error at least lets the client retry.
+                if allowed_names and not calls and not final_ready and tool_proto.looks_like_call(answer):
+                    log.warning("tools: broken tool call left after retries model=%s", requested)
+                    raise ClusterError(502, "invalid_tool_call",
+                                       "The model returned a malformed tool call. Try again.", 5)
             answer = tighten_filename_fences(mask_brand(answer))
 
             # Requested format: validate; if invalid, re-ask once; if still

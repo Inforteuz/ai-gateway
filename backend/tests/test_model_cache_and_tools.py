@@ -174,3 +174,54 @@ def test_tool_arguments_count_as_completion_tokens(cluster_client, stream):
     else:
         usage = response.json()["usage"]
     assert usage["completion_tokens"] > 1000
+
+
+# --- a re-ask the requested model cannot serve (2026-10-25) -----------------
+# qwen answered an opencode turn with a half-written call; both qwen tabs then
+# timed out on the re-ask and the broken text went to the agent as its answer.
+from cluster.balancer import UpstreamFailed
+from .test_tool_retry import BROKEN
+
+
+class _ByModel(_FakeBalancer):
+    """Answers per requested model, and records which model each ask went to."""
+
+    def __init__(self, answers):
+        super().__init__([])
+        self.by_model, self.models = {m: list(a) for m, a in answers.items()}, []
+
+    async def execute(self, prompt_text, requested_model=None, **kw):
+        self.models.append(requested_model)
+        self.answers = self.by_model[requested_model]
+        return await super().execute(prompt_text, **kw)
+
+
+def _ask(monkeypatch, answers, **extra):
+    monkeypatch.setattr(srv.cfg, "API_KEY", "")
+    srv.app.state.balancer = bal = _ByModel(answers)
+    body = {"model": "qwen", "messages": MSG, "tools": TOOLS, **extra}
+    return TestClient(srv.app).post("/v1/chat/completions", json=body), bal
+
+
+@pytest.mark.parametrize("second", [UpstreamFailed("timeout"), BROKEN])
+def test_stand_in_answers_the_reask_the_model_could_not(cluster_client, monkeypatch, second):
+    response, bal = _ask(monkeypatch, {"qwen": [BROKEN, second], "deepseek": [CALL]}, sf_stand_in="deepseek")
+    assert response.status_code == 200 and bal.models == ["qwen", "qwen", "deepseek"]
+    message = response.json()["choices"][0]["message"]
+    assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {"path": "/workspace/probe.txt"}
+
+
+def test_broken_call_never_reaches_the_agent_as_text(cluster_client, monkeypatch):
+    # No stand-in configured and the re-ask fails: an error, not the garbage.
+    response, bal = _ask(monkeypatch, {"qwen": [BROKEN, UpstreamFailed("timeout")]})
+    assert response.status_code == 502 and response.json()["error"]["code"] == "invalid_tool_call"
+    assert bal.models == ["qwen", "qwen"]
+
+
+def test_prose_answer_does_not_wake_the_stand_in(cluster_client, monkeypatch):
+    # A text answer may be the final word; asking a second model each time would
+    # only add delay. The stand-in is for a failed re-ask or a broken call.
+    response, bal = _ask(monkeypatch, {"qwen": ["The task is finished.", "Still finished."], "deepseek": [CALL]},
+                         sf_stand_in="deepseek")
+    assert response.status_code == 200 and bal.models == ["qwen", "qwen"]
+    assert response.json()["choices"][0]["message"]["content"] == "The task is finished."

@@ -33,6 +33,15 @@ LOG_JSON = os.getenv("SF_CLUSTER_LOG_JSON", "0").strip().lower() in {"1", "true"
 # Per-request timeout (seconds)
 REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_REQUEST_TIMEOUT", "60"))
 
+# A tab that shows neither answer text nor its stop button this long after the
+# prompt went out has not started, and will not: the message was not accepted, a
+# dialog is in the way, the page hung. Measured 2026-10-25: such tabs held a request
+# for the full REQUEST_TIMEOUT (one Gemini tab 65 s, two Qwen tabs 60 s each)
+# while another tab of the same model answered in 7 s. Past this point the
+# balancer moves on to the next tab. A model that is thinking shows its stop
+# button, so long reasoning is not cut. 0 disables the check.
+ANSWER_START_TIMEOUT = float(os.getenv("SF_CLUSTER_ANSWER_START_TIMEOUT", "30"))
+
 # Context and history
 # Context window. Web-chat providers accept long text, but the whole
 # conversation goes into ONE text field, so the limit is set on our side. It

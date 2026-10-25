@@ -227,6 +227,62 @@ def test_poll_answer_reports_progress_and_waits_the_initial_delay(monkeypatch):
     assert seen.index("Thinking") == 0     # but the first look happened early
 
 
+def _poll_adapter():
+    class _A(BA.BaseAIAdapter):
+        async def send_prompt(self, ws, text):
+            return True
+
+        async def read_response(self, ws, timeout=45):
+            return ""
+
+    adapter = object.__new__(_A)
+    adapter.name = "test"
+    return adapter
+
+
+def test_a_tab_that_never_starts_is_given_up_early(monkeypatch):
+    # Measured 2026-10-25: a stuck tab (no text, no stop button) held the request
+    # for the full 60 s while another tab of the same model answered in 7 s.
+    async def fake_eval(ws, script, timeout=20):
+        return {"answer": "", "generating": False}
+
+    monkeypatch.setattr(BA.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(cfg, "POLL_INTERVAL", 0.02)
+    monkeypatch.setattr(cfg, "POLL_FIRST_DELAY", 0.02)
+    monkeypatch.setattr(cfg, "ANSWER_START_TIMEOUT", 0.3)
+
+    async def run():
+        runmeta.start()
+        t0 = time.monotonic()
+        with pytest.raises(asyncio.TimeoutError):
+            await _poll_adapter().poll_answer(None, "script", timeout=10)
+        return time.monotonic() - t0
+
+    assert asyncio.run(run()) < 2
+
+
+def test_a_thinking_model_is_not_cut_by_the_start_check(monkeypatch):
+    # The stop button is up but no text yet: the model is reasoning. Keep waiting.
+    polls = {"n": 0}
+
+    async def fake_eval(ws, script, timeout=20):
+        polls["n"] += 1
+        if polls["n"] < 30:
+            return {"answer": "", "generating": True}
+        return {"answer": "Javob", "generating": False}
+
+    monkeypatch.setattr(BA.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(cfg, "POLL_INTERVAL", 0.02)
+    monkeypatch.setattr(cfg, "POLL_FIRST_DELAY", 0.02)
+    monkeypatch.setattr(cfg, "ANSWER_START_TIMEOUT", 0.2)
+
+    async def run():
+        runmeta.start()
+        return await _poll_adapter().poll_answer(None, "script", timeout=10, initial_delay=0.05)
+
+    assert asyncio.run(run()) == "Javob"
+
+
 def test_stream_preflight_ends_at_the_first_live_piece():
     live = make_live()
 

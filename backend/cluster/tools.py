@@ -261,6 +261,24 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
     return [], (text or "")
 
 
+# Traces of a call the model STARTED but did not finish in a parseable form: the
+# protocol's own block opener, or the XML-style tags some models fall back to.
+_CALL_TRACE = re.compile(
+    r"(?m)^[ \t]*(?:actions|tool_calls|calls):[ \t]*$|</?(?:function_call|tool_call|parameter|invoke)\b")
+
+
+def looks_like_call(text: str) -> bool:
+    """True when the answer is a broken tool call rather than prose.
+
+    Measured 2026-10-25 (opencode on qwen): the model opened `actions:`, put a
+    multi-line `oldString` in without a block scalar, never wrote `newString`
+    and closed with `</parameter></function_call>`. No parser can turn that into
+    a valid call, and handed to the agent as text it ends the turn with garbage
+    on screen.
+    """
+    return bool(_CALL_TRACE.search(text or ""))
+
+
 def should_retry(calls: Sequence[Any], tool_choice: Any) -> bool:
     """Is the answer worth asking for a second time?
 

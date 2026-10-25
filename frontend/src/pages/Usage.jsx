@@ -127,7 +127,7 @@ export default function Usage() {
                         <span className={`tag ${bad ? 'tag--bad' : 'tag--ok'}`}>
                           <i className="req-dot" aria-hidden="true" />{tr(bad ? t('req.error', { code: r.status_code }) : t('req.success'))}
                         </span>
-                        {bad && <span className="stack dim small">{t('req.failedNote', { reason: r.reason || r.error || t('usage.failed') })}</span>}
+                        {bad && <span className="stack dim small">{t('req.failedNote', { reason: (r.reason || r.error) ? tr(r.reason || r.error) : t('usage.failed') })}</span>}
                       </td>
                       <td><RequestAttribution item={r} /></td>
                     </tr>

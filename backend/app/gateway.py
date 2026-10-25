@@ -854,6 +854,15 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             payload["sf_allow_fallback"] = settings.get("cluster_fallback_enabled") == "1"
             payload["sf_public_model"] = model["id"]
             payload["sf_model_policy"] = {k: model.get(k) for k in ("allow_thinking", "default_reasoning")}
+            # Once a stream has started the gateway can no longer fall back (the 200 is
+            # out), so the cluster is told which of its own models stands in. It uses it
+            # only to re-ask a tool call the requested model failed to deliver.
+            if model.get("fallback_to") and body.get("tools"):
+                stand_in = await run_in_threadpool(
+                    state.db.one, "SELECT upstream_name, provider FROM models WHERE id=? AND enabled=1",
+                    (model["fallback_to"],))
+                if stand_in and stand_in["provider"] == "cluster":
+                    payload["sf_stand_in"] = stand_in["upstream_name"]
         if model["provider"] == "local" and endpoint == "chat/completions":
             # Local models skip the cluster compose layer — the rule against instructions
             # embedded in documents is added here (app/untrusted.py).

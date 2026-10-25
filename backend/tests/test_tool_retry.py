@@ -62,3 +62,34 @@ def test_reminder_survives_a_long_tool_list():
     text = tool_proto.retry_instruction(names)
     assert "`tool_0`" in text
     assert len(text) < 2000      # it goes at the end of an already long prompt
+
+
+# --- a call the model started but broke -------------------------------------
+# The answer that reached opencode on 2026-10-25 (shortened): YAML opened, a
+# multi-line value without a block scalar, no `newString`, XML tags to close.
+BROKEN = """actions:
+  - name: edit
+    arguments:
+      path: /tmp/clock/index.html
+      oldString:         @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+    </style>
+</head>
+<body>
+</parameter>
+</function_call>"""
+
+
+def test_a_broken_call_is_recognised_and_not_parsed():
+    assert tool_proto.parse_tool_calls(BROKEN, ["edit"])[0] == []
+    assert tool_proto.looks_like_call(BROKEN) is True
+    assert tool_proto.looks_like_call("<function_call>\n<parameter name=\"path\">a</parameter>") is True
+
+
+def test_prose_is_not_a_broken_call():
+    # A legitimate final answer must still reach the client as text.
+    assert tool_proto.looks_like_call("Done: the clock now animates on load.") is False
+    assert tool_proto.looks_like_call("The actions: edit and write both succeeded.") is False
+    assert tool_proto.looks_like_call("") is False

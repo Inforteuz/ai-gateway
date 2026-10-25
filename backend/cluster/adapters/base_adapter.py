@@ -841,6 +841,8 @@ class BaseAIAdapter(ABC):
         stable_since = 0.0
         js_errors = 0
         deadline = time.time() + timeout
+        # Any sign of life: answer text or the stop button (see ANSWER_START_TIMEOUT)
+        active = False
 
         # Once the answer is finished, unchanged for this long — consider it ready
         need_done = max(0.4, (stable_needed - 1) * cfg.POLL_INTERVAL)
@@ -865,6 +867,11 @@ class BaseAIAdapter(ABC):
             cur = val.get("answer") or ""
             gen = bool(val.get("generating"))
             generating = gen
+            active = active or gen or bool(cur)
+            if not active and cfg.ANSWER_START_TIMEOUT and time.time() - started > cfg.ANSWER_START_TIMEOUT:
+                log.warning("%s: no answer and no stop button %.0f s after sending — giving up on this tab",
+                            self.name, time.time() - started)
+                raise asyncio.TimeoutError("Provider never started answering")
             if not cur:
                 continue
 
