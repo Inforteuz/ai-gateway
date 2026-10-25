@@ -1581,6 +1581,7 @@ export default {
   "Oqim o'rtasida aloqa uzildi": "Потеряна связь между потоком",
   "Model oqim o'rtasida jim qoldi": "Модель молчит посреди потока",
   "Oqim juda uzoq davom etdi": "Трансляция длилась слишком долго",
+  "Model oqim o'rtasida xato qaytardi": "Модель вернула ошибку во время потока",
   "Model takrorlanish siklida: javob to'xtatildi": "Модель в цикле итерации: ответ прерван",
   "So'rov yakunlanmay qolgan": "Не удалось выполнить запрос.",
   "Model bo'sh javob berdi": "Модель вернула пустой ответ.",

@@ -5,7 +5,7 @@ from __future__ import annotations
 PLATFORM_ERRORS = {
     "reasoning_budget_exceeded", "generation_budget_exceeded", "generation_failed",
     "model_offline", "upstream_unavailable", "upstream_timeout", "upstream_error", "server_busy",
-    "stream_interrupted", "stream_stalled", "stream_too_long", "internal_error", "abandoned", "empty_stream", "bad_upstream_json",
+    "stream_interrupted", "stream_stalled", "stream_too_long", "stream_upstream_error", "internal_error", "abandoned", "empty_stream", "bad_upstream_json",
 }
 
 CATEGORY_LABELS = {
@@ -28,6 +28,7 @@ ERROR_LABELS = {
     "stream_interrupted": "Oqim o'rtasida aloqa uzildi",
     "stream_stalled": "Model oqim o'rtasida jim qoldi",
     "stream_too_long": "Oqim juda uzoq davom etdi",
+    "stream_upstream_error": "Model oqim o'rtasida xato qaytardi",
     "repetition_loop": "Model takrorlanish siklida: javob to'xtatildi",
     "internal_error": "Ichki xato",
     "abandoned": "So'rov yakunlanmay qolgan",

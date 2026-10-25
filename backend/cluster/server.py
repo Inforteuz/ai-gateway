@@ -26,7 +26,7 @@ from . import reasoning
 from . import runmeta
 from . import tools as tool_proto
 from . import settings as cfg
-from .balancer import ClusterBalancer, DispatchError
+from .balancer import ClusterBalancer, DispatchError, Unsupported
 from .compose import compile_prompt, mask_brand, tighten_filename_fences, wants_image as _wants_image
 from .live import LiveStream
 from .pool import CLASS_OK, ClusterPool, classify_response, is_degenerate_response
@@ -88,9 +88,10 @@ class ChatCompletionRequest(BaseModel):
     sf_force_variant: Optional[str] = None
     sf_public_model: Optional[str] = None
     sf_model_policy: Optional[dict] = None
-    # sf_stand_in: the cluster model behind the catalog model's fallback. Used only
-    # when a tool-call re-ask cannot be served by the requested model (see below):
-    # on a stream the gateway can no longer fall back itself, the 200 is already out.
+    # sf_stand_in: the cluster model behind the catalog model's fallback. Used when
+    # the requested model cannot serve the request at all, or cannot serve a
+    # tool-call re-ask (see below): on a stream the gateway can no longer fall back
+    # itself, the 200 is already out.
     sf_stand_in: Optional[str] = None
 
 
@@ -812,7 +813,21 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 # A retry must not exceed the overall deadline (the gateway is waiting too)
                 return time.monotonic() - t_start + timeout + 15 < cfg.REQUEST_DEADLINE
 
-            answer, used_model, worker, images = await call(prompt_text)
+            try:
+                answer, used_model, worker, images = await call(prompt_text)
+            except Unsupported:
+                raise
+            except DispatchError as e:
+                # Every tab of the requested model failed (timed out, broke, was busy).
+                # Measured 2026-10-25: on a stream this reached opencode as "The model
+                # did not return an answer" while the stand-in was idle.
+                stand_in = (req.sf_stand_in or "").lower()
+                if not stand_in or stand_in == requested or not can_retry():
+                    raise
+                log.warning("dispatch failed model=%s (%s); answering on stand-in %s",
+                            requested, getattr(e, "code", type(e).__name__), stand_in)
+                answer, used_model, worker, images = await call(prompt_text, stand_in)
+                run_meta["fallback"] = True
 
             # With structured reasoning only the `answer` part goes to the user;
             # the plan and self-check stay internal. If the template is broken the

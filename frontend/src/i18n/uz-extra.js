@@ -1581,6 +1581,7 @@ export default {
   "Oqim o'rtasida aloqa uzildi": "Oqim o'rtasida aloqa uzildi",
   "Model oqim o'rtasida jim qoldi": "Model oqim o'rtasida jim qoldi",
   "Oqim juda uzoq davom etdi": "Oqim juda uzoq davom etdi",
+  "Model oqim o'rtasida xato qaytardi": "Model oqim o'rtasida xato qaytardi",
   "Model takrorlanish siklida: javob to'xtatildi": "Model takrorlanish siklida: javob to'xtatildi",
   "So'rov yakunlanmay qolgan": "So'rov yakunlanmay qolgan",
   "Model bo'sh javob berdi": "Model bo'sh javob berdi",

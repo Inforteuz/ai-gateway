@@ -225,3 +225,19 @@ def test_prose_answer_does_not_wake_the_stand_in(cluster_client, monkeypatch):
                          sf_stand_in="deepseek")
     assert response.status_code == 200 and bal.models == ["qwen", "qwen"]
     assert response.json()["choices"][0]["message"]["content"] == "The task is finished."
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_stand_in_answers_when_the_requested_model_cannot(cluster_client, monkeypatch, stream):
+    # 2026-10-25: a Qwen tab failed on a half-loaded page and the stream ended in
+    # "The model did not return an answer" while the stand-in sat idle.
+    response, bal = _ask(monkeypatch, {"qwen": [UpstreamFailed("timeout")], "deepseek": [CALL]},
+                         sf_stand_in="deepseek", stream=stream)
+    assert response.status_code == 200 and bal.models == ["qwen", "deepseek"]
+    assert "read_file" in response.text and "upstream_failed" not in response.text
+
+
+def test_unsupported_feature_is_not_retried_on_the_stand_in(cluster_client, monkeypatch):
+    from cluster.balancer import Unsupported
+    response, bal = _ask(monkeypatch, {"qwen": [Unsupported("no")], "deepseek": [CALL]}, sf_stand_in="deepseek")
+    assert response.status_code == 400 and bal.models == ["qwen"]

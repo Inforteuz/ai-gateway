@@ -65,12 +65,17 @@ class QwenAdapter(BaseAIAdapter):
         };
     })()"""
 
-    # How long to wait for that marker. It is painted with the page or not at all,
-    # so polling for the whole reset timeout bought nothing: measured, Qwen stopped
-    # turning the mode on from the URL (the page carries no `.temporary-chat-entry`
-    # at all) and EVERY request paid those seconds before falling back to a regular
-    # new chat.
-    TEMP_CONFIRM_WAIT = 4.0
+    # How long to wait for that marker ONCE THE PAGE HAS RENDERED (its input is
+    # there). The marker is painted with the page or not at all, so past that point
+    # waiting buys nothing — that is why this is short.
+    #
+    # The page itself may take far longer to render: measured 2026-10-25, a Qwen
+    # tab under load needed ~20 s after navigation. With one 4-second budget for
+    # both, a loading page was declared "not confirmed", the request fell through
+    # to the New Chat path on a half-drawn page, found no model menu and failed —
+    # while the same tab, fully loaded, carried the marker exactly as expected.
+    TEMP_CONFIRM_WAIT = 2.0
+    TEMP_PAGE_LOAD_WAIT = 20.0
 
     # Is the open page a chat a request may reuse? A temporary chat is NOT required:
     # what has to hold is what `_reset_saved_chat` itself guarantees — the composer is
@@ -126,7 +131,15 @@ class QwenAdapter(BaseAIAdapter):
         target = {None: cfg.QWEN_PRIMARY_MODEL, "fallback": cfg.QWEN_FALLBACK_MODEL}.get(variant, variant)
         if not target:
             return None
-        cur = await cdp.evaluate(ws, self._CUR_MODEL_JS, timeout=10) or ""
+        # The header (and its model menu) renders after the composer: on a page still
+        # drawing itself the menu was not there yet and the request failed at once
+        # with "model not selected (current: ?)". Give it a few seconds to appear.
+        cur = ""
+        for _ in range(20):
+            cur = await cdp.evaluate(ws, self._CUR_MODEL_JS, timeout=10) or ""
+            if cur:
+                break
+            await asyncio.sleep(0.4)
         if cur == target:
             return target
         # The list opens with an animation: the first position found is still
@@ -167,15 +180,26 @@ class QwenAdapter(BaseAIAdapter):
         """
         if cfg.QWEN_TEMPORARY_CHAT:
             await self.goto(ws, f"{self.TEMP_URL}&_sf={int(time.time() * 1000)}")
-            for _ in range(int(self.TEMP_CONFIRM_WAIT * 2)):
+            started = time.monotonic()
+            rendered_at = None
+            st = None
+            while True:
                 await asyncio.sleep(0.5)
+                elapsed = time.monotonic() - started
                 try:
-                    st = await cdp.evaluate(ws, self._TEMP_STATE_JS, timeout=10)
+                    st = await cdp.evaluate(ws, self._TEMP_STATE_JS, timeout=5)
                 except Exception:
-                    continue
-                if isinstance(st, dict) and st.get("on") and st.get("hasInput") and st.get("msgs") == 0:
-                    return
-            log.warning("qwen: temporary chat not confirmed — opening a regular new chat")
+                    st = None
+                if isinstance(st, dict) and st.get("hasInput"):
+                    if st.get("on") and st.get("msgs") == 0:
+                        return
+                    rendered_at = rendered_at or time.monotonic()
+                    if time.monotonic() - rendered_at >= self.TEMP_CONFIRM_WAIT:
+                        break
+                elif elapsed >= self.TEMP_PAGE_LOAD_WAIT:
+                    break
+            log.warning("qwen: temporary chat not confirmed after %.1f s (rendered=%s) — "
+                        "opening a regular new chat", time.monotonic() - started, rendered_at is not None)
         await self._reset_saved_chat(ws, timeout)
 
     async def _reset_saved_chat(self, ws, timeout: float = 20.0) -> None:

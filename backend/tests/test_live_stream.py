@@ -302,3 +302,54 @@ def test_stream_preflight_ends_at_the_first_live_piece():
 
     done, took = asyncio.run(run())
     assert done == set() and took < 1.0   # headers go out at once, not after 12 s or at the end
+
+
+def test_qwen_waits_for_a_slow_page_before_giving_up_on_temporary_chat(monkeypatch):
+    # Measured 2026-10-25: under load a Qwen tab needed ~20 s to render after
+    # navigation. With a flat 4 s budget the page was declared "not confirmed",
+    # the request went down the New Chat path on a half-drawn page and failed.
+    from cluster.adapters import qwen_adapter as Q
+    polls = {"n": 0}
+
+    async def fake_eval(ws, script, timeout=20):
+        polls["n"] += 1
+        if polls["n"] < 12:                       # ~6 s of a page still loading
+            return None
+        return {"on": True, "hasInput": True, "msgs": 0}
+
+    async def no_goto(self, ws, url):
+        return None
+
+    async def saved_chat(self, ws, timeout=20.0):
+        raise AssertionError("fell back to the New Chat path")
+
+    monkeypatch.setattr(Q.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(Q.QwenAdapter, "goto", no_goto)
+    monkeypatch.setattr(Q.QwenAdapter, "_reset_saved_chat", saved_chat)
+    monkeypatch.setattr(cfg, "QWEN_TEMPORARY_CHAT", True)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(Q.asyncio, "sleep", lambda s: real_sleep(0.01))
+    asyncio.run(Q.QwenAdapter().reset_chat(None))
+    assert polls["n"] == 12
+
+
+def test_qwen_falls_back_quickly_when_the_rendered_page_has_no_marker(monkeypatch):
+    from cluster.adapters import qwen_adapter as Q
+    fell_back = []
+
+    async def fake_eval(ws, script, timeout=20):
+        return {"on": False, "hasInput": True, "msgs": 0}
+
+    async def no_goto(self, ws, url):
+        return None
+
+    async def saved_chat(self, ws, timeout=20.0):
+        fell_back.append(True)
+
+    monkeypatch.setattr(Q.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(Q.QwenAdapter, "goto", no_goto)
+    monkeypatch.setattr(Q.QwenAdapter, "_reset_saved_chat", saved_chat)
+    monkeypatch.setattr(cfg, "QWEN_TEMPORARY_CHAT", True)
+    t0 = time.monotonic()
+    asyncio.run(Q.QwenAdapter().reset_chat(None))
+    assert fell_back and time.monotonic() - t0 < Q.QwenAdapter.TEMP_CONFIRM_WAIT + 1.5

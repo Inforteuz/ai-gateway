@@ -855,9 +855,10 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             payload["sf_public_model"] = model["id"]
             payload["sf_model_policy"] = {k: model.get(k) for k in ("allow_thinking", "default_reasoning")}
             # Once a stream has started the gateway can no longer fall back (the 200 is
-            # out), so the cluster is told which of its own models stands in. It uses it
-            # only to re-ask a tool call the requested model failed to deliver.
-            if model.get("fallback_to") and body.get("tools"):
+            # out), so the cluster is told which of its own models stands in: for a
+            # request the requested model cannot serve, and for a tool call it failed
+            # to deliver.
+            if model.get("fallback_to") and (stream or body.get("tools")):
                 stand_in = await run_in_threadpool(
                     state.db.one, "SELECT upstream_name, provider FROM models WHERE id=? AND enabled=1",
                     (model["fallback_to"],))
@@ -1098,6 +1099,11 @@ async def _respond_json(resp: httpx.Response, ticket: Ticket, public_model: str)
     return JSONResponse(data, headers=headers)
 
 
+# The cluster sends this as reasoning_content during a long silence (cluster/server.py,
+# _stream_with_keepalive) so the client does not take the stream for dead.
+GATEWAY_PLACEHOLDER = "[gateway]"
+
+
 async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, public_model: str):
     usage: tuple[int, int] | None = None
     chars = 0
@@ -1139,7 +1145,14 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                         meta = {"id": obj.get("id") or meta.get("id"), "created": obj.get("created") or meta.get("created")}
                         for ch in obj.get("choices") or []:
                             d = ch.get("delta") or {}
-                            chars += len(d.get("content") or "") + len(d.get("reasoning") or "") + len(d.get("reasoning_content") or "")
+                            reasoning = d.get("reasoning") or d.get("reasoning_content") or ""
+                            if reasoning.startswith(GATEWAY_PLACEHOLDER):
+                                # Our own "still waiting" note, not model output. Counted, it
+                                # turned a stream that failed before the model said a word
+                                # into a 200 billed at the full prompt price (2026-10-25:
+                                # two upstream_failed requests charged ~515 so'm each).
+                                reasoning = ""
+                            chars += len(d.get("content") or "") + len(reasoning)
                             for kind, text in (("content", d.get("content")), ("reasoning", d.get("reasoning") or d.get("reasoning_content"))):
                                 if text:
                                     tails[kind] = (tails[kind] + text)[-loops.TAIL:]

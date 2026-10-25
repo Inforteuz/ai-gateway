@@ -1581,6 +1581,7 @@ export default {
   "Oqim o'rtasida aloqa uzildi": "Communication lost between stream",
   "Model oqim o'rtasida jim qoldi": "The model is silent in the middle of a stream",
   "Oqim juda uzoq davom etdi": "Stream took too long",
+  "Model oqim o'rtasida xato qaytardi": "The model returned an error mid-stream",
   "Model takrorlanish siklida: javob to'xtatildi": "Model in iteration cycle: response aborted",
   "So'rov yakunlanmay qolgan": "The request could not be completed",
   "Model bo'sh javob berdi": "The model returned an empty response",
