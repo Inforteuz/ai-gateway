@@ -78,7 +78,7 @@ export function OverallChart({ items, highlight }) {
               <rect x={pad.left + i * slot} y={pad.top} width={slot} height={innerH}
                     fill="transparent" />
               <Bar x={x} y={y} w={bar} h={h}
-                     fill={isHighlighted ? 'var(--accent)' : 'var(--viz-1)'}
+                     fill={isHighlighted ? 'var(--primary)' : 'var(--viz-1)'}
                      opacity={isHovered ? 1 : (isHighlighted ? 1 : 0.88)} />
               {/* Value inside the bar, as in the mockup */}
               <text x={x + bar / 2} y={y + 20} textAnchor="middle"

@@ -78,10 +78,10 @@ export default function Vnc() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#111', zIndex: 50 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 14px', background: 'var(--surface, #1b1b1b)', color: 'var(--text, #eee)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 14px', background: 'var(--bg-elev)', color: 'var(--fg)', flexWrap: 'wrap' }}>
         <b>{tr("Instansiya #")}{tr(n)}</b>
         <span className="muted small">{tr(STATUS[status])}</span>
-        {error && <span className="small" style={{ color: 'var(--bad, #f66)' }}>{tr(error)}</span>}
+        {error && <span className="small" style={{ color: 'var(--danger)' }}>{tr(error)}</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button type="button" className="btn btn--small" onClick={connect}>{tr("Qayta ulanish")}</button>
           <button type="button" className="btn btn--small" onClick={() => { disconnect(); setStatus('closed') }}>{tr("Uzish")}</button>

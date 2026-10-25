@@ -4,8 +4,8 @@ import { api } from './api.js'
 import { AuthCtx, useAuth } from './auth.js'
 import { forgetReferral } from './referral.js'
 import { normalizeSite } from './site.js'
-import { LangProvider, useT } from './i18n/index.jsx'
-import { ToastProvider } from './components/ui.jsx'
+import { LangProvider } from './i18n/index.jsx'
+import { BrandLoader, ToastProvider } from './components/ui.jsx'
 const AdminUsage = lazy(() => import('./pages/admin/Usage.jsx'))
 const Shell = lazy(() => import('./pages/Shell.jsx'))
 const Landing = lazy(() => import('./pages/Landing.jsx'))
@@ -36,9 +36,10 @@ const PasswordReset = lazy(() => import('./pages/PasswordReset.jsx'))
 const Privacy = lazy(() => import('./pages/Privacy.jsx'))
 const Terms = lazy(() => import('./pages/Terms.jsx'))
 
+// Only for the very first load, before any layout exists. Navigation inside a
+// layout waits in that layout's own boundary (components/RouteOutlet.jsx).
 function RouteLoading() {
-  const t = useT()
-  return <div role="status" className="loading" aria-label={t('Yuklanmoqda')}>…</div>
+  return <BrandLoader full />
 }
 
 function RequireAuth() {

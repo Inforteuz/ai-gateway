@@ -1453,11 +1453,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
   transition: border-color .15s ease, transform .15s ease;
 }
 .price-row--link:hover {
-  border-color: var(--accent);
+  border-color: var(--primary);
   transform: translateY(-1px);
 }
 .price-row--link:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 .price-row--link > :first-child { flex: 1 1 auto; min-width: 0; }
@@ -2646,7 +2646,7 @@ body {
 .markdown em { font-style: italic; }
 .markdown code {
   padding: 0.15em 0.4em; border-radius: 4px;
-  background: var(--wash); color: var(--fg);
+  background: var(--bg-sunken); color: var(--fg);
   font-family: 'SF Mono', Consolas, monospace; font-size: 0.9em;
 }
 .markdown a {
@@ -2667,11 +2667,11 @@ body {
 .markdown .md-copy {
   position: absolute; top: 10px; right: 10px;
   padding: 4px 10px; border-radius: 6px;
-  background: var(--wash-subtle); color: var(--fg-subtle);
+  background: var(--bg-sunken); color: var(--fg-subtle);
   font-size: 0.8rem; font-weight: 500; border: 1px solid var(--border);
   cursor: pointer; transition: all 0.15s;
 }
-.markdown .md-copy:hover { background: var(--wash); color: var(--fg); }
+.markdown .md-copy:hover { background: var(--bg-sunken); color: var(--fg); }
 
 /* Highlight.js styles — light/dark for atom-one */
 :root {
@@ -2843,7 +2843,7 @@ select.input:disabled { cursor: not-allowed; opacity: 0.6; }
 
 /* Request accounting: compact rows with keyboard-accessible expandable detail. */
 .request-details { min-width: 180px; max-width: 360px; }
-.request-details summary { cursor: pointer; color: var(--muted); overflow-wrap: anywhere; }
+.request-details summary { cursor: pointer; color: var(--fg-muted); overflow-wrap: anywhere; }
 .request-details[open] summary { margin-bottom: 12px; }
 .request-details .kv { font-size: 12px; grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr); }
 .request-details dd { overflow-wrap: anywhere; white-space: normal; }
@@ -2860,7 +2860,7 @@ select.input:disabled { cursor: not-allowed; opacity: 0.6; }
   .table--requests thead { display: none; }
   .table--requests tr { display: grid; grid-template-columns: 1fr; padding: 12px 0; border-bottom: 1px solid var(--border); }
   .table--requests td { display: block; width: auto; border: 0; padding: 5px 0; text-align: left; white-space: normal; }
-  .table--requests td[data-label]::before { content: attr(data-label); display: inline-block; min-width: 90px; margin-right: 8px; color: var(--muted); font-size: 12px; }
+  .table--requests td[data-label]::before { content: attr(data-label); display: inline-block; min-width: 90px; margin-right: 8px; color: var(--fg-muted); font-size: 12px; }
   .table--requests .request-details-cell { padding-top: 12px; }
   .table--requests .request-details { max-width: none; }
 }
@@ -2875,12 +2875,12 @@ select.input:disabled { cursor: not-allowed; opacity: 0.6; }
 .key-analytics-bars { max-height: 360px; overflow-y: auto; margin: 12px 0; }
 .key-analytics-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(50px, 1fr) minmax(110px, auto); align-items: center; gap: 14px; padding: 12px 8px; width: 100%; border: 0; border-bottom: 1px solid var(--border); background: transparent; text-align: left; color: inherit; font: inherit; }
 button.key-analytics-row { cursor: pointer; border-radius: 8px; }
-button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var(--accent-soft, #eaf8f2); }
+button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var(--primary-wash); }
 .key-analytics-label { min-width: 0; overflow-wrap: anywhere; }
 .key-analytics-label b { display: block; font-size: 13px; }
-.key-analytics-label small, .key-analytics-value small { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.key-analytics-label small, .key-analytics-value small { display: block; font-size: 11px; color: var(--fg-muted); margin-top: 4px; }
 .key-analytics-track { height: 10px; overflow: hidden; border-radius: 8px; background: var(--border); }
-.key-analytics-track > span { display: block; height: 100%; background: var(--accent, #008e68); border-radius: inherit; }
+.key-analytics-track > span { display: block; height: 100%; background: var(--primary); border-radius: inherit; }
 .key-analytics-value { text-align: right; font-size: 13px; }
 @media (max-width: 1000px) { .key-analytics-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) {
@@ -2888,4 +2888,53 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   .key-analytics-track { grid-column: 1 / -1; grid-row: 2; }
   .key-analytics .panel-head { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
   .key-analytics .filter-bar .input { width: 100%; }
+}
+
+/* --- Loader and page entrance ------------------------------------------------- */
+
+/* The site's loader is the logo itself: its spark breathing and turning inside the
+   tile, with a soft ripple behind. It fades in only after a short delay, so a page
+   whose code arrives quickly never flashes it. Colours are tokens only — they are
+   redefined for dark mode. */
+.brand-loader {
+  display: grid; place-items: center; align-content: center; gap: 16px;
+  min-height: 42vh; padding: 48px 16px;
+  animation: loader-in 0.24s ease 0.16s both;
+}
+.brand-loader--full { min-height: 100vh; }
+.brand-loader__mark { position: relative; display: block; width: 46px; height: 46px; }
+.brand-loader__mark svg { position: relative; z-index: 1; display: block; width: 100%; height: 100%; }
+.brand-loader__mark::before {
+  content: ""; position: absolute; inset: 0; border-radius: 12px;
+  background: var(--primary); opacity: 0.32;
+  animation: loader-ripple 1.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.brand-loader__tile { fill: var(--primary); }
+.brand-loader__spark {
+  fill: #ffffff; /* white in both themes, as in the Logo */
+  transform-box: fill-box; transform-origin: center;
+  animation: loader-spark 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.brand-loader__label {
+  font-size: 0.82rem; font-weight: 500; letter-spacing: 0.02em; color: var(--fg-muted);
+  animation: loader-in 0.3s ease 0.5s both;
+}
+@keyframes loader-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes loader-ripple {
+  from { transform: scale(1); opacity: 0.32; }
+  to   { transform: scale(1.75); opacity: 0; }
+}
+@keyframes loader-spark {
+  0%, 100% { transform: scale(0.78) rotate(0deg); opacity: 0.85; }
+  50%      { transform: scale(1.06) rotate(45deg); opacity: 1; }
+}
+
+/* Each routed page eases in: a short fade and a few pixels of rise. The end state is
+   `transform: none`, so once the entrance is over nothing is left establishing a
+   containing block for fixed-position children such as modals and toasts.
+   prefers-reduced-motion is covered by the global rule near the top of this file. */
+.page-enter { animation: page-in 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }

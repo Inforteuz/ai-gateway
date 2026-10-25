@@ -1,10 +1,11 @@
 import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useEffect } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useAuth, useSite } from '../auth.js'
 import { useT } from '../i18n/index.jsx'
 import { Logo } from '../components/ui.jsx'
 import TopBar from '../components/TopBar.jsx'
+import RouteOutlet from '../components/RouteOutlet.jsx'
 
 export default function PublicLayout() {
   useLocaleRefresh()
@@ -20,7 +21,7 @@ export default function PublicLayout() {
     <div className="site">
       <TopBar />
 
-      <main className="site-main"><Outlet /></main>
+      <main className="site-main"><RouteOutlet /></main>
 
       <footer className="site-foot">
         <div className="wrap">

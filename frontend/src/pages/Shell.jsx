@@ -1,10 +1,11 @@
 import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { useT } from '../i18n/index.jsx'
 import TopBar from '../components/TopBar.jsx'
+import RouteOutlet from '../components/RouteOutlet.jsx'
 import {
   IconActivity, IconArrowRight, IconBook, IconCard, IconChart, IconCoins,
   IconDoc, IconHome, IconKey, IconLayers, IconLogout, IconSettings, IconSparkles, IconUsers,
@@ -87,7 +88,7 @@ export default function Shell() {
             </button>
           </div>
         </aside>
-        <main className="main"><Outlet /></main>
+        <main className="main"><RouteOutlet /></main>
       </div>
     </div>
   )

@@ -292,6 +292,26 @@ export function ErrorNote({ error, retry }) {
   )
 }
 
+/** The site's loader: the logo's own spark, breathing inside its tile.
+ *
+ *  It fades in after a short delay (see `.brand-loader` in styles.css), so a page
+ *  whose code arrives quickly never flashes a loader at all. `full` centres it in the
+ *  viewport for the very first load, before any layout exists. */
+export function BrandLoader({ label, full = false }) {
+  const t = useT()
+  return (
+    <div className={`brand-loader${full ? ' brand-loader--full' : ''}`} role="status" aria-live="polite">
+      <span className="brand-loader__mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32">
+          <rect width="32" height="32" rx="8" className="brand-loader__tile" />
+          <path className="brand-loader__spark" d="M16 7c1 5 4 8 9 9-5 1-8 4-9 9-1-5-4-8-9-9 5-1 8-4 9-9z" />
+        </svg>
+      </span>
+      <span className="brand-loader__label">{label || t('Yuklanmoqda')}</span>
+    </div>
+  )
+}
+
 export function Loading({ rows = 3 }) {
   useLocaleRefresh()
   return <div style={{ display: 'grid', gap: 14 }} aria-busy="true">{Array.from({ length: rows }).map((_, i) => <div key={i} className="skeleton" style={{ width: `${88 - i * 14}%`, height: 18 }} />)}</div>

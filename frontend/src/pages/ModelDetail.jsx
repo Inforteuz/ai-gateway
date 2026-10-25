@@ -43,7 +43,7 @@ function CompareBars({ title, note, items, current, value, format, footnote }) {
               <div style={{ height: 8, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
                 <div style={{
                   width: `${share * 100}%`, height: '100%', borderRadius: 999,
-                  background: isCurrent ? 'var(--accent)' : 'var(--muted)',
+                  background: isCurrent ? 'var(--primary)' : 'var(--fg-muted)',
                   opacity: isCurrent ? 1 : 0.45,
                 }} />
               </div>
