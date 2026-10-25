@@ -65,8 +65,10 @@ for ch in $CHANNELS; do
         *" $ch "*) ;;
         *) echo "[cluster] unknown channel '$ch' (known: $KNOWN)" >&2; exit 1 ;;
     esac
-    if [ "$idx" -gt 9 ]; then
-        echo "[cluster] at most 10 Chrome instances are supported" >&2; exit 1
+    # The cap exists because each instance needs a published VNC port
+    # (5900+N in docker-compose). Raise both together, never just one.
+    if [ "$idx" -ge "${SF_MAX_INSTANCES:-10}" ]; then
+        echo "[cluster] at most ${SF_MAX_INSTANCES:-10} Chrome instances are supported" >&2; exit 1
     fi
     ports+=("$((9222 + idx))")
     [ "$ch" = "gemini" ] && gemini_instances+=("$idx")

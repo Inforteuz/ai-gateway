@@ -111,6 +111,8 @@ services:
     pids_limit: 4096
     environment:
       SF_CHROME_CHANNELS: ${SF_CHROME_CHANNELS:-}
+      # Must cover the published VNC range below (5900+N); raise both together.
+      SF_MAX_INSTANCES: ${SF_MAX_INSTANCES:-10}
       SF_CLUSTER_API_KEY: ${CLUSTER_API_KEY:?run ./install.sh first}
       SF_VNC_PASSWORD: ${SF_VNC_PASSWORD:?run ./install.sh first}
       SF_BRAND_NAME: ${SF_BRAND_NAME:-AI Gateway}
@@ -149,7 +151,7 @@ services:
     ports:
       # Optional raw VNC for an SSH tunnel; the admin panel has a built-in VNC viewer.
       # One screen per instance: instance N is on the Nth port of this range.
-      - "127.0.0.1:${VNC_PORTS:-15900-15909}:5900-5909"
+      - "127.0.0.1:${VNC_PORTS:-15900-15912}:5900-5912"
 
   ollama:
     profiles: ["ollama"]
