@@ -41,6 +41,9 @@ REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_REQUEST_TIMEOUT", "60"))
 # balancer moves on to the next tab. A model that is thinking shows its stop
 # button, so long reasoning is not cut. 0 disables the check.
 ANSWER_START_TIMEOUT = float(os.getenv("SF_CLUSTER_ANSWER_START_TIMEOUT", "30"))
+# A stale stop button is not useful progress. Only explicit fast-effort
+# requests get this first-text budget; high/default effort keeps its budget.
+ANSWER_FIRST_TEXT_TIMEOUT = float(os.getenv("SF_CLUSTER_FIRST_TEXT_TIMEOUT", "30"))
 
 # An answer that is still GROWING is not cut at REQUEST_TIMEOUT: each new piece of
 # text moves the tab's deadline ANSWER_GROWTH_GRACE seconds on, up to

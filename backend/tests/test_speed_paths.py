@@ -96,3 +96,41 @@ def test_gemini_send_confirmation_detects_new_user_query_and_polls_immediately(m
     assert asyncio.run(adapter.send_prompt(None,'hello'))
     assert "querySelectorAll('user-query').length > 0" in seen['js']
     assert seen['timeout']==10 and seen['interval']==.1
+
+
+@pytest.mark.parametrize('effort,should_timeout',[('none',True),('low',True),('high',False),('',False)])
+def test_silent_stop_control_cannot_hold_fast_requests_forever(monkeypatch,effort,should_timeout):
+    from cluster.adapters import base_adapter as ba
+    from .test_live_stream import _poll_adapter
+    started=[0.0]
+    async def evaluate(ws,js,timeout=20):
+        if not started[0]:started[0]=time.monotonic()
+        if time.monotonic()-started[0]<.15:return {'answer':'','generating':True}
+        return {'answer':'complete','generating':False}
+    monkeypatch.setattr(ba.cdp,'evaluate',evaluate)
+    monkeypatch.setattr(cfg,'POLL_INTERVAL',.01)
+    monkeypatch.setattr(cfg,'POLL_FIRST_DELAY',.01)
+    monkeypatch.setattr(cfg,'ANSWER_FIRST_TEXT_TIMEOUT',.07)
+    async def run():
+        runmeta.start(effort=effort)
+        return await _poll_adapter().poll_answer(None,'script',timeout=2,initial_delay=.01)
+    if should_timeout:
+        with pytest.raises(asyncio.TimeoutError):asyncio.run(run())
+    else:assert asyncio.run(run())=='complete'
+
+
+def test_poll_deadlines_ignore_wall_clock_adjustments(monkeypatch):
+    from cluster.adapters import base_adapter as ba
+    from .test_live_stream import _poll_adapter
+    async def evaluate(ws,js,timeout=20):return {'answer':'complete','generating':False}
+    monkeypatch.setattr(ba.cdp,'evaluate',evaluate)
+    monkeypatch.setattr(ba.time,'time',lambda: 10**12)
+    monkeypatch.setattr(cfg,'POLL_INTERVAL',.01)
+    monkeypatch.setattr(cfg,'POLL_FIRST_DELAY',.01)
+    async def run():
+        runmeta.start()
+        t=time.monotonic()
+        result=await _poll_adapter().poll_answer(None,'script',timeout=2,initial_delay=.5)
+        return result,time.monotonic()-t
+    result,seconds=asyncio.run(run())
+    assert result=='complete' and .5<=seconds<1.5

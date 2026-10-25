@@ -829,7 +829,7 @@ class BaseAIAdapter(ABC):
         Stability is measured in TIME, so changing the poll interval does not
         reduce reliability.
         """
-        started = time.time()
+        started = time.monotonic()
         # Scalars only: split provider latency from stability wait; no content.
         reads = runmeta.get().setdefault("answer_reads", [])
         timing = {"first_text_ms": None, "settle_ms": None, "polls": 0, "read_ms": 0}
@@ -845,7 +845,7 @@ class BaseAIAdapter(ABC):
         generating = False
         stable_since = 0.0
         js_errors = 0
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         # Any sign of life: answer text or the stop button (see ANSWER_START_TIMEOUT)
         active = False
 
@@ -854,7 +854,7 @@ class BaseAIAdapter(ABC):
         need_generating = (None if stable_if_generating is None
                            else max(1.0, (stable_if_generating - 1) * cfg.POLL_INTERVAL))
 
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             await asyncio.sleep(cfg.POLL_INTERVAL)
             read_started = time.monotonic()
             try:
@@ -877,20 +877,26 @@ class BaseAIAdapter(ABC):
             gen = bool(val.get("generating"))
             generating = gen
             active = active or gen or bool(cur)
-            if not active and cfg.ANSWER_START_TIMEOUT and time.time() - started > cfg.ANSWER_START_TIMEOUT:
+            if not active and cfg.ANSWER_START_TIMEOUT and time.monotonic() - started > cfg.ANSWER_START_TIMEOUT:
                 log.warning("%s: no answer and no stop button %.0f s after sending — giving up on this tab",
-                            self.name, time.time() - started)
+                            self.name, time.monotonic() - started)
                 raise asyncio.TimeoutError("Provider never started answering")
             if not cur:
+                effort = str(runmeta.get().get("effort") or "").lower()
+                if (cfg.ANSWER_FIRST_TEXT_TIMEOUT > 0 and effort in ("none", "minimal", "low")
+                        and not prev and time.monotonic() - started > cfg.ANSWER_FIRST_TEXT_TIMEOUT):
+                    log.warning("%s: fast-effort request has no answer text after %.1fs; trying another worker",
+                                self.name, time.monotonic() - started)
+                    raise asyncio.TimeoutError("No answer text within fast-effort budget")
                 continue
             if timing["first_text_ms"] is None:
-                timing["first_text_ms"] = round((time.time() - started) * 1000)
+                timing["first_text_ms"] = round((time.monotonic() - started) * 1000)
 
             if cur != prev:
                 prev = cur
-                stable_since = time.time()
+                stable_since = time.monotonic()
                 # Still writing: keep the tab (see ANSWER_GROWTH_GRACE)
-                deadline = max(deadline, min(time.time() + cfg.ANSWER_GROWTH_GRACE,
+                deadline = max(deadline, min(time.monotonic() + cfg.ANSWER_GROWTH_GRACE,
                                              started + cfg.ANSWER_MAX_SECONDS))
                 if on_progress is not None:
                     try:
@@ -901,10 +907,10 @@ class BaseAIAdapter(ABC):
                 continue
 
             if not stable_since:
-                stable_since = time.time()
-            stable_for = time.time() - stable_since
+                stable_since = time.monotonic()
+            stable_for = time.monotonic() - stable_since
             need = need_done if not gen else need_generating
-            if need is not None and stable_for >= need and time.time() >= done_not_before:
+            if need is not None and stable_for >= need and time.monotonic() >= done_not_before:
                 timing["settle_ms"] = round(stable_for * 1000)
                 return self.clean_text(cur)
 

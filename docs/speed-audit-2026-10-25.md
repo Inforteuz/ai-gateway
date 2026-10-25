@@ -46,3 +46,21 @@ The Tailscale client was stopped at the start of the audit; it was resumed to re
 The primary risk is the slow tail rather than a sub-second poll interval. Measure uncached p95 by input size, output size and actual routed provider, then distinguish provider queueing, time to first text and generation duration. Do not shorten long-generation deadlines indiscriminately: that recreates the earlier broken-code/half-tool-call failures.
 
 If a provider is routinely slow after accepting a request, independent authorized provider capacity or native APIs are the scalable remedy. Extra same-account tabs do not remove a provider quota or model inference delay. Speculative duplicate generations would spend quota and create contention; they are not enabled here. Session reuse with transcript binding remains a separate privacy-sensitive architecture task; blank-chat reuse is the only reuse in this change.
+
+## First rollout findings
+
+The first speed revision passed **713 tests** and was deployed after retaining source/configuration and the preceding image. ChatGPT's equivalent short uncached probe changed **10.393 -> 9.348 s**. This is one observation, not an aggregate guarantee. New telemetry measured first text at 2.954 s and about 0.706 s of stabilization; the registry wait is included in the answer phase.
+
+Gemini still took **90.149 s**. This is explicitly **not** reported as a successful speed improvement. Detailed telemetry exposed the reason: the first account consumed 64.637 seconds before another account was dispatched; its 170 DOM polls had **no answer text at all**, while CDP reads consumed only 520 ms. Read-only inspection showed a visible enabled Stop response button, one submitted user-query and zero model-response nodes. The next account eventually succeeded.
+
+This distinguishes a provider accepting a request but never yielding text from a slow polling loop. Shorter DOM polling would not fix the dominant delay.
+
+### Targeted no-text budget
+
+For an **explicit** `none`/`minimal`/`low` effort request, a Stop button without any answer text now gets a bounded first-text window of 30 seconds (`SF_CLUSTER_FIRST_TEXT_TIMEOUT`, 0 disables). This promotes failover sooner instead of consuming the full 60-second per-tab read budget. Unspecified/high effort keeps its existing budget; a growing answer still gets the existing growth grace and total cap. No generation text is truncated by this change.
+
+A restart-readiness connection refusal was observed in the first immediate probe and excluded from model latency measurements. The repeated probe was run after the cluster startup completed. This also confirms that port discovery alone is not HTTP readiness; deployment checks must wait for application startup.
+
+A second uncached ChatGPT probe used the verified pre-opened blank chat and completed in **6.667 s**. `new_chat` was **0.01 s**, compared with **2.24 s** on the preceding cold probe; telemetry confirmed `chat_reused=True`. First answer text arrived at 2.363 s. End-to-end generation varies, so the direct measured mechanism is the 2.23-second reduction in chat preparation rather than attributing the entire 3.726-second baseline difference to code.
+
+The first full rerun caught the existing elapsed-time guard using adjustable wall-clock time: the initial-delay test finished at 0.415 seconds despite a 0.6-second guard. The answer polling loop now uses monotonic time consistently for initial delay, stabilization, growth and first-text deadlines. This preserves elapsed-time guarantees across clock corrections.
