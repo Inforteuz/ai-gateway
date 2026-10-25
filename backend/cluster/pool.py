@@ -8,6 +8,7 @@ import random
 import shutil
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional
@@ -45,6 +46,28 @@ _ACCOUNT_BLOCKED: Dict[tuple, tuple[float, str]] = {}
 # the other prepares a clean chat), never to send in parallel.
 _ACCOUNT_LOCKS: Dict[tuple, asyncio.Lock] = {}
 _ACCOUNT_FINISHED: Dict[tuple, float] = {}
+# Parallel tabs (cfg.PARALLEL_TAB_MODELS): which tabs of an account are answering
+# right now, when the account last sent, and until when it is back to one request
+# at a time after a captcha.
+_ACCOUNT_INFLIGHT: Dict[tuple, set] = {}
+_ACCOUNT_LAST_SEND: Dict[tuple, float] = {}
+_ACCOUNT_SERIAL_UNTIL: Dict[tuple, float] = {}
+_TAB_OPENED_AT: Dict[int, float] = {}
+
+
+def parallel_allowed(account_key: tuple) -> bool:
+    """May the tabs of this account answer at the same time?"""
+    return (account_key[0] in cfg.PARALLEL_TAB_MODELS and cfg.PARALLEL_TABS > 1
+            and time.time() >= _ACCOUNT_SERIAL_UNTIL.get(account_key, 0.0))
+
+
+def serialize_account(account_key: tuple, why: str) -> None:
+    """Back to one request at a time on this account (see PARALLEL_BACKOFF)."""
+    if account_key[0] not in cfg.PARALLEL_TAB_MODELS:
+        return
+    _ACCOUNT_SERIAL_UNTIL[account_key] = time.time() + cfg.PARALLEL_BACKOFF
+    log.warning("parallel tabs off model=%s port=%d for %ds (%s)",
+                account_key[0], account_key[1], cfg.PARALLEL_BACKOFF, why)
 
 
 # Response classes, to tell rate-limit/quota/login states apart
@@ -181,8 +204,16 @@ class WorkerTab:
         return self.tab_id[:8]
 
     @property
+    def lane_key(self) -> tuple:
+        """What sends one request at a time: the account, or this one tab of it
+        when the account may answer in parallel (cfg.PARALLEL_TAB_MODELS)."""
+        if parallel_allowed(self.account_key):
+            return (*self.account_key, self.tab_id)
+        return self.account_key
+
+    @property
     def dispatch_lock(self) -> asyncio.Lock:
-        return _ACCOUNT_DISPATCH.setdefault(self.account_key, asyncio.Lock())
+        return _ACCOUNT_DISPATCH.setdefault(self.lane_key, asyncio.Lock())
 
     @property
     def cooldown_until(self) -> float:
@@ -196,9 +227,35 @@ class WorkerTab:
         if value == 0:
             _ACCOUNT_BLOCKED.pop(self.account_key, None)
 
+    def sibling_blocked(self) -> bool:
+        """Another tab of this account is answering and this one may not join it yet.
+
+        Only for parallel-tab models; the others are already kept to one request
+        per account by the account-wide locks. Checked when a tab is picked, so the
+        balancer waits for an allowed tab instead of sleeping inside one.
+        """
+        if self.account_key[0] not in cfg.PARALLEL_TAB_MODELS:
+            return False
+        others = _ACCOUNT_INFLIGHT.get(self.account_key, set()) - {self.tab_id}
+        if not others:
+            return False
+        if not parallel_allowed(self.account_key):
+            return True
+        return time.time() - _ACCOUNT_LAST_SEND.get(self.account_key, 0.0) < cfg.PARALLEL_SEND_GAP
+
+    def claim(self) -> None:
+        """Mark this tab as answering. Called by the balancer in the same step that
+        picked it (no await in between), so two requests cannot both pass the
+        sibling check before either is marked."""
+        _ACCOUNT_INFLIGHT.setdefault(self.account_key, set()).add(self.tab_id)
+        _ACCOUNT_LAST_SEND[self.account_key] = time.time()
+
+    def release_claim(self) -> None:
+        _ACCOUNT_INFLIGHT.get(self.account_key, set()).discard(self.tab_id)
+
     def is_available(self) -> bool:
         return (time.time() >= self.cooldown_until and not self.lock.locked()
-                and not self.dispatch_lock.locked())
+                and not self.dispatch_lock.locked() and not self.sibling_blocked())
 
     def state(self, now: Optional[float] = None) -> str:
         """One-word state for monitoring: ACTIVE (free and healthy), BUSY (serving a request),
@@ -246,6 +303,7 @@ class WorkerTab:
         elif reason == "captcha":
             self.needs_attention = "captcha"
             self.set_cooldown(cfg.CHALLENGE_COOLDOWN, reason="probe:captcha")
+            serialize_account(self.account_key, "probe:captcha")
             log.warning("bot check model=%s port=%d, operator needed", self.model_name, self.browser_port)
         elif reason in ("login_required", "no_chat_input"):
             self.needs_attention = "login"
@@ -358,8 +416,9 @@ class WorkerTab:
 
     @property
     def account_lock(self) -> asyncio.Lock:
-        """Shared by every tab of this account: they never send at the same time."""
-        return _ACCOUNT_LOCKS.setdefault(self.account_key, asyncio.Lock())
+        """Shared by every tab of this account: they never send at the same time —
+        unless the account may answer in parallel, then it is per tab (lane_key)."""
+        return _ACCOUNT_LOCKS.setdefault(self.lane_key, asyncio.Lock())
 
     def hourly_count(self) -> int:
         """Number of requests sent from this ACCOUNT in the last hour."""
@@ -428,6 +487,7 @@ class WorkerTab:
         self.needs_attention = "captcha"
         self._record_outcome(False)
         self.set_cooldown(cfg.CHALLENGE_COOLDOWN, reason=f"captcha:{sign[:24]}")
+        serialize_account(self.account_key, f"captcha:{sign[:24]}")
         log.warning("bot check model=%s port=%d sign=%s, %ds cooldown, operator needed",
                     self.model_name, self.browser_port, sign, cfg.CHALLENGE_COOLDOWN)
 
@@ -736,6 +796,9 @@ class WorkerTab:
         # then moves the request to another worker.
         await self._pace()
         await self._preflight_session()
+        if self.account_key[0] in cfg.PARALLEL_TAB_MODELS:
+            # The gap a parallel sibling must keep is measured from the real send
+            _ACCOUNT_LAST_SEND[self.account_key] = time.time()
         self.total_requests += 1
         self.last_used = time.time()
         kw = dict(attachment_paths=attachment_paths, images_only=images_only,
@@ -1076,6 +1139,8 @@ class ClusterPool:
                 log.warning("scan port=%d unexpected error: %s", port, e)
                 continue
 
+            self._ensure_parallel_tabs(port, tabs)
+
             for tab in tabs:
                 if tab.get("type") != "page":
                     continue
@@ -1113,6 +1178,37 @@ class ClusterPool:
         before, self.workers = len(self.workers), discovered
         log.info("scan complete workers=%d ports_up=%d/%d (was %d)",
                  len(discovered), len(self.ports) - len(self.scan_errors), len(self.ports), before)
+
+    def _ensure_parallel_tabs(self, port: int, tabs: List[dict]) -> None:
+        """Open the missing tab of a parallel-tab account (cfg.PARALLEL_TAB_MODELS).
+
+        A new tab, not a new browser: same profile, same login, Chrome is not
+        restarted. It shows up as a worker on the next scan. At most one attempt per
+        browser every PARALLEL_TAB_OPEN_INTERVAL, so a failure cannot open tabs in a loop.
+        """
+        pages = [t for t in tabs if t.get("type") == "page"]
+        by_model: Dict[str, List[dict]] = {}
+        for t in pages:
+            m = cfg.PORT_MODEL_OVERRIDE.get(port) or detect_model_from_url(t.get("url", ""))
+            if m:
+                by_model.setdefault(m, []).append(t)
+        for model, mine in by_model.items():
+            if (model not in cfg.PARALLEL_TAB_MODELS or len(mine) >= cfg.PARALLEL_TABS
+                    or not parallel_allowed((model, port))):
+                continue
+            if time.time() - _TAB_OPENED_AT.get(port, 0.0) < cfg.PARALLEL_TAB_OPEN_INTERVAL:
+                continue
+            _TAB_OPENED_AT[port] = time.time()
+            adapter = get_adapter(model)
+            url = getattr(adapter, "TEMP_URL", None) or mine[0].get("url", "")
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/json/new?{urllib.parse.quote(url, safe=':/?=&')}", method="PUT")
+                with urllib.request.urlopen(req, timeout=5.0) as resp:
+                    tab_id = json.loads(resp.read().decode()).get("id", "")
+                log.info("parallel tab opened model=%s port=%d tab=%s", model, port, tab_id[:8])
+            except Exception as e:
+                log.warning("parallel tab not opened model=%s port=%d: %s", model, port, e)
 
     def workers_for_model(self, model_name: str) -> List[WorkerTab]:
         m = (model_name or "").lower()

@@ -75,6 +75,12 @@ def _dispatch_lock(worker: WorkerTab):
     return getattr(worker, "dispatch_lock", worker.lock)
 
 
+def _release_claim(worker: WorkerTab) -> None:
+    release = getattr(worker, "release_claim", None)
+    if release is not None:
+        release()
+
+
 def _is_busy(worker: WorkerTab) -> bool:
     """The lock is held OR has waiters.
 
@@ -83,6 +89,10 @@ def _is_busy(worker: WorkerTab) -> bool:
     and waits indefinitely, so waiters are counted too.
     """
     lock = _dispatch_lock(worker)
+    # A parallel-tab sibling that may not join its account yet counts as busy
+    blocked = getattr(worker, "sibling_blocked", None)
+    if blocked is not None and blocked():
+        return True
     return (lock.locked() or bool(getattr(lock, "_waiters", None))
             or worker.lock.locked() or bool(getattr(worker.lock, "_waiters", None)))
 
@@ -362,8 +372,16 @@ class ClusterBalancer:
                             break
                 if worker is None:
                     break
+            # Same step as the pick, no await in between: see WorkerTab.claim
+            claim = getattr(worker, "claim", None)
+            if claim is not None:
+                claim()
             dispatch_lock = _dispatch_lock(worker)
-            await dispatch_lock.acquire()
+            try:
+                await dispatch_lock.acquire()
+            except BaseException:
+                _release_claim(worker)
+                raise
             tab_held = False
             try:
                 if dispatch_lock is not worker.lock:
@@ -371,11 +389,13 @@ class ClusterBalancer:
                     tab_held = True
             except BaseException:
                 dispatch_lock.release()
+                _release_claim(worker)
                 raise
             if not self.circuits.allow(_circuit_key(worker)):
                 if tab_held:
                     worker.lock.release()
                 dispatch_lock.release()
+                _release_claim(worker)
                 attempted.add(id(worker))
                 continue
             attempted.add(id(worker))
@@ -431,6 +451,7 @@ class ClusterBalancer:
                 if tab_held:
                     worker.lock.release()
                 dispatch_lock.release()
+                _release_claim(worker)
                 # SPEED: prepare a clean chat in the background for the next request (skipped if queued)
                 if cfg.PREWARM_ENABLED and hasattr(worker, "prewarm"):
                     asyncio.get_event_loop().create_task(worker.prewarm())

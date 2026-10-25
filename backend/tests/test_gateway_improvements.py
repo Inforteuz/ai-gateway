@@ -22,7 +22,9 @@ def test_candidate_inspection_does_not_claim_half_open_probe():
     assert c.allow_request()
 
 
-def test_account_quarantine_applies_to_sibling_tabs():
+def test_account_quarantine_applies_to_sibling_tabs(monkeypatch):
+    # The one-request-per-account rule; parallel tabs are covered in test_parallel_tabs.py
+    monkeypatch.setattr(cfg, "PARALLEL_TAB_MODELS", frozenset())
     async def run():
         adapter = SimpleNamespace()
         a=WorkerTab(19701,'a','qwen','ws://unused',adapter)

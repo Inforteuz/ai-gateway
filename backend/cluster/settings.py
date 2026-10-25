@@ -375,6 +375,24 @@ CACHE_MAX_ENTRY_BYTES = int(os.getenv("SF_CLUSTER_CACHE_MAX_ENTRY", str(2 * 1024
 # longer ago than this, there is NO wait.
 MIN_REQUEST_GAP = float(os.getenv("SF_CLUSTER_MIN_REQUEST_GAP", "3.0"))
 
+# Parallel tabs on one account (owner's call, 2026-10-25). By default every tab of an
+# account waits for its siblings: one account, one request at a time. Accounts are
+# scarce and opencode prompts only fit qwen (2 accounts), so for the models listed
+# here a second tab is opened per account and may answer IN PARALLEL — with two
+# safeguards, because qwen's captcha follows request DENSITY:
+#   * a send on an account whose other tab is still answering waits until
+#     PARALLEL_SEND_GAP seconds after that account's previous send;
+#   * a captcha on the account switches it back to one request at a time for
+#     PARALLEL_BACKOFF seconds (the extra tab then only pre-opens chats, as before).
+# Empty list or PARALLEL_TABS=1 turns the mode off.
+PARALLEL_TAB_MODELS = frozenset(
+    m.strip().lower() for m in os.getenv("SF_CLUSTER_PARALLEL_TAB_MODELS", "qwen").split(",") if m.strip())
+PARALLEL_TABS = int(os.getenv("SF_CLUSTER_PARALLEL_TABS", "2"))
+PARALLEL_SEND_GAP = float(os.getenv("SF_CLUSTER_PARALLEL_SEND_GAP", "30"))
+PARALLEL_BACKOFF = int(os.getenv("SF_CLUSTER_PARALLEL_BACKOFF", str(6 * 3600)))
+# A missing tab is opened at most this often per browser (no tab storm if it fails)
+PARALLEL_TAB_OPEN_INTERVAL = int(os.getenv("SF_CLUSTER_PARALLEL_TAB_OPEN_INTERVAL", "300"))
+
 # Random extra added to the gap (0..JITTER seconds); a perfectly constant
 # interval is itself a machine fingerprint.
 REQUEST_JITTER = float(os.getenv("SF_CLUSTER_REQUEST_JITTER", "1.5"))

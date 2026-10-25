@@ -54,7 +54,7 @@ class _Adapter:
 
 def _worker(answers, fallback=True):
     w = P.WorkerTab.__new__(P.WorkerTab)
-    w.model_name, w.browser_port, w.adapter = "qwen", 9223, _Adapter(fallback)
+    w.model_name, w.browser_port, w.tab_id, w.adapter = "qwen", 9223, "t", _Adapter(fallback)
     w.total_requests, w.last_used, w.cooldown_until, w.prefer_fallback_until = 0, 0, 0.0, 0.0
     w._last_variant, w.last_error, w.needs_attention, w.default_cooldown = None, None, None, 30
     w.warm_since, w.last_finished = 0.0, 0.0
