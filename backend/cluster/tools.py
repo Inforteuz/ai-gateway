@@ -56,6 +56,7 @@ _MUTATING_TOOLS = frozenset({
     "write", "write_file", "edit", "edit_file", "apply_patch", "patch",
     "shell", "execute", "exec", "exec_command", "bash", "run_command",
 })
+_QUESTION_TOOLS = frozenset({"question", "ask_question", "ask_user", "request_user_input"})
 
 
 # Bump when the tool protocol changes; this invalidates cache keys.
@@ -393,6 +394,40 @@ def _call_signature(call):
     return name, json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _question_signature(call):
+    """Return a stable identity for the visible prompt of an interactive call.
+
+    Clients sometimes add a fresh id, header or option metadata when an agent
+    accidentally replays the same question. Comparing the full arguments would
+    miss that case, while comparing all text could conflate unrelated fields.
+    The visible question/prompt strings are the useful identity; if a client
+    uses an unusual schema, fall back to the normal exact signature.
+    """
+    name, encoded = _call_signature(call)
+    if name not in _QUESTION_TOOLS:
+        return None
+    try:
+        args = json.loads(encoded)
+    except (TypeError, ValueError):
+        return name, encoded
+    prompts = []
+
+    def collect(value, key=""):
+        if isinstance(value, Mapping):
+            for child_key, child in value.items():
+                key_name = str(child_key).strip().lower()
+                if key_name in {"question", "prompt"} and isinstance(child, str) and child.strip():
+                    prompts.append(" ".join(child.split()))
+                else:
+                    collect(child, key_name)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child, key)
+
+    collect(args)
+    return (name, tuple(prompts)) if prompts else (name, encoded)
+
+
 def _call_target(call):
     """Return a normalized file/command target for mutation-loop detection."""
     name, _ = _call_signature(call)
@@ -444,6 +479,7 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
     start = max((i for i, m in enumerate(data) if isinstance(m, Mapping) and m.get("role") == "user"), default=-1)
     pending = {}
     exact_counts = {}
+    question_counts = {}
     target_counts = {}
     last_target = None
     target_streak = 0
@@ -462,6 +498,10 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
                 continue
             signature, target = previous
             exact_counts[signature] = exact_counts.get(signature, 0) + 1
+            question_signature = _question_signature({
+                "function": {"name": signature[0], "arguments": signature[1]}})
+            if question_signature is not None:
+                question_counts[question_signature] = question_counts.get(question_signature, 0) + 1
             if target:
                 key = target
                 if key == last_target:
@@ -479,7 +519,9 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
         signature = _call_signature(call)
         name, _ = signature
         call_target = _call_target(call)
-        if exact_counts.get(signature, 0):
+        question_signature = _question_signature(call)
+        if exact_counts.get(signature, 0) or (
+                question_signature is not None and question_counts.get(question_signature, 0)):
             exact.append(call)
         elif call_target and name in _MUTATING_TOOLS and target_counts.get(call_target, 0) >= max_target_actions:
             target.append(call)

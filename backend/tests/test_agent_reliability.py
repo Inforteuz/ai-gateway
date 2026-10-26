@@ -135,6 +135,23 @@ def test_answered_question_is_not_emitted_again_with_a_new_call_id():
     assert exact == [current] and not target
 
 
+def test_answered_question_with_changed_options_is_still_not_repeated():
+    first = {"id": "old", "type": "function", "function": {
+        "name": "question", "arguments": json.dumps({
+            "questions": [{"question": "Qaysi dizayn uslubini yoqtirasiz?",
+                            "options": ["Minimalist", "Rangli"]}]})}}
+    current = {"id": "new", "type": "function", "function": {
+        "name": "question", "arguments": json.dumps({
+            "questions": [{"question": "Qaysi dizayn uslubini yoqtirasiz?",
+                            "options": ["Oq va minimalist", "To'q va yorqin"],
+                            "header": "Design"}]})}}
+    messages = [{"role": "user", "content": "Build a page"},
+                {"role": "assistant", "tool_calls": [first]},
+                {"role": "tool", "tool_call_id": "old", "content": "Oq va minimalist"}]
+    exact, target = tools.repeated_successful_actions([current], messages)
+    assert exact == [current] and not target
+
+
 def test_successful_mutation_target_limit_catches_changing_loop_and_allows_failures():
     messages = [{"role": "user", "content": "Build the clock"}]
     for i in range(tools.MAX_SUCCESSFUL_TARGET_ACTIONS):
