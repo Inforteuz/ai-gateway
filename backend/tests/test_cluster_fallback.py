@@ -177,6 +177,8 @@ def test_qwen_select_variant_waits_until_item_stops_moving(monkeypatch):
     target_at = {"x": 90.0, "y": 270.0}
 
     async def fake_eval(ws, js, timeout=20.0):
+        if js == a._IMAGE_MODE_JS:
+            return False
         if js == a._CUR_MODEL_JS:
             return st["cur"]
         if js == a._TRIGGER_JS:

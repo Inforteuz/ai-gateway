@@ -40,10 +40,12 @@ class QwenAdapter(BaseAIAdapter):
     #   files=False     — a document (txt) could not be attached: `setFileInputFiles`,
     #                     `paste` and `drop` all failed (images do upload via
     #                     paste — only images are accepted);
-    #   image_gen=False — the composer only has "Fast" mode; asked for an image,
-    #                     the model answers in text and draws nothing.
-    caps = Capabilities(tool_calling=True, vision=True, files=False, image_gen=False,
+    #   image_gen=True — measured 2026-10-26: the separate Create Image mode
+    #                    (Qwen-Image 3.0) produced an image in 56.4 seconds.
+    caps = Capabilities(tool_calling=True, vision=True, files=False, image_gen=True,
                         temporary_chat=True, delete_chats=True)
+    IMAGE_DONE_RELIABLE = True
+    _IMAGE_MODE_JS = "!!document.querySelector('textarea[placeholder=\"Describe the image you want to generate.\"]')"
 
     def __init__(self):
         super().__init__("qwen")
@@ -84,6 +86,7 @@ class QwenAdapter(BaseAIAdapter):
     # brand-new chat on; anything else is not reused.
     _FRESH_STATE_JS = """(() => ({
         hasInput: !!document.querySelector('textarea.message-input-textarea, textarea'),
+        imageMode: !!document.querySelector('textarea[placeholder="Describe the image you want to generate."]'),
         msgs: document.querySelectorAll(
             '.qwen-chat-message-assistant, .qwen-chat-message-user, .qwen-chat-message').length,
         newPath: location.pathname === '/' || location.pathname === '/c/guest',
@@ -113,7 +116,7 @@ class QwenAdapter(BaseAIAdapter):
         st = await cdp.evaluate(ws, self._FRESH_STATE_JS, timeout=8)
         if not isinstance(st, dict):
             return False
-        return bool(st.get("hasInput")) and st.get("msgs") == 0 and bool(st.get("newPath"))
+        return bool(st.get("hasInput")) and st.get("msgs") == 0 and bool(st.get("newPath")) and not st.get("imageMode")
 
     def has_variant(self, variant: str) -> bool:
         return variant == "fallback" and bool(cfg.QWEN_FALLBACK_MODEL) \
@@ -128,6 +131,8 @@ class QwenAdapter(BaseAIAdapter):
         model cannot be selected — an error (the request is retried another
         way); there is no "silent switch".
         """
+        if await cdp.evaluate(ws, self._IMAGE_MODE_JS, timeout=5):
+            return "Qwen-Image 3.0"
         target = {None: cfg.QWEN_PRIMARY_MODEL, "fallback": cfg.QWEN_FALLBACK_MODEL}.get(variant, variant)
         if not target:
             return None
@@ -296,6 +301,71 @@ class QwenAdapter(BaseAIAdapter):
         })()"""
         await cdp.evaluate(ws, pick)
         await asyncio.sleep(0.5)
+
+    async def reset_chat_for_images(self, ws, timeout: float = 20.0) -> None:
+        # Image mode has its own model. A normal Fast prompt just answers in text.
+        # Use a verified blank page, never the previous user's saved conversation.
+        await self.goto(ws, "https://chat.qwen.ai/")
+        await self.wait_for_input(ws, timeout=timeout, selector=QWEN_INPUT)
+        if not await self.is_fresh_chat(ws):
+            await self._reset_saved_chat(ws, timeout=timeout)
+        opener = """(() => {
+            const e = document.querySelector('.mode-select-open');
+            if (!e) return null;
+            const r = e.getBoundingClientRect();
+            return r.width && r.height ? {x:r.left+r.width/2,y:r.top+r.height/2} : null;
+        })()"""
+        item = """(() => {
+            const e = [...document.querySelectorAll('.mode-select-dropdown-item')]
+                .find(e => (e.innerText || '').trim() === 'Create Image' && e.getBoundingClientRect().width);
+            if (!e) return null;
+            const r = e.getBoundingClientRect();
+            return {x:r.left+r.width/2,y:r.top+r.height/2};
+        })()"""
+        for _ in range(2):
+            await cdp.hover_click(ws, opener)
+            if await self.wait_until(ws, item, timeout=3):
+                await asyncio.sleep(0.3)  # dropdown animation moves the target
+                await cdp.hover_click(ws, item)
+                if await self.wait_until(ws, self._IMAGE_MODE_JS, timeout=4):
+                    return
+            await cdp.key(ws, "Escape", "Escape", 27)
+        raise RuntimeError("qwen: image mode could not be selected")
+
+    async def read_images(self, ws, timeout: float = 15.0) -> list[str]:
+        # The 128px image-generating icon is NOT a generated image. Scope to
+        # the final answer; exclude examples, uploads, skeletons and previews.
+        js = """(() => {
+            const last = [...document.querySelectorAll('.qwen-chat-message-assistant')].at(-1);
+            if (!last) return [];
+            return [...last.querySelectorAll('img.qwen-image')]
+                .filter(i => i.complete && i.naturalWidth >= 256 && i.naturalHeight >= 256
+                    && !i.closest('[class*="skeleton"]'))
+                .map(i => {
+                    const u = new URL(i.currentSrc || i.src);
+                    // Keep the resource token, remove only the thumbnail transform.
+                    if (u.hostname === 'cdn.qwenlm.ai' && u.pathname.startsWith('/output/'))
+                        u.searchParams.delete('x-oss-process');
+                    return u.href;
+                }).slice(-4);
+        })()"""
+        result = await cdp.evaluate(ws, js, timeout=timeout)
+        return result if isinstance(result, list) else []
+
+    async def generation_done(self, ws) -> bool:
+        return bool(await cdp.evaluate(ws, """(() => {
+            const last = [...document.querySelectorAll('.qwen-chat-message-assistant')].at(-1);
+            return !!last && !last.querySelector('.qwen-media-skeleton')
+                && !document.querySelector('button[aria-label="Stop"], .stop-button');
+        })()""", timeout=5))
+
+    async def finished_without_image(self, ws) -> bool:
+        if not await self.generation_done(ws):
+            return False
+        return bool(await cdp.evaluate(ws, """(() => {
+            const last = [...document.querySelectorAll('.qwen-chat-message-assistant')].at(-1);
+            return !!last && !last.querySelector('img.qwen-image') && !!(last.innerText || '').trim();
+        })()""", timeout=5))
 
     async def send_prompt(self, ws, prompt_text: str) -> bool:
         # The text is REPLACED, not appended. `insert_text` inserts at the

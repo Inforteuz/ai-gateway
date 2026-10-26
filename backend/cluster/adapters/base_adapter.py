@@ -37,6 +37,7 @@ class Capabilities:
     vision: bool = False          # attach and analyse images
     files: bool = False           # upload documents (pdf, docx, csv)
     image_gen: bool = False       # generate images
+    image_edit: bool = False      # measured attachment-to-image editing
     temporary_chat: bool = False  # chat not saved to history
     delete_chats: bool = False    # delete old chats
 
@@ -189,6 +190,7 @@ READ_TEXT_JS = r"""
 
 
 class BaseAIAdapter(ABC):
+    IMAGE_DONE_RELIABLE = False
     # `input[type=file]` selector for attaching files (set by the adapter).
     # Sites hide this input — its visibility is not checked.
     FILE_INPUT: Optional[str] = None
@@ -535,10 +537,13 @@ class BaseAIAdapter(ABC):
         assistant message. Very small images are dropped to skip avatars/icons.
         """
         js = """(() => {
-            const imgs = Array.from(document.querySelectorAll('img'));
+            const replies = document.querySelectorAll('[data-message-author-role="assistant"]');
+            const scope = replies.length ? replies[replies.length - 1] : document;
+            const imgs = Array.from(scope.querySelectorAll('img'));
             return imgs.filter(i => {
                 const r = i.getBoundingClientRect();
                 if (r.width < 120 || r.height < 120) return false;
+                if (!i.complete || i.naturalWidth < 120 || i.naturalHeight < 120) return false;
                 // An image the user sent (for editing) is not a result
                 if (i.closest('[data-message-author-role="user"], [data-turn="user"], form')) return false;
                 const s = i.currentSrc || i.src || '';

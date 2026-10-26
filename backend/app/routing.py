@@ -38,7 +38,7 @@ def text_profile(body):
             content = "\n".join(str(p.get("text") or "") for p in content)
         if not isinstance(content, str):
             return None
-        if content or message.get("tool_calls"):
+        if content or message.get("tool_calls") or message.get("role") == "tool":
             flat.append({**message, "content": content})
     offered = body.get("tools") or []
     prompt = compose.compile_prompt(flat, tools_instruction=tools.build_instruction(offered, body.get("tool_choice", "auto")) if offered else "")
@@ -74,6 +74,9 @@ def size_target(source, candidates, body):
     if profile is None or profile[0] <= limit:
         return None
     chars, needs_tools, wants_images = profile
+    if wants_images:
+        # Input-field size is not an image model selection policy.
+        return None
     needs_images = wants_images and adapter.caps.image_gen
     eligible = []
     for target in candidates:

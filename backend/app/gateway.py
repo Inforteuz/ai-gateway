@@ -532,6 +532,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
                        en=f"The model `{public_id}` does not exist. Available models: {names}.")
     model = dict(model)
     model["public_id"] = public_id
+    if body.get("web_search") is not None and model["provider"] != "cluster":
+        raise ApiError(400, "unsupported_search", "Web search requires a browser-backed model.", en="Web search requires a browser-backed model.")
     if endpoint in ("images/generations", "images/edits"):
         # Image generation/editing exists only on cluster models (local models are text-only)
         if model["provider"] != "cluster":
@@ -1114,6 +1116,9 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
     since_check = 0
     meta: dict = {}
     looped = False
+    saw_done = False
+    finished_choices = set()
+    seen_choices = set()
     local = ticket.attribution.get("provider") == "local"
     budget = local_guard.Budget(ticket.state.config.local_reasoning_seconds) if local else None
     seconds = min(ticket.state.config.max_stream_seconds, ticket.state.config.local_generation_seconds) if local else ticket.state.config.max_stream_seconds
@@ -1124,6 +1129,13 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                 first = False
             if line.startswith("data:"):
                 payload = line[5:].strip()
+                if payload == "[DONE]":
+                    saw_done = True
+                    if error in (None, "fallback_model") and (not seen_choices or not seen_choices.issubset(finished_choices)):
+                        error = "stream_incomplete"
+                        yield b'data: {"error":{"message":"The model stream ended before its answer completed.","type":"server_error","code":"stream_incomplete"}}\n\n'
+                    yield b"data: [DONE]\n\n"
+                    break
                 if payload and payload != "[DONE]":
                     try:
                         obj = json.loads(payload)
@@ -1143,6 +1155,10 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                         usage = usage_of(obj) or usage
                         meta = {"id": obj.get("id") or meta.get("id"), "created": obj.get("created") or meta.get("created")}
                         for ch in obj.get("choices") or []:
+                            idx = ch.get("index", 0)
+                            seen_choices.add(idx)
+                            if ch.get("finish_reason"):
+                                finished_choices.add(idx)
                             d = ch.get("delta") or {}
                             reasoning = d.get("reasoning") or d.get("reasoning_content") or ""
                             if reasoning.startswith(GATEWAY_PLACEHOLDER):
@@ -1188,6 +1204,13 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                 err = {"error": {"message": "The response ran too long and was stopped.", "type": "server_error", "code": "stream_too_long"}}
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
                 break
+        if not saw_done and error in (None, "fallback_model") and not looped:
+            if seen_choices and seen_choices.issubset(finished_choices):
+                yield b"data: [DONE]\n\n"
+            else:
+                error = "stream_incomplete"
+                yield b'data: {"error":{"message":"The connection ended before the model completed its answer.","type":"server_error","code":"stream_incomplete"}}\n\n'
+                yield b"data: [DONE]\n\n"
     except local_guard.GuardStopped as exc:
         error = str(exc)
         yield ("data: " + json.dumps({"error": {"message": "Generation stopped to prevent a reasoning loop.", "type": "server_error", "code": error}}) + "\n\n").encode()

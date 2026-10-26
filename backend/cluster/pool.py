@@ -752,21 +752,21 @@ class WorkerTab:
         appear one after another. When the count stays unchanged across
         consecutive polls, generation is considered done.
         """
-        start = time.time()
+        start = time.monotonic()
         deadline = start + timeout
         prev: List[str] = []
         stable = 0
         idle = 0
         urls: List[str] = []
-        while time.time() < deadline:
-            await asyncio.sleep(1.0)
+        while time.monotonic() < deadline:
+            await asyncio.sleep(cfg.IMAGE_POLL_INTERVAL)
             try:
                 found = await self.adapter.read_images(ws)
             except Exception:
                 continue
             if not found:
                 # If the model finished with a text answer (a refusal), waiting is pointless
-                if time.time() - start >= cfg.IMAGE_IDLE_GRACE:
+                if time.monotonic() - start >= cfg.IMAGE_IDLE_GRACE:
                     idle = idle + 1 if await self.adapter.finished_without_image(ws) else 0
                     if idle >= 3:
                         return []
@@ -776,11 +776,18 @@ class WorkerTab:
                 stable += 1
                 # The list is unchanged and the model is done: return at once;
                 # if completion cannot be detected, wait for three stable polls (3 s).
-                if stable >= 3 or (stable >= 1 and await self.adapter.generation_done(ws)):
+                done = await self.adapter.generation_done(ws)
+                if ((stable >= 1 and done) or (stable >= 3
+                        and not getattr(self.adapter, "IMAGE_DONE_RELIABLE", False))):
                     return urls
             else:
                 stable = 0
                 prev = list(found)
+        # A completed-looking preview during active generation is not a final
+        # edited image. Fail over rather than bill/return an unfinished result.
+        if urls and getattr(self.adapter, "IMAGE_DONE_RELIABLE", False):
+            if not await self.adapter.generation_done(ws):
+                raise asyncio.TimeoutError("Image generation did not finish")
         return urls
 
     def _overflow_to_file(self, prompt_text: str, attachment_paths: Optional[List[str]],

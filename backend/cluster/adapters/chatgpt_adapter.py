@@ -99,6 +99,7 @@ def _ledger_add(chat_id: str) -> None:
 
 
 class ChatGPTAdapter(BaseAIAdapter):
+    IMAGE_DONE_RELIABLE = True
     # Measured DOM: 4 hidden file inputs — one with `accept=""` (any file), the
     # rest `accept="image/*"`. Using the dedicated image input makes the site take
     # it as an image (vision); documents go to the generic input.
@@ -122,7 +123,7 @@ class ChatGPTAdapter(BaseAIAdapter):
     # Text protocol, executed by the API client, not native web-chat tools.
     # Live 2026-10-25: explicit client-execution protocol yielded read_file
     # in 8.25s; the old wording yielded no call in two bounded probes.
-    caps = Capabilities(tool_calling=True, vision=True, files=True, image_gen=True,
+    caps = Capabilities(tool_calling=True, vision=True, files=True, image_gen=True, image_edit=True,
                         temporary_chat=True, delete_chats=True)
     # Manual cleanup from the admin panel is allowed ONLY for adapters with this
     # policy: deletion is limited to IDs in the gateway's registry.

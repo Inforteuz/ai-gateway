@@ -202,7 +202,7 @@ class ClusterBalancer:
         missing = self.missing_caps(requested_model, require)
         if missing:
             nice = {"vision": "rasmni ko'rish", "files": "fayl o'qish",
-                    "image_gen": "rasm yaratish", "tool_calling": "vosita chaqirish (tools)"}
+                    "image_gen": "rasm yaratish", "image_edit": "rasm tahrirlash", "tool_calling": "vosita chaqirish (tools)"}
             need = ", ".join(nice.get(c, c) for c in missing)
             # NOTE: provider names must not appear in the error text.
             raise Unsupported(

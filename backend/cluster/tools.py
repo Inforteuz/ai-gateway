@@ -21,9 +21,16 @@ from __future__ import annotations
 import json
 import re
 import uuid
+import shlex
+import posixpath
+from urllib.parse import urlsplit, unquote
+from functools import lru_cache
 from typing import Any, Mapping, Optional, Sequence
 
 import yaml
+from jsonschema.validators import validator_for
+from referencing import Registry
+from referencing.exceptions import NoSuchResource
 
 from . import logs
 
@@ -40,7 +47,32 @@ _MAX_TOOL_CALLS = 8
 
 
 # Bump when the tool protocol changes; this invalidates cache keys.
-PROTOCOL_VERSION = "tools-4.1-strict-allowlist"
+PROTOCOL_VERSION = "tools-5-schema-atomic"
+
+
+def _no_remote_schema(uri):
+    raise NoSuchResource(ref=uri)
+
+
+@lru_cache(maxsize=128)
+def _validator(encoded_schema: str):
+    schema = json.loads(encoded_schema)
+    cls = validator_for(schema)
+    cls.check_schema(schema)
+    # Client schemas are data: resolve local references only, never URLs.
+    return cls(schema, registry=Registry(retrieve=_no_remote_schema))
+
+
+def valid_arguments(arguments: Mapping, schema: Mapping) -> bool:
+    try:
+        # Round-trip enforces JSON values (YAML dates/NaN/recursive aliases are
+        # not valid function arguments). Never coerce strings into numbers.
+        encoded = json.dumps(arguments, ensure_ascii=False, allow_nan=False)
+        value = json.loads(encoded)
+        return _validator(json.dumps(schema, sort_keys=True)).is_valid(value)
+    except Exception as exc:
+        log.debug("tool schema validation failed (%s)", type(exc).__name__)
+        return False
 
 
 def _schema_outline(schema: Mapping[str, Any], indent: int = 6) -> list[str]:
@@ -81,7 +113,10 @@ def build_instruction(tools: Sequence[Mapping[str, Any]],
         names.append(name)
         desc = str(fn.get("description") or "").strip()
         specs.append(f"  - {name}: {desc[:300] or '(tavsif yo‘q)'}")
-        specs.extend(_schema_outline(fn.get("parameters") or {}))
+        # An outline alone loses nested required fields (e.g. question/options).
+        # Send the complete contract once, without duplicating it as an outline.
+        schema = fn.get("parameters") or {}
+        specs.append("    JSON Schema: " + json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
 
     if not names:
         return ""
@@ -138,7 +173,7 @@ def build_instruction(tools: Sequence[Mapping[str, Any]],
         "- Natija `[Vosita natijasi]` sifatida qaytadi. Shundan keyin yo yana",
         "  vosita chaqir, yo YAKUNIY javobni yoz.",
         "- Yakuniy javob yozganda `actions` blokini QO'SHMA.",
-        "- Vosita natijasi kelib, ish tugagan bo'lsa, yakuniy javobni aniq belgilab yoz:",
+        "- Vosita kerak bo'lmagan savolda yoki vosita natijasi kelib ish tugagan bo'lsa, yakuniy javobni aniq belgilab yoz:",
         "  ```yaml",
         "  final_answer: |",
         "    Foydalanuvchiga yakuniy javob matni.",
@@ -165,7 +200,8 @@ def dispatch_hint(allowed: Sequence[str], tool_choice: Any = "auto") -> str:
     return ("[Client transport]\nReturn a YAML request object for the API client using actions/name/arguments. "
             "The CLIENT executes it in its own workspace; do not search for native browser tools or claim execution. "
             + ("A tool call is required for this turn." if mandatory else
-               "After receiving tool results, a completed turn may return YAML final_answer: | followed by the final text."))
+               "If no tool is needed, or the work is complete after tool results, return YAML final_answer: | followed by the final text. "
+               "Never announce a future action as a final answer; return its tool call instead."))
 
 
 def parse_final_answer(text: str) -> Optional[str]:
@@ -203,7 +239,11 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
     Names that are not allowed are dropped: if the model invents a tool, the
     agent must not call a function that does not exist.
     """
-    allowed_set = {str(a) for a in allowed}
+    if isinstance(allowed, Mapping):
+        schemas = allowed
+    else:
+        schemas = {str(a): {} for a in allowed}
+    allowed_set = set(schemas)
     if not allowed_set:
         return [], (text or "")
     for chunk in _candidates(text):
@@ -223,16 +263,20 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
             continue
 
         calls: list[dict] = []
-        for item in raw[:_MAX_TOOL_CALLS]:
+        # A batch is atomic: returning only its valid first operation can
+        # write half a file change while silently dropping a broken sibling.
+        if len(raw) > _MAX_TOOL_CALLS:
+            return [], (text or "")
+        for item in raw:
             if not isinstance(item, Mapping):
-                continue
+                return [], (text or "")
             item = item.get("function") or item
             if not isinstance(item, Mapping):
-                continue
+                return [], (text or "")
             name = str(item.get("name") or item.get("tool") or "").strip()
             if not name or name not in allowed_set:
                 log.warning("unknown tool dropped: %r", name[:40])
-                continue
+                return [], (text or "")
             args = item.get("arguments")
             if args is None:
                 args = item.get("args") or {}
@@ -242,9 +286,9 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
                     args = json.loads(args)
                 except ValueError:
                     log.warning("invalid JSON arguments dropped for tool %r", name[:40])
-                    continue
-            if not isinstance(args, Mapping):
-                continue
+                    return [], (text or "")
+            if not isinstance(args, Mapping) or not valid_arguments(args, schemas.get(name) or {}):
+                return [], (text or "")
             calls.append({
                 "id": "call_" + uuid.uuid4().hex[:20],
                 "type": "function",
@@ -261,10 +305,90 @@ def parse_tool_calls(text: str, allowed: Sequence[str]) -> tuple[list[dict], str
     return [], (text or "")
 
 
+def argument_schemas(tools, names):
+    return {str((t.get("function") or t).get("name")): (t.get("function") or t).get("parameters") or {}
+            for t in tools or [] if str((t.get("function") or t).get("name")) in names}
+
+
+def _open_target(call):
+    """Normalize only a simple macOS open command, including browser variants.
+
+    No shell evaluation, no arbitrary command equivalence, and no state shared
+    between users. Compound commands are excluded from automatic suppression.
+    """
+    fn = call.get("function") or {}
+    if fn.get("name") not in ("shell", "execute", "bash", "exec_command"):
+        return None
+    try:
+        args = json.loads(fn.get("arguments") or "{}")
+        cmd = args.get("command") or args.get("cmd") or ""
+        if not isinstance(cmd, str) or any(c in cmd for c in (";", "&&", "||", "|", "\n", "`", "$")):
+            return None
+        words = shlex.split(cmd)
+        if not words or words.pop(0) not in ("open", "/usr/bin/open"):
+            return None
+        targets = []
+        while words:
+            word = words.pop(0)
+            if word in ("-a", "-b"):
+                if not words:
+                    return None
+                words.pop(0)
+            elif word.startswith("-"):
+                return None
+            else:
+                if word.startswith("file://"):
+                    word = unquote(urlsplit(word).path)
+                word = re.sub(r"^/Users/[^/]+/", "~/", word)
+                targets.append(posixpath.normpath(word) if not word.startswith(("http:", "https:")) else word)
+        return tuple(sorted(targets)) if targets else None
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def repeated_open(calls, messages):
+    """Do not re-open a file in another browser after that task's tool returned.
+
+    A new user turn resets the guard. Explicit failure output permits retry.
+    This does not suppress reads/polls, edits, or unrelated shell commands.
+    """
+    data = [m.model_dump() if hasattr(m, "model_dump") else m for m in messages]
+    start = max((i for i, m in enumerate(data) if m.get("role") == "user"), default=-1)
+    pending = {}
+    done = set()
+    for message in data[start + 1:]:
+        if message.get("role") == "assistant":
+            for call in message.get("tool_calls") or []:
+                target = _open_target(call)
+                if target and call.get("id"):
+                    pending[call["id"]] = target
+        elif message.get("role") == "tool":
+            target = pending.get(message.get("tool_call_id"))
+            result = str(message.get("content") or "")
+            if target and not re.search(r"error|failed|not found|no such file|denied|non.?zero|exit code:\s*[1-9]", result, re.I):
+                done.add(target)
+    return any(_open_target(call) in done for call in calls if _open_target(call))
+
+
+def unique_open_calls(calls):
+    """Emit one identical browser-open per batch; keep all other actions."""
+    seen = set()
+    result = []
+    for call in calls:
+        target = _open_target(call)
+        if target and target in seen:
+            continue
+        if target:
+            seen.add(target)
+        result.append(call)
+    return result
+
+
 # Traces of a call the model STARTED but did not finish in a parseable form: the
 # protocol's own block opener, or the XML-style tags some models fall back to.
 _CALL_TRACE = re.compile(
-    r"(?m)^[ \t]*(?:actions|tool_calls|calls):[ \t]*$|</?(?:function_call|tool_call|parameter|invoke)\b")
+    r"(?m)^[ \t]*(?:actions|tool_calls|calls):[ \t]*$|"
+    r'"(?:actions|tool_calls|calls)"\s*:|</?(?:function_call|tool_call|parameter|invoke)\b')
 
 
 def looks_like_call(text: str) -> bool:
@@ -277,6 +401,16 @@ def looks_like_call(text: str) -> bool:
     on screen.
     """
     return bool(_CALL_TRACE.search(text or ""))
+
+
+def announces_action(text: str) -> bool:
+    """A final envelope must not disguise a promise to act as completed work."""
+    return bool(re.search(
+        r"\b(?:let me|i(?:'ll| will| am going to)|next i|now i(?:'ll| will))\b|"
+        r"\b(?:tekshirib|ko'rib|o'rganib|o'qib|ochib|tuzatib)\s+(?:chiqaman|beraman|ko'raman)|"
+        r"\b(?:hozir|endi)\b.{0,60}\b(?:tekshiraman|o'qiyman|ochaman|tuzataman|yarataman)|"
+        r"\b(?:сейчас|сначала|далее)\b.{0,60}\b(?:проверю|открою|прочитаю|изменю|создам)",
+        text or "", re.I))
 
 
 def should_retry(calls: Sequence[Any], tool_choice: Any) -> bool:
@@ -350,6 +484,8 @@ def render_tool_message(msg: Mapping[str, Any]) -> str:
     content = msg.get("content")
     if not isinstance(content, str):
         content = json.dumps(content, ensure_ascii=False)
+    if not content.strip():
+        content = "[Tool returned no text. Empty output alone is not a failure. Do not repeat the completed action just to get output.]"
     head = f"[Vosita natijasi: {name}" + (f", chaqiruv {call_id}" if call_id else "") + "]"
     return head + "\n" + wrap_untrusted("vosita natijasi", content)
 

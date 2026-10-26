@@ -58,3 +58,25 @@ def test_real_partial_output_is_still_billed(env):
     _ask(env, key)
     row = env.db.one("SELECT status_code, cost FROM usage_logs ORDER BY id DESC LIMIT 1")
     assert row["status_code"] == 200 and row["cost"] > 0
+
+
+def test_silent_eof_is_reported_instead_of_looking_finished(env):
+    uid, key = _cluster(env, [ROLE])
+    response = _ask(env, key)
+    assert '"stream_incomplete"' in response.text
+    row = env.db.one("SELECT status_code,cost,error FROM usage_logs ORDER BY id DESC LIMIT 1")
+    assert row["status_code"] == 502 and row["cost"] == 0 and row["error"] == "stream_incomplete"
+
+
+def test_tool_eof_cannot_be_mistaken_for_a_completed_call(env):
+    partial = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"read","arguments":"{\\\"path\\\":"}}]}}]}\n\n'
+    uid, key = _cluster(env, [ROLE, partial])
+    response = _ask(env, key)
+    assert '"stream_incomplete"' in response.text and response.text.endswith('data: [DONE]\n\n')
+
+
+def test_completed_stream_without_done_gets_terminal_marker(env):
+    finish = 'data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n'
+    uid, key = _cluster(env, [ROLE, finish])
+    response = _ask(env, key)
+    assert '"stream_incomplete"' not in response.text and response.text.endswith('data: [DONE]\n\n')

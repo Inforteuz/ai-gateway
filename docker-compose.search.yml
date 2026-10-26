@@ -1,0 +1,16 @@
+# Optional private web search: add this file to COMPOSE_FILE and enable profile search.
+services:
+  cluster:
+    environment:
+      SF_CLUSTER_SEARCH_URL: http://search:8080/search
+  search:
+    image: ghcr.io/searxng/searxng@sha256:23482d8ecf7ddf66029479468ea04c1bb11d2b65785a17a7e629e2ffd13296ca
+    profiles: [search]
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 1
+    environment:
+      SEARXNG_SECRET: ${SF_SEARCH_SECRET:?generate a random search secret}
+    volumes:
+      - ./docker/search/settings.yml:/etc/searxng/settings.yml:ro
+    # No published ports. Only the gateway's private Docker network can query it.

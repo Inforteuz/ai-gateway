@@ -23,6 +23,7 @@ from . import cache as response_cache
 from . import logs, metrics
 from . import output_format
 from . import reasoning
+from . import web_search
 from . import runmeta
 from . import tools as tool_proto
 from . import settings as cfg
@@ -81,6 +82,8 @@ class ChatCompletionRequest(BaseModel):
     # {"type": "json_object"} | {"type": "json_schema", "json_schema": {...}}.
     # Must be declared, otherwise pydantic silently drops it.
     response_format: Optional[dict] = None
+    # Opt-in grounding. Only this explicit query reaches the search engine.
+    web_search: Optional[dict] = None
     # INTERNAL fields (sent only by the gateway/measurement tools; the gateway strips them from client input):
     # sf_allow_fallback: allow the provider-side fallback model on "high demand" (admin setting);
     # sf_force_variant: an exact model variant, for measurements.
@@ -539,7 +542,7 @@ async def proxies_refresh(body: Optional[ProxyRefreshBody] = None):
 
 def _caps_of(workers: list) -> dict[str, bool]:
     """Capabilities of a model: `true` if at least one worker supports it."""
-    keys = ("tool_calling", "vision", "files", "image_gen", "temporary_chat")
+    keys = ("tool_calling", "vision", "files", "image_gen", "image_edit", "temporary_chat")
     return {k: any(getattr(w.adapter.caps, k, False) for w in workers) for k in keys}
 
 
@@ -565,7 +568,7 @@ def _prepare_request(messages: List[ChatMessage], store: attach.AttachmentStore,
             item["name"] = m.name
         if m.tool_call_id:
             item["tool_call_id"] = m.tool_call_id
-        if parsed.text or parsed.attachments or m.tool_calls:
+        if parsed.text or parsed.attachments or m.tool_calls or m.role == "tool":
             flat.append(item)
 
     require: list[str] = []
@@ -723,6 +726,24 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             run_meta = runmeta.start(allow_fallback=bool(req.sf_allow_fallback),
                                      force_variant=(req.sf_force_variant or None),
                                      effort=(req.reasoning_effort or None))
+            sources = []
+            if req.web_search is not None:
+                if spec.is_json or req.tool_choice == "required" or isinstance(req.tool_choice, dict):
+                    raise ClusterError(400, "invalid_search_request", "Web search cannot be combined with forced tools or a strict output format.")
+                last_text = _last_user_text(req.messages)
+                if _wants_image(last_text) or _wants_image_edit(last_text, any(a.is_image for a in files)):
+                    raise ClusterError(400, "invalid_search_request", "Use separate requests for web search and image generation.")
+                search_started = time.monotonic()
+                try:
+                    note, sources = await web_search.search(req.web_search)
+                except web_search.SearchInputError as exc:
+                    raise ClusterError(400, "invalid_search_request", str(exc)) from exc
+                except web_search.SearchError as exc:
+                    raise ClusterError(503, "web_search_failed", str(exc)) from exc
+                run_meta["web_sources"] = sources
+                prompt_text += "\n\n" + note
+                log.info("web search sources=%d time_ms=%d", len(sources),
+                         round((time.monotonic() - search_started) * 1000))
             # Image intent is detected ONLY from the last user message. Checking the whole
             # prompt (an agent CLI's 12,000-char system instruction, history) made any
             # request look like an image request because of the word "draw ", and models
@@ -736,6 +757,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                 want_images = False
             if want_images:
                 require = [*require, "image_gen"]
+                if _wants_image_edit(user_text, any(a.is_image for a in files)):
+                    require.append("image_edit")
                 live = None
             if live is not None:
                 run_meta["on_progress"] = live.update
@@ -763,7 +786,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             # A forced variant (`sf_force_variant`, measurements) bypasses the cache:
             # it is not part of the key, so otherwise the primary model's cached
             # answer would be returned as the other variant's answer.
-            cache = response_cache.get() if cfg.CACHE_ENABLED and not req.sf_force_variant else None
+            cache = response_cache.get() if cfg.CACHE_ENABLED and not req.sf_force_variant and not req.web_search else None
             cache_key = ""
             if cache is not None:
                 cache_key = response_cache.make_key(
@@ -860,13 +883,14 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                           if isinstance(req.tool_choice, dict) else None)
                 allowed_names = [] if req.tool_choice == "none" else ([forced] if forced in tool_names else tool_names)
                 required = req.tool_choice == "required" or bool(forced)
-                calls, answer = tool_proto.parse_tool_calls(answer, allowed_names)
+                schemas = tool_proto.argument_schemas(req.tools, allowed_names)
+                calls, answer = tool_proto.parse_tool_calls(answer, schemas)
                 final = tool_proto.parse_final_answer(answer) if not required and not calls else None
                 if final is not None:
                     answer = final
-                # Only a turn which actually received a tool result may use
-                # the explicit final marker to skip the old auto repair policy.
-                final_ready = final is not None and req.messages[-1].role == "tool"
+                # auto permits a direct final answer even before a tool result
+                # (e.g. an identity question). Promises to act still need repair.
+                final_ready = final is not None and not tool_proto.announces_action(final)
                 # The model often ANNOUNCES the action and stops ("let me update the
                 # file and add ..."), leaving the agent nothing to run: the turn dies
                 # silently. Ask once more with the protocol repeated at the very end.
@@ -898,7 +922,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         if not (broken and has_stand_in):
                             try:
                                 retry_answer, retry_model, retry_worker, retry_images = await call(reminder)
-                                calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
+                                calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, schemas)
                             except DispatchError as e:
                                 dispatch_error = e
                         # The requested model could not answer the re-ask (every tab
@@ -912,7 +936,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                                         "dispatch failed" if dispatch_error else "broken call")
                             try:
                                 retry_answer, retry_model, retry_worker, retry_images = await call(reminder, stand_in)
-                                calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, allowed_names)
+                                calls, retry_answer = tool_proto.parse_tool_calls(retry_answer, schemas)
                                 dispatch_error = None
                                 run_meta["fallback"] = True
                             except DispatchError as e:
@@ -925,6 +949,16 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                             if dispatch_error is not None and required:
                                 raise dispatch_error
                             answer = first_answer
+                    calls = tool_proto.unique_open_calls(calls)
+                    if calls and tool_proto.repeated_open(calls, req.messages):
+                        # Client-side tools have already returned for the same open
+                        # target in this user task. Never emit another side effect.
+                        if required:
+                            raise ClusterError(502, "repeated_tool_action", "The same browser-open action already returned in this turn.")
+                        calls = []
+                        final_ready = True
+                        answer = "Faylni brauzerda ochish buyrug‘i avval yuborilgan va vosita qaytgan. Qayta ochish to‘xtatildi."
+                        tool_status.update(final_answer=True, missing_calls=False)
                 finally:
                     # Here, not after the re-ask: a client that hangs up mid re-ask
                     # cancels the task, and the time spent must still be recorded.
@@ -1056,7 +1090,8 @@ def _sse_chunks(base: dict, calls: list, answer: str, usage: dict, extra: Option
         out.append(f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': reasoning_content}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
     if calls:
         # Tool calls are not split into chunks: agents expect complete JSON
-        out.append(f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'tool_calls': calls}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
+        indexed = [{**call, "index": i} for i, call in enumerate(calls)]
+        out.append(f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'tool_calls': indexed}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
         out.append(f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}], **(extra or {})})}\n\n")
         out.append(f"data: {json.dumps({**base, 'choices': [], 'usage': usage})}\n\n")
         out.append("data: [DONE]\n\n")
@@ -1091,6 +1126,22 @@ async def _preflight_live(task, live: LiveStream, limit: float) -> set:
 
 async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: str,
                                  live: Optional[LiveStream] = None):
+    # Own the task before the first yield: closing a newly opened stream must
+    # also release the worker and its request attachments.
+    task = job if isinstance(job, asyncio.Future) else asyncio.ensure_future(job)
+    stream = _stream_until_complete(task, res_id, created_ts, model_hint, live)
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        await stream.aclose()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def _stream_until_complete(job, res_id: str, created_ts: int, model_hint: str,
+                                  live: Optional[LiveStream] = None):
     """Stream the answer. With `live`, text is sent while the provider writes it; otherwise
     keep-alives are sent until `job` finishes and then the ready SSE chunks."""
     base = {"id": res_id, "object": "chat.completion.chunk",
@@ -1104,6 +1155,7 @@ async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: 
     started = time.monotonic()
     last_sent = started
     thinking_sent = False
+    changed = None
     try:
         while True:
             waits = {task}
@@ -1139,9 +1191,9 @@ async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: 
                 # not the model, and the client should not read it as reasoning.
                 thinking_sent = True
                 yield (f"data: {json.dumps({**base, 'choices': [{'index': 0, 'delta': {'reasoning_content': '[gateway] waiting for the model...'}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n")
-    except asyncio.CancelledError:
-        task.cancel()
-        raise
+    finally:
+        if changed is not None and not changed.done():
+            changed.cancel()
 
     try:
         chunks = task.result()
@@ -1223,6 +1275,8 @@ def _completion_payload(*, answer: str, images: list, used_model: str, prompt_te
         sf_meta.setdefault("gateway", {})["cache_hit"] = True
     if tool_status:
         sf_meta.setdefault("gateway", {})["tool_protocol"] = tool_status
+    if runmeta.get().get("web_sources"):
+        sf_meta.setdefault("gateway", {})["sources"] = runmeta.get()["web_sources"]
     sf_headers = {"X-SF-Fallback-Model": "1"} if fallback else {}
 
     if stream:
@@ -1381,7 +1435,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
                 prompt_text=task,
                 requested_model=(req.model or "auto").lower(),
                 timeout_per_worker=cfg.IMAGE_REQUEST_TIMEOUT,
-                require=["image_gen", "vision"],
+                require=["image_gen", "vision", "image_edit"],
                 attachment_paths=[a.path for a in files],
                 images_only=True,
                 want_images=True,

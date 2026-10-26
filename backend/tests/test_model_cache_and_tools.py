@@ -110,13 +110,17 @@ def test_explicit_final_after_tool_result_skips_unnecessary_retry(cluster_client
         assert status["final_answer"] and not status["retried"] and not status["missing_calls"]
 
 
-def test_final_marker_cannot_bypass_required_call_or_new_task(cluster_client):
+def test_final_marker_respects_required_and_auto_semantics(cluster_client):
     marker = '```yaml\nfinal_answer: done\n```'
     required, bal = cluster_client([marker, marker], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})
     assert required.status_code == 502 and len(bal.prompts) == 2
-    auto, bal = cluster_client([marker, CALL], {"messages": MSG, "tools": TOOLS})
-    assert auto.status_code == 200 and len(bal.prompts) == 2
-    assert auto.json()["choices"][0]["finish_reason"] == "tool_calls"
+    auto, bal = cluster_client([marker], {"messages": MSG, "tools": TOOLS})
+    assert auto.status_code == 200 and len(bal.prompts) == 1
+    assert auto.json()["choices"][0]["message"]["content"] == "done"
+    future = '```yaml\nfinal_answer: I will read the file now.\n```'
+    action, bal = cluster_client([future, CALL], {"messages": [{"role":"user","content":"Read the new file"}], "tools": TOOLS})
+    assert action.status_code == 200 and len(bal.prompts) == 2
+    assert action.json()["choices"][0]["finish_reason"] == "tool_calls"
 
 
 @pytest.mark.parametrize("text", ['final_answer: 42', 'final_answer: ""', 'final_answer: done\nactions: []', 'prefix\n```yaml\nfinal_answer: done\n```', 'final_answer: !!python/object:builtins.object {}'])

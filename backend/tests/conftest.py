@@ -75,6 +75,7 @@ def make_upstream(state: dict) -> FastAPI:
                         if state.get("break_stream"):
                             # what httpx raises when the provider's connection drops mid-stream
                             raise httpx.RemoteProtocolError("peer closed connection without sending complete message body")
+                yield "data: " + json.dumps({"model": "qwen3:14b", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls" if state.get("tool_stream") else state.get("finish", "stop")}]}) + "\n\n"
                 if (body.get("stream_options") or {}).get("include_usage") and not state.get("no_usage"):
                     yield "data: " + json.dumps({"model": "qwen3:14b", "choices": [], "usage": usage}) + "\n\n"
                 yield "data: [DONE]\n\n"

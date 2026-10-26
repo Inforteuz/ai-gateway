@@ -34,6 +34,7 @@ def _cluster_caps(upstream: str) -> dict:
         "vision": c.vision,            # analyse attached images
         "file_input": c.files,         # pdf/txt/csv attachments
         "image_generation": c.image_gen,
+        "image_editing": c.image_edit,
         "tool_calling": c.tool_calling,  # agent / subagent mode
     }
 

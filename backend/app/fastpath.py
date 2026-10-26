@@ -91,7 +91,7 @@ def last_user_text(body: dict) -> str | None:
 
 def eligible(body: dict) -> bool:
     """Whether the request qualifies for the fast path."""
-    if (body.get("n") or 1) != 1:
+    if body.get("web_search") is not None or (body.get("n") or 1) != 1:
         return False
     rf = body.get("response_format")
     if isinstance(rf, dict) and rf.get("type") not in (None, "text"):
@@ -102,7 +102,15 @@ def eligible(body: dict) -> bool:
     text = last_user_text(body)
     if text is None or len(text.strip()) > MAX_CHARS:
         return False
-    return bool(_PATTERN.match(_normalize(text)))
+    if _PATTERN.fullmatch(_normalize(text)):
+        return True
+    # A context-dependent identity follow-up is small talk only immediately
+    # after an identity question, never a generic "continue/really?" shortcut.
+    if _normalize(text) in ("aslidachi", "aslida-chi", "aslida chi", "really who are you"):
+        previous = [m for m in body.get("messages", [])[:-1] if m.get("role") == "user"]
+        prior = _normalize(_text_of(previous[-1].get("content")) or "") if previous else ""
+        return bool(re.fullmatch(r"(?:sen\s+|siz\s+)?kims(?:an|iz)|who are you|ты кто|кто ты", prior))
+    return False
 
 
 def payload(body: dict, upstream: str, max_out: int) -> dict:

@@ -50,6 +50,7 @@ _TEMP_STATE_JS = """(() => {
 
 
 class GeminiAdapter(BaseAIAdapter):
+    IMAGE_DONE_RELIABLE = True
     # The input field truncates everything beyond 32 000 characters (MEASURED) — the pool
     # fits long requests to this limit with compose.fit_prompt.
     MAX_INPUT_CHARS = 31000
@@ -72,7 +73,7 @@ class GeminiAdapter(BaseAIAdapter):
     #   tool_calling — via the cluster's text tool protocol (cluster/tools.py); since it
     #               serves as the main model, agent CLIs (with tools) depend on
     #               it. Measured in a live test.
-    caps = Capabilities(tool_calling=True, vision=True, files=True, image_gen=True, delete_chats=True)
+    caps = Capabilities(tool_calling=True, vision=True, files=True, image_gen=True, image_edit=True, delete_chats=True)
 
     def __init__(self):
         super().__init__("gemini")

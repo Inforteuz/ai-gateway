@@ -22,6 +22,8 @@ PORT = int(os.getenv("SF_CLUSTER_PORT", "8800"))
 
 # Bearer token (empty disables auth; local dev only)
 API_KEY = os.getenv("SF_CLUSTER_API_KEY", "")
+SEARCH_URL = os.getenv("SF_CLUSTER_SEARCH_URL", "").strip()
+SEARCH_TIMEOUT = float(os.getenv("SF_CLUSTER_SEARCH_TIMEOUT", "10"))
 
 # CDP ports (running Chromium instances)
 CDP_PORTS = [int(p) for p in os.getenv("SF_CLUSTER_CDP_PORTS", "9222,9223,9224,9225").split(",") if p.strip()]
@@ -337,6 +339,7 @@ MAX_IMAGES_PER_REQUEST = int(os.getenv("SF_CLUSTER_MAX_IMAGES", "4"))
 
 # Image generation takes much longer than text: separate, longer timeout
 IMAGE_REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_IMAGE_TIMEOUT", "180"))
+IMAGE_POLL_INTERVAL = float(os.getenv("SF_CLUSTER_IMAGE_POLL", "0.5"))
 
 
 # How long to wait for text in an image response. Short, because the answer is
