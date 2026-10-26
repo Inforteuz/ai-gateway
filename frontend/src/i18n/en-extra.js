@@ -1,5 +1,9 @@
 // Static interface copy; keys and interpolation variables are checked in tests.
 export default {
+  "Rasmni tahrirlaydi": "Edits images",
+  "Yuborilgan rasmni ko‘rsatma bo‘yicha o‘zgartiradi.": "Changes an uploaded image according to your instructions.",
+  "Rasm yaratish hozircha": "Image generation is available with",
+  "Rasm tahrirlash hozircha": "Image editing is available with",
   "Yakuniy javob": "Final answer",
   "Kalitlar sarfi tahlili": "API key usage analytics",
   "Har bir kalitning kirish va chiqish tokenlari, sarfi va ishlatilish yo‘nalishlari.": "Input and output tokens, spend and usage categories for each key.",

@@ -11,6 +11,7 @@ const CAPS = [
   ['vision', 'Rasmni ko\'radi', 'Rasm yuborib, undagi narsalarni tahlil qildirish mumkin.'],
   ['file_input', 'Fayl o\'qiydi', 'PDF, matn va jadval fayllarini yuborib tahlil qildirish mumkin.'],
   ['image_generation', 'Rasm yaratadi', 'Tavsif bo\'yicha yangi rasm chizadi.'],
+  ['image_editing', 'Rasmni tahrirlaydi', 'Yuborilgan rasmni ko‘rsatma bo‘yicha o‘zgartiradi.'],
   ['tool_calling', 'Agent rejimi', 'Dasturingizdagi funksiyalarni o\'zi chaqira oladi.'],
 ]
 

@@ -82,6 +82,8 @@ export default function Docs({ inApp }) {
   const fileModel = pickModel(items, 'file_input')
   const imageModels = items.filter((x) => x.capabilities?.image_generation)
   const imageModel = pickModel(items, 'image_generation')
+  const editModels = items.filter((x) => x.capabilities?.image_editing)
+  const editModel = pickModel(items, 'image_editing')
   const toolModel = pickModel(items, 'tool_calling')
   const limits = data?.limits
   const base = apiOrigin(site)
@@ -163,17 +165,18 @@ resp = client.chat.completions.create(
                             prompt="Tog' ustidagi quyosh chiqishi", n=1)
 open("rasm.png", "wb").write(base64.b64decode(img.data[0].b64_json))`} />
       <p>{tr("Rasm so'rovi matnga qaraganda sekinroq (odatda 20-60 soniya).")} {imageModels.length
-        ? <>{tr("Rasm yaratish va tahrirlash hozircha")} {codeList(imageModels)} {tr(imageModels.length > 1 ? 'modellarida' : 'modelida')}.</>
+        ? <>{tr("Rasm yaratish hozircha")} {codeList(imageModels)} {tr(imageModels.length > 1 ? 'modellarida' : 'modelida')}.</>
         : <>{tr("Rasm yaratish va tahrirlash jadvalda")} <b>{tr("rasm yaratish")}</b> {tr("belgisi bor modellarda ishlaydi.")}</>}</p>
 
       <h3>{tr("Rasmni tahrirlash")}</h3>
       <div className="endpoint"><span className="verb">POST</span><code>/v1/images/edits</code></div>
       <p>{tr("Rasm yuborasiz va nima o'zgarishini yozasiz — natijada yangi rasm qaytadi. Standart OpenAI SDK'ning")} <code>images.edit</code> {tr("usuli ishlaydi (")}<code>mask</code> {tr("hozircha qo'llanmaydi).")}</p>
-      <CodeBlock code={`img = client.images.edit(model="${imageModel}",
+      {editModels.length > 0 && <p>{tr("Rasm tahrirlash hozircha")} {codeList(editModels)} {tr(editModels.length > 1 ? 'modellarida' : 'modelida')}.</p>}
+      <CodeBlock code={`img = client.images.edit(model="${editModel}",
                         image=open("mushuk.png", "rb"),
                         prompt="Fonini dengiz sohiliga almashtir")
 open("natija.png", "wb").write(base64.b64decode(img.data[0].b64_json))`} />
-      <p>{tr("Chatda ham ishlaydi:")} <code>{imageModel}</code> {tr("ga rasm biriktirib \"fonini o'zgartir\", \"rasmni tahrirla\" kabi ko'rsatma bersangiz, javobdagi")} <code>images</code> {tr("maydonida tahrirlangan rasm qaytadi.")}</p>
+      <p>{tr("Chatda ham ishlaydi:")} <code>{editModel}</code> {tr("ga rasm biriktirib \"fonini o'zgartir\", \"rasmni tahrirla\" kabi ko'rsatma bersangiz, javobdagi")} <code>images</code> {tr("maydonida tahrirlangan rasm qaytadi.")}</p>
 
       <h3>{tr("Agent rejimi (vosita chaqirish)")}</h3>
       <p>{tr("Coding agent va subagentlar uchun standart OpenAI")} <code>tools</code> {tr("protokoli qo'llab-quvvatlanadi: model vosita chaqiradi, siz natijani")} <code>role: "tool"</code> {tr("xabari bilan qaytarasiz.")}</p>

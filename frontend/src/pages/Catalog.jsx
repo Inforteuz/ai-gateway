@@ -20,6 +20,7 @@ const CAP_TAGS = [
   ['vision', 'Rasmni ko\'radi'],
   ['file_input', 'Fayl o\'qiydi'],
   ['image_generation', 'Rasm yaratadi'],
+  ['image_editing', 'Rasmni tahrirlaydi'],
   ['tool_calling', 'Agent rejimi'],
 ]
 
