@@ -45,6 +45,7 @@ _ACCOUNT_BLOCKED: Dict[tuple, tuple[float, str]] = {}
 # Several tabs of one account exist for double buffering (one answers while
 # the other prepares a clean chat), never to send in parallel.
 _ACCOUNT_LOCKS: Dict[tuple, asyncio.Lock] = {}
+_ACCOUNT_IMAGE_SETUP: Dict[tuple, asyncio.Lock] = {}
 _ACCOUNT_FINISHED: Dict[tuple, float] = {}
 # Parallel tabs (cfg.PARALLEL_TAB_MODELS): which tabs of an account are answering
 # right now, when the account last sent, and until when it is back to one request
@@ -410,7 +411,12 @@ class WorkerTab:
         try:
             async with await self.connect() as ws:
                 if for_images:
-                    await self.adapter.reset_chat_for_images(ws)
+                    # Image mode menus can require a foreground tab. Serialize
+                    # just setup within an account so parallel image requests
+                    # cannot steal focus midway through each other's menu.
+                    key = (getattr(self, "model_name", ""), getattr(self, "browser_port", 0))
+                    async with _ACCOUNT_IMAGE_SETUP.setdefault(key, asyncio.Lock()):
+                        await self.adapter.reset_chat_for_images(ws)
                 else:
                     await self.adapter.reset_chat(ws)
         except websockets.exceptions.WebSocketException:

@@ -190,3 +190,30 @@ def test_qwen_cannot_silently_use_text_model_for_image_request(monkeypatch):
         with pytest.raises(RuntimeError, match="image mode was not confirmed"):
             await QwenAdapter().select_variant(None, None)
     asyncio.run(check())
+
+
+def test_parallel_image_mode_setup_cannot_steal_same_account_focus():
+    async def check():
+        active = 0
+        peak = 0
+        class Adapter:
+            async def reset_chat_for_images(self, ws):
+                nonlocal active, peak
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(0.01)
+                active -= 1
+        class Connection:
+            async def __aenter__(self): return None
+            async def __aexit__(self, *args): pass
+        async def connect(): return Connection()
+        tabs = []
+        for _ in range(2):
+            tab = object.__new__(pool.WorkerTab)
+            tab.adapter = Adapter()
+            tab.model_name, tab.browser_port = "qwen", 19777
+            tab.connect = connect
+            tabs.append(tab)
+        await asyncio.gather(*(t._reset_phase(for_images=True) for t in tabs))
+        assert peak == 1
+    asyncio.run(check())

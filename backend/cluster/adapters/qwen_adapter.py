@@ -307,6 +307,9 @@ class QwenAdapter(BaseAIAdapter):
     async def reset_chat_for_images(self, ws, timeout: float = 20.0) -> None:
         # Image mode has its own model. A normal Fast prompt just answers in text.
         # Use a verified blank page, never the previous user's saved conversation.
+        # Measured: the menu ignores clicks in a background tab (29.6 s failure);
+        # bringing the controlled tab forward selects the mode in 8.3 s.
+        await cdp.call(ws, "Page.bringToFront")
         # The old composer remains present briefly after location.href changes.
         # Wait for a NEW document, not that stale input on the outgoing page.
         nonce = str(time.time_ns())

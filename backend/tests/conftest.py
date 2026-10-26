@@ -286,7 +286,7 @@ def configure_external(env, *, key="ext-secret-key", model="posiden/gpt-6-luna",
 @pytest.fixture(autouse=True)
 def _isolate_browser_account_state():
     from cluster import pool
-    registries = [getattr(pool, n, {}) for n in ("_ACCOUNT_BLOCKED", "_ACCOUNT_DISPATCH", "_ACCOUNT_HOURLY", "_ACCOUNT_LOCKS", "_ACCOUNT_FINISHED")]
+    registries = [getattr(pool, n, {}) for n in ("_ACCOUNT_BLOCKED", "_ACCOUNT_DISPATCH", "_ACCOUNT_HOURLY", "_ACCOUNT_LOCKS", "_ACCOUNT_IMAGE_SETUP", "_ACCOUNT_FINISHED")]
     for registry in registries:
         registry.clear()
     yield
