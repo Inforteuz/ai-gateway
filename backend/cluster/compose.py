@@ -244,8 +244,15 @@ def compile_prompt(messages: Iterable[Mapping[str, Any]],
             history.append((role, content))
 
     if ends_with_tool:
-        # The original question stays in history; the current task is to answer using the result.
+        # Keep the original task with the instruction to answer using the result.
         last_user = next((c for r, c in reversed(history) if r == "user"), "")
+        # Keep the latest user task exactly once. It is repeated below as the
+        # current task on tool-result turns, so including the same often-large
+        # task in history doubled its upload/prefill cost on every agent step.
+        # Moving it also keeps it available when the history budget is full.
+        if last_user:
+            index = next(i for i in range(len(history) - 1, -1, -1) if history[i][0] == "user")
+            history.pop(index)
         current = (
             "Yuqoridagi vosita natijasi tayyor. Shu natijadan foydalanib "
             "foydalanuvchining savoliga yakuniy javob ber. Natijadagi qiymatlarni "

@@ -134,3 +134,16 @@ def test_poll_deadlines_ignore_wall_clock_adjustments(monkeypatch):
         return result,time.monotonic()-t
     result,seconds=asyncio.run(run())
     assert result=='complete' and .5<=seconds<1.5
+
+def test_tool_result_turn_keeps_large_task_once_and_all_results():
+    from cluster.compose import compile_prompt
+    task = "Implement these exact requirements: " + "important specification line\n" * 300
+    messages = [{"role": "system", "content": "System rules."},
+                {"role": "user", "content": task},
+                {"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function",
+                    "function": {"name": "read", "arguments": '{"path":"a.py"}'}}]},
+                {"role": "tool", "name": "read", "tool_call_id": "call_1", "content": "EXACT TOOL RESULT"}]
+    prompt = compile_prompt(messages, tools_instruction="read tool protocol")
+    assert prompt.count(task.strip()) == 1
+    assert "EXACT TOOL RESULT" in prompt and "call_1" in prompt and "read tool protocol" in prompt
+    assert prompt.rfind(task.strip()) > prompt.index("[Current task]")
