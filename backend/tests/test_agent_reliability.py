@@ -123,6 +123,18 @@ def test_successful_tool_action_loop_is_stopped_even_with_a_new_call_id():
     assert exact == [current] and not target
 
 
+def test_answered_question_is_not_emitted_again_with_a_new_call_id():
+    first = {"id": "old", "type": "function", "function": {
+        "name": "question", "arguments": json.dumps({"question": "Qaysi dizayn uslubini yoqtirasiz?"})}}
+    current = {"id": "new", "type": "function", "function": {
+        "name": "question", "arguments": json.dumps({"question": "Qaysi dizayn uslubini yoqtirasiz?"})}}
+    messages = [{"role": "user", "content": "Build a page"},
+                {"role": "assistant", "tool_calls": [first]},
+                {"role": "tool", "tool_call_id": "old", "content": "Oq va minimalist"}]
+    exact, target = tools.repeated_successful_actions([current], messages)
+    assert exact == [current] and not target
+
+
 def test_successful_mutation_target_limit_catches_changing_loop_and_allows_failures():
     messages = [{"role": "user", "content": "Build the clock"}]
     for i in range(tools.MAX_SUCCESSFUL_TARGET_ACTIONS):
@@ -168,6 +180,30 @@ def test_same_batch_keeps_one_open_and_preserves_other_work():
     first = _opening('open ~/Desktop/clock/index.html')
     other = _opening('ls ~/Desktop/clock')
     assert tools.unique_open_calls([first, _opening('open -a Safari ~/Desktop/clock/index.html'), other]) == [first, other]
+
+
+def test_same_batch_deduplicates_question_calls_with_new_ids():
+    def question(cid, text):
+        return {"id": cid, "type": "function", "function": {
+            "name": "question", "arguments": json.dumps({"question": text})}}
+
+    first = question("one", "Qaysi dizayn uslubini yoqtirasiz?")
+    duplicate = question("two", "Qaysi dizayn uslubini yoqtirasiz?")
+    next_question = question("three", "Qaysi rangni tanlaysiz?")
+    assert tools.unique_tool_calls([first, duplicate, next_question]) == [first, next_question]
+
+
+def test_gateway_emits_one_duplicate_question_call(cluster_client):
+    raw = json.dumps({"actions": [
+        {"name": "question", "arguments": {"question": "Qaysi dizayn uslubini yoqtirasiz?"}},
+        {"name": "question", "arguments": {"question": "Qaysi dizayn uslubini yoqtirasiz?"}},
+    ]})
+    response, _ = cluster_client([raw], {"messages": [{"role": "user", "content": "Build a page"}],
+                                    "tools": [{"type": "function", "function": {"name": "question"}}]})
+    assert response.status_code == 200
+    calls = response.json()["choices"][0]["message"]["tool_calls"]
+    assert len(calls) == 1
+    assert response.json()["gateway"]["tool_protocol"]["deduped_calls"] == 1
 
 
 def test_closing_stream_after_initial_role_cancels_worker_job():

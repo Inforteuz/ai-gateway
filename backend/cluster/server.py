@@ -949,6 +949,10 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                             if dispatch_error is not None and required:
                                 raise dispatch_error
                             answer = first_answer
+                    before_dedupe = len(calls)
+                    calls = tool_proto.unique_tool_calls(calls)
+                    if len(calls) != before_dedupe:
+                        tool_status["deduped_calls"] = before_dedupe - len(calls)
                     calls = tool_proto.unique_open_calls(calls)
                     # Client-side tools have already returned for the same action
                     # in this user task. OpenCode assigns a fresh tool-call ID on
