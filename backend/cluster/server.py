@@ -1134,10 +1134,12 @@ async def _stream_with_keepalive(job, res_id: str, created_ts: int, model_hint: 
         async for chunk in stream:
             yield chunk
     finally:
-        await stream.aclose()
         if not task.done():
             task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        try:
+            await stream.aclose()
+        finally:
+            await asyncio.gather(task, return_exceptions=True)
 
 
 async def _stream_until_complete(job, res_id: str, created_ts: int, model_hint: str,
