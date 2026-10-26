@@ -26,6 +26,7 @@ _PATTERN = re.compile(
     r"^(?:"
     # greetings
     r"salom(?:\s*alaykum)?|assalomu?\s*alaykum|assalom|hey+|hi+|hello+|hola|yo|"
+    r"(?:hey\s+)?nima\s+gap|salom\s+(?:qalesan|qalaysan|qalaysiz)|how\s+are\s+u|"
     r"привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|"
     r"qalesan|qalaysan|qalaysiz|yaxshimisiz|yaxshimisan|ishlar\s+qalay|how\s+are\s+you|как\s+дела|"
     # status checks

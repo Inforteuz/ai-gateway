@@ -13,13 +13,15 @@ def _b(text, **extra):
 
 def test_trivial_messages_are_eligible():
     for t in ("Hey", "Salom!", "Ishlayapsanmi", "Sen kimsan?", "rahmat 🙏", "Привет", "who are you?",
-              "Assalomu alaykum", "ishlayapsanmi?", "Qalaysan"):
+              "Assalomu alaykum", "ishlayapsanmi?", "Qalaysan", "Hey nima gap", "Nima gap?",
+              "How are u", "Salom qalaysan!"):
         assert fp.eligible(_b(t)), t
 
 
 def test_commands_and_real_tasks_are_not_eligible():
     for t in ("ok", "ha", "davom et", "Qayta harakat qil", "hello.py yarat", "salom dunyo dasturini yoz",
-              "Sen kimsan va qanday ishlaysan, batafsil tushuntir?"):
+              "Sen kimsan va qanday ishlaysan, batafsil tushuntir?", "Hey nima gap kodni tuzat",
+              "How are u going to fix the file?"):
         assert not fp.eligible(_b(t)), t
     assert not fp.eligible(_b("Hey", response_format={"type": "json_object"}))
     assert not fp.eligible(_b("Hey", tool_choice="required"))
