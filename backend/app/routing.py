@@ -10,7 +10,8 @@ from . import catalog
 # debugging and design prompts stay on the requested model.
 _TOOL_COMPLEX_HINTS = (
     "plan", "planning", "analyze", "analyse", "debug", "refactor", "architecture",
-    "design", "compare", "explain why", "tahlil", "reja", "arxitektura", "taqqosla",
+    "design", "compare", "explain why", "implement", "implementation", "build",
+    "write code", "create an app", "tahlil", "reja", "arxitektura", "taqqosla",
     "план", "анализ", "отлад", "архитект", "сравни",
 )
 _TOOL_SPEED_ORDER = {"qwen": 0, "gemini": 1, "chatgpt": 2, "deepseek": 3}
