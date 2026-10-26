@@ -156,6 +156,13 @@ DEFAULT_PRIORITY_ORDER = [
     "gemini",
 ]
 
+# Image generation/editing has a different measured speed profile from text:
+# Gemini is usually fastest, followed by ChatGPT and Qwen. Keep this separate
+# from the text order so an automatic image request does not wait behind a
+# slower or text-first provider. Explicit model requests still honour the
+# requested provider.
+IMAGE_PRIORITY_ORDER = ["gemini", "chatgpt", "qwen"]
+
 # --- Keywords that classify a response as "not a real answer" -----------------
 # Three categories, each with a different cooldown length.
 

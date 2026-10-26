@@ -158,7 +158,12 @@ class ClusterBalancer:
         backup.sort(key=_key)
 
         if model_req == "auto":
-            priority = {m: i for i, m in enumerate(cfg.DEFAULT_PRIORITY_ORDER)}
+            # Image work has a separate latency profile. Prefer the fastest
+            # image-capable providers while retaining the normal health/warm
+            # tie-breakers inside each provider.
+            order = (cfg.IMAGE_PRIORITY_ORDER if "image_gen" in require
+                     else cfg.DEFAULT_PRIORITY_ORDER)
+            priority = {m: i for i, m in enumerate(order)}
             available.sort(key=lambda w: (priority.get(w.model_name, 999), *_key(w)))
 
         return available + busy_but_fresh + backup

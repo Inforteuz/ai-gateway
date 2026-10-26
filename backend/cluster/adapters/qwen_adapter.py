@@ -42,7 +42,11 @@ class QwenAdapter(BaseAIAdapter):
     #                     paste — only images are accepted);
     #   image_gen=True — measured 2026-10-26: the separate Create Image mode
     #                    (Qwen-Image 3.0) produced an image in 56.4 seconds.
+    #   image_edit=True — the same image mode accepts an attached image and an
+    #                    edit instruction; keep this visible to the router so
+    #                    Qwen can be used as an automatic edit fallback.
     caps = Capabilities(tool_calling=True, vision=True, files=False, image_gen=True,
+                        image_edit=True,
                         temporary_chat=True, delete_chats=True)
     IMAGE_DONE_RELIABLE = True
     _IMAGE_MODE_JS = "!!document.querySelector('textarea[placeholder=\"Describe the image you want to generate.\"]')"

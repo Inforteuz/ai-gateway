@@ -62,6 +62,29 @@ def test_least_used_healthy_worker_first():
     assert B.ClusterBalancer(_Pool([w0, w1])).pick_candidates("gemini")[0] is w1
 
 
+def test_auto_image_requests_use_fast_image_priority():
+    class ImageAdapter:
+        def __init__(self):
+            self.caps = Capabilities(image_gen=True, image_edit=True)
+
+    workers = []
+    for port, model in ((9222, "qwen"), (9223, "chatgpt"), (9224, "gemini")):
+        w = pool_mod.WorkerTab(port, f"tab{port}", model, f"ws://127.0.0.1:{port}/x", ImageAdapter())
+        workers.append(w)
+    bal = B.ClusterBalancer(_Pool(workers))
+    assert [w.model_name for w in bal.pick_candidates("auto", require=["image_gen"])] == [
+        "gemini", "chatgpt", "qwen"]
+
+
+def test_image_edit_requires_edit_capability():
+    class ImageAdapter:
+        caps = Capabilities(image_gen=True, vision=True, image_edit=False)
+
+    w = pool_mod.WorkerTab(9222, "tab9222", "qwen", "ws://127.0.0.1:9222/x", ImageAdapter())
+    bal = B.ClusterBalancer(_Pool([w]))
+    assert bal.pick_candidates("auto", require=["image_gen", "vision", "image_edit"]) == []
+
+
 def test_rate_limit_answer_puts_worker_into_cooldown(monkeypatch):
     w = worker(9222)
     monkeypatch.setattr(pool_mod, "classify_response", lambda raw, prompt: (pool_mod.CLASS_RATE_LIMIT, "too many requests"))

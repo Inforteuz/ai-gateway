@@ -119,9 +119,20 @@ def test_repeated_successful_tool_call_ends_agent_loop(cluster_client):
     response, bal = cluster_client([CALL], {"messages": messages, "tools": TOOLS})
     assert response.status_code == 200 and len(bal.prompts) == 1
     assert "tool_calls" not in response.json()["choices"][0]["message"]
-    assert "Task completed" in response.json()["choices"][0]["message"]["content"]
+    assert response.json()["choices"][0]["message"]["content"] == (
+        "The task is complete. This action was already done, so I did not repeat it.")
     status = response.json()["gateway"]["tool_protocol"]
     assert status["loop_guard"] == "repeated_tool_action" and status["final_answer"]
+
+
+@pytest.mark.parametrize("prompt, expected", [
+    ("Faylni qayta ochib ber", "Vazifa bajarildi."),
+    ("Nega yana chiqdi?", "Vazifa bajarildi."),
+    ("Пожалуйста, повтори действие", "Задача выполнена."),
+    ("Please repeat the action", "The task is complete."),
+])
+def test_loop_notice_uses_user_language(prompt, expected):
+    assert srv._loop_notice([srv.ChatMessage(role="user", content=prompt)]).startswith(expected)
 
 
 def test_final_marker_respects_required_and_auto_semantics(cluster_client):

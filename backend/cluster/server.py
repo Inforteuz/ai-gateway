@@ -629,6 +629,53 @@ def _last_user_text(messages) -> str:
     return ""
 
 
+_UZBEK_LOOP_WORDS = (
+    "salom", "qayta", "takror", "bajar", "bajarildi", "oldin", "so'rov",
+    "uchun", "qil", "qiling", "ber", "rasm", "och", "yop", "amal",
+    "o'zgartir", "o'zbek", "iltimos", "kerak", "marta", "savol",
+    "nega", "nima", "mana", "qara", "yaxshi", "bo'ldi", "senga", "biz",
+    "ishla", "matn", "javob", "ko'r", "foydalan", "ochib", "tez", "sekin",
+)
+_ENGLISH_LOOP_WORDS = (
+    "the", "and", "please", "already", "repeat", "repeated", "task",
+    "done", "completed", "open", "close", "read", "file", "image",
+    "change", "generate", "request", "action",
+)
+
+
+def _loop_notice(messages) -> str:
+    """Return a short, human-facing duplicate-action notice in the user's language.
+
+    This is intentionally deterministic and local. Calling another model just to
+    translate a one-line transport notice would make the slow/loop case slower
+    and could itself fail. A model-provided ``final_answer`` is still preferred
+    by the caller before this fallback is used.
+    """
+    text = _last_user_text(messages)
+    low = _norm_apos(text)
+    # Uzbek Cyrillic has distinctive letters; handle it before generic Cyrillic.
+    if any(ch in low for ch in "ўқғҳ"):
+        return ("Vazifa bajarildi. Bu amal avval bajarilgan, shuning uchun uni "
+                "qayta takrorlamadim.")
+    # Cyrillic is a reliable signal for the supported Russian UI language. The
+    # fallback is Russian even for a short Cyrillic message with no keywords.
+    if any("а" <= ch <= "я" or ch in "ёғқўҳ" for ch in low):
+        return ("Задача выполнена. Это действие уже было выполнено, поэтому я "
+                "не стал повторять его.")
+    # Apostrophes in Uzbek words (o'g', o'zgartir, so'rov) are a strong signal,
+    # including short prompts that contain too few dictionary words to score.
+    if "o'" in low or "g'" in low:
+        return ("Vazifa bajarildi. Bu amal avval bajarilgan, shuning uchun uni "
+                "qayta takrorlamadim.")
+    uz = sum(1 for word in _UZBEK_LOOP_WORDS if word in low)
+    en = sum(1 for word in _ENGLISH_LOOP_WORDS if word in low.split() or word in low)
+    if uz > en and uz > 0:
+        return ("Vazifa bajarildi. Bu amal avval bajarilgan, shuning uchun uni "
+                "qayta takrorlamadim.")
+    return ("The task is complete. This action was already done, so I did not "
+            "repeat it.")
+
+
 def _model_can(pool, requested: str, cap: str) -> bool:
     """Does the requested model (or, for `auto`, any worker) have this capability?"""
     workers = pool.workers if requested in ("", "auto") else pool.workers_for_model(requested)
@@ -970,14 +1017,12 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         if not calls:
                             final_ready = True
                             # Preserve a model-written final envelope when it
-                            # accompanied the duplicate call. Otherwise this is
-                            # a gateway transport notice, so keep its wording
-                            # stable and in English instead of guessing a user
-                            # language or spending another model turn.
+                            # accompanied the duplicate call. Otherwise use a
+                            # short local notice in the user's language. This
+                            # path must stay deterministic: another model turn
+                            # would make a loop/slow request even slower.
                             model_final = tool_proto.parse_final_answer(answer)
-                            answer = model_final or (
-                                "Task completed. The requested action already succeeded; "
-                                "the repeated call was skipped to prevent a loop.")
+                            answer = model_final or _loop_notice(req.messages)
                             tool_status.update(final_answer=True, missing_calls=False)
                 finally:
                     # Here, not after the re-ask: a client that hangs up mid re-ask
