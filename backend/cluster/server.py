@@ -965,8 +965,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         tool_status["loop_guard_count"] = len(repeated_ids)
                         if not calls:
                             final_ready = True
-                            answer = ("The same tool action already succeeded in this task; "
-                                      "the repeated call was stopped to prevent a loop.")
+                            answer = ("Ish yakunlandi. Kerakli amal avval muvaffaqiyatli bajarilgan; "
+                                      "takroriy chaqiruv loopni oldini olish uchun bajarilmadi.")
                             tool_status.update(final_answer=True, missing_calls=False)
                 finally:
                     # Here, not after the re-ask: a client that hangs up mid re-ask
