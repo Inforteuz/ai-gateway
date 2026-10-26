@@ -493,7 +493,8 @@ def test_failed_navigation_does_not_erase_timeout_on_healthy_old_page(cluster_ap
     worker = make_worker(9222, a, "gemini")
     worker.last_error = "timeout"
     client = cluster_app(make_pool(worker))
-    assert client.post("/cluster/instances/0/reload").status_code == 200
+    result = client.post("/cluster/instances/0/reload")
+    assert result.status_code == 200 and result.json()["ok"] is False
     assert worker.last_error == "timeout"
 
 

@@ -259,7 +259,10 @@ async def reload(pool: ClusterPool, instance: int, lock_wait: float = 20.0) -> D
                              w.model_name, port, type(e).__name__)
                 # Navigation may have recreated the target — probe over a fresh connection
                 await asyncio.sleep(1.0)
-                tabs.append(await _probe_one(w, reloaded=navigated))
+                result = await _probe_one(w, reloaded=navigated)
+                if not navigated:
+                    result = {**result, "ok": False, "reason": "navigation_failed"}
+                tabs.append(result)
         ok = all(t["ok"] for t in tabs)
         return {"ok": ok, "tabs": tabs,
                 "summary": "qayta yuklandi, sessiya joyida" if ok else
