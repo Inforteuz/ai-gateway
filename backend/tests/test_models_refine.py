@@ -506,6 +506,32 @@ def test_thinking_is_forced_off_on_models_that_disallow_it(env):
     assert env.up["last"]["reasoning_effort"] == "none" and env.up["last"]["stream"] is True
 
 
+def test_cluster_model_that_disallows_thinking_also_forces_none(env):
+    uid = add_user(env, balance_som=1000)
+    key, _ = add_key(env, uid)
+    add_model(env, "sf-cluster-fast", provider="cluster", upstream="gemini", allow_thinking=0)
+    env.db.set_setting("cluster_base_url", "http://cluster/v1")
+    import httpx
+    from fastapi import FastAPI, Request
+    fake = FastAPI()
+
+    @fake.post("/v1/chat/completions")
+    async def chat(request: Request):
+        payload = await request.json()
+        env.up["last"] = payload
+        return {"model": payload["model"],
+                "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+
+    env.app.state.cluster_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=fake))
+    response = env.client.post(
+        "/v1/chat/completions", headers=bearer(key),
+        json={"model": "sf-cluster-fast", "messages": [{"role": "user", "content": "hi"}],
+              "reasoning_effort": "high"},
+    )
+    assert response.status_code == 200 and env.up["last"]["reasoning_effort"] == "none"
+
+
 def test_thinking_model_obeys_request_key_and_model_default(env):
     uid = add_user(env, balance_som=1000)
     key, _ = add_key(env, uid)

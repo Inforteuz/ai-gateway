@@ -4,6 +4,18 @@ from __future__ import annotations
 from . import catalog
 
 
+# Short tool turns are usually file listing/opening, status checks or one small
+# mutation. They do not benefit from a high reasoning pass, but they do pay its
+# browser/UI latency. Keep the classifier conservative: long, planning,
+# debugging and design prompts stay on the requested model.
+_TOOL_COMPLEX_HINTS = (
+    "plan", "planning", "analyze", "analyse", "debug", "refactor", "architecture",
+    "design", "compare", "explain why", "tahlil", "reja", "arxitektura", "taqqosla",
+    "план", "анализ", "отлад", "архитект", "сравни",
+)
+_TOOL_SPEED_ORDER = {"qwen": 0, "gemini": 1, "chatgpt": 2, "deepseek": 3}
+
+
 def compatible(source, target, endpoint="chat/completions"):
     if not target or not target.get("enabled") or source["id"] == target["id"]:
         return False
@@ -55,6 +67,72 @@ def text_profile(body):
         prompt += "\n\n" + reasoning.INSTRUCTION
     current = next((m["content"] for m in reversed(flat) if m.get("role") == "user"), "")
     return len(prompt), bool(offered), compose.wants_image(current)
+
+
+def _simple_tool_request(body, profile) -> bool:
+    if not profile or not profile[1] or profile[2]:
+        return False
+    if body.get("tool_choice") == "none":
+        return False
+    offered = body.get("tools") or []
+    if len(offered) > 16:
+        return False
+    current = ""
+    for message in reversed(body.get("messages") or []):
+        if isinstance(message, dict) and message.get("role") == "user":
+            content = message.get("content") or ""
+            if isinstance(content, str):
+                current = content
+            break
+    low = current.lower()
+    return (0 < len(current.strip()) <= 1200
+            and "```" not in current
+            and not any(hint in low for hint in _TOOL_COMPLEX_HINTS))
+
+
+def tool_target(source, candidates, body):
+    """Pick a measured fast, no-thinking cluster model for a simple tool turn.
+
+    The public model and price remain those requested by the client. This is a
+    capacity route like ``size_target``: it only changes the internal upstream
+    when the candidate accepts the composed prompt and supports tools.
+    """
+    if source.get("provider") != "cluster":
+        return None
+    try:
+        profile = text_profile(body)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not _simple_tool_request(body, profile):
+        return None
+    chars = profile[0]
+    from cluster.adapters import get_adapter
+    eligible = []
+    for target in candidates:
+        if not target.get("enabled") or target.get("provider") != "cluster":
+            continue
+        if target["id"] != source["id"] and not compatible(source, target):
+            continue
+        try:
+            adapter = get_adapter(target.get("upstream_name"))
+            capacity = getattr(adapter, "MAX_INPUT_CHARS", 0)
+            has_tools = bool(adapter and adapter.caps.tool_calling)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if not has_tools or (capacity and capacity < chars):
+            continue
+        upstream = (target.get("upstream_name") or "").lower()
+        eligible.append((int(bool(target.get("allow_thinking", 1))),
+                         _TOOL_SPEED_ORDER.get(upstream, 99),
+                         target.get("price_in_per_1m", 0) + target.get("price_out_per_1m", 0),
+                         target["id"], target))
+    if not eligible:
+        return None
+    chosen = min(eligible, key=lambda item: item[:4])[4]
+    if chosen["id"] == source["id"]:
+        return None
+    return chosen, {"route_reason": "tool_speed", "prompt_chars": chars,
+                    "tool_speed": True, "source_model": source["id"]}
 
 
 def size_target(source, candidates, body):

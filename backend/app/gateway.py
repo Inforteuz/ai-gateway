@@ -443,9 +443,9 @@ async def proxy(request: Request, endpoint: str):
         response.headers["X-Fallback-Model"] = stand_in
         response.headers["X-SF-Routed-Model"] = stand_in
         response.headers["X-SF-Route-Reason"] = ticket2.attribution["route_reason"]
-    if ticket.attribution.get("route_reason") == "input_size" and "X-Fallback-Model" not in response.headers:
+    if ticket.attribution.get("route_reason") in ("input_size", "tool_speed") and "X-Fallback-Model" not in response.headers:
         response.headers["X-SF-Routed-Model"] = model["id"]
-        response.headers["X-SF-Route-Reason"] = "input_size"
+        response.headers["X-SF-Route-Reason"] = ticket.attribution["route_reason"]
     extra = legacy_headers(ctx.get("requested") or "", ctx.get("legacy_sunset") or "")
     for k, v in extra.items():
         response.headers[k] = v
@@ -558,12 +558,18 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     route_meta = {}
     if endpoint == "chat/completions" and not force_model and model["provider"] == "cluster":
         candidates = [dict(r) for r in await run_in_threadpool(db.all, "SELECT * FROM models WHERE enabled=1 AND listed=1 AND provider='cluster'")]
-        selected = routing.size_target(model, candidates, body)
+        # Small tool turns are much faster on a no-thinking, tool-capable
+        # upstream. Long or planning-heavy turns fall through to the existing
+        # input-size route and keep the requested model's full capacity.
+        selected = routing.tool_target(model, candidates, body)
+        if selected is None:
+            selected = routing.size_target(model, candidates, body)
         if selected:
             price_source = model
             model, route_meta = selected
             model = {**model, "public_id": public_id}
-            log.info("size route: %s -> %s chars=%d (%s)", price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
+            log.info("%s route: %s -> %s chars=%d (%s)", route_meta.get("route_reason", "size"),
+                     price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
     ctx["legacy_sunset"] = settings.get("legacy_models_sunset") or ""
     if model["provider"] == "external" and not ((settings.get("external_base_url") or "").strip() and (settings.get("external_api_key") or "").strip()):
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
@@ -587,7 +593,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     # Thinking tokens cost money and time. Priority: request value > key setting > global default.
     reasoning = ""
     if endpoint == "chat/completions":
-        if model["provider"] == "local" and not model["allow_thinking"]:
+        if model["provider"] in ("local", "cluster") and not model["allow_thinking"]:
             # Thinking is off on this model: always 'none' whatever the client asks (agents usually send "high": 5-6x slower and pricier).
             body = {k: v for k, v in body.items() if k not in ("think", "reasoning")} | {"reasoning_effort": "none"}
             reasoning = "none"

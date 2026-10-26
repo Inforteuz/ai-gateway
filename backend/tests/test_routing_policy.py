@@ -39,6 +39,29 @@ def test_size_route_does_not_use_narrower_unavailable_or_incapable_models(monkey
     assert routing.size_target(source, [wide], body(tools=[{"type": "function", "function": {"name": "read_file"}}])) is None
 
 
+def test_simple_tool_route_prefers_fast_no_thinking_upstream():
+    source = model("slow", "gemini", allow_thinking=1)
+    candidates = [source, model("qwen-fast", "qwen", allow_thinking=0),
+                  model("chat-fast", "chatgpt", allow_thinking=0)]
+    selected = routing.tool_target(
+        source, candidates,
+        body("Open the file and show its contents",
+             tools=[{"type": "function", "function": {"name": "read_file"}}]),
+    )
+    assert selected and selected[0]["id"] == "qwen-fast"
+    assert selected[1]["route_reason"] == "tool_speed"
+
+
+def test_complex_tool_route_keeps_requested_model():
+    source = model("slow", "gemini", allow_thinking=1)
+    target = model("qwen-fast", "qwen", allow_thinking=0)
+    assert routing.tool_target(
+        source, [source, target],
+        body("Analyze the architecture and plan a refactor",
+             tools=[{"type": "function", "function": {"name": "read_file"}}]),
+    ) is None
+
+
 def test_attachments_and_private_requests_keep_original_route():
     assert routing.text_profile(body([{"type": "text", "text": "x" * 40000}, {"type": "image_url", "image_url": {"url": "https://example.com/p.png"}}])) is None
     assert routing.size_target(model("local", provider="local"), [model("wide", "qwen")], body()) is None
@@ -104,6 +127,21 @@ def test_gateway_size_route_price_and_attribution(env, stream):
     assert row["estimated"] == 1  # Browser token counts are character estimates, not native tokenizer usage.
     assert before - wallet(env, uid)[0] == row["cost"] == 20
     assert wallet(env, uid)[1] == 0 and not env.db.all("SELECT * FROM inference_slots")
+
+
+def test_gateway_simple_tool_route_uses_fast_upstream(env):
+    seen, _, key, _ = setup(env)
+    add_model(env, "slow", provider="cluster", upstream="gemini", allow_thinking=1)
+    add_model(env, "qwen-fast", provider="cluster", upstream="qwen", allow_thinking=0)
+    tools = [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}}]
+    response = env.client.post(
+        "/v1/chat/completions", headers=bearer(key),
+        json={"model": "slow", **body("Open the file and show its contents", tools=tools)},
+    )
+    assert response.status_code == 200
+    assert response.headers["x-sf-routed-model"] == "qwen-fast"
+    assert response.headers["x-sf-route-reason"] == "tool_speed"
+    assert seen[0]["model"] == "qwen"
 
 
 def test_busy_provider_falls_back_once_and_releases_slots(env, monkeypatch):
