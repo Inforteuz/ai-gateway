@@ -468,10 +468,16 @@ def test_reload_navigates_to_home_url_only(cluster_app):
     async def check_session(ws, timeout=5.0, recover=True):
         return True, "ok"
     a.goto, a.wait_for_input, a.check_session = goto, wait_for_input, check_session
-    client = cluster_app(make_pool(make_worker(9224, a, "deepseek")))
+    worker = make_worker(9224, a, "deepseek")
+    worker.last_error = "timeout"
+    worker.set_cooldown(30, reason="timeout")
+    client = cluster_app(make_pool(worker))
     r = client.post("/cluster/instances/2/reload")
     assert r.status_code == 200 and r.json()["ok"] is True
     assert urls == ["https://chat.deepseek.com/"]
+    assert worker.last_error is None and worker.cooldown_until == 0
+    snapshot = client.get("/cluster/instances").json()["instances"]
+    assert next(i for i in snapshot if i["instance"] == 2)["last_error"] is None
 
 
 def test_busy_worker_returns_409(cluster_app, monkeypatch):

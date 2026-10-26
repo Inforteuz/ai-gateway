@@ -400,6 +400,65 @@ class GeminiAdapter(BaseAIAdapter):
             log.warning("gemini: send not confirmed (%s, attempt %d)", how, attempt + 1)
         return False
 
+    async def regenerate_response(self, ws) -> bool:
+        """Use the latest answer's Redo control once for technical failures.
+
+        Gemini labels the circular-arrow icon "Redo" (not "Regenerate").
+        Never choose a generic refresh icon elsewhere on the page or retry a
+        content-policy refusal; the worker calls this only for technical errors.
+        """
+        if await self.detect_challenge(ws):
+            return False
+        pos = await cdp.evaluate(ws, r"""(() => {
+            const visible = e => !!(e.offsetWidth || e.offsetHeight);
+            if ([...document.querySelectorAll('button')].some(b => visible(b)
+                    && /stop|останов/i.test(b.getAttribute('aria-label') || ''))) return null;
+            const last = [...document.querySelectorAll('model-response')].pop();
+            const scope = last || document.querySelector('[role="alert"], .error-message');
+            if (!scope) return null;
+            const labels = /^(redo|retry|try again|regenerate( response)?|повторить( попытку)?|попробовать (еще|ещё) раз|сгенерировать заново)$/i;
+            const b = [...scope.querySelectorAll('button')].find(b => visible(b) && !b.disabled
+                && b.getAttribute('aria-disabled') !== 'true' && !b.closest('pre, code')
+                && labels.test((b.getAttribute('aria-label') || b.getAttribute('title') || b.innerText || '').trim()));
+            if (!b) return null;
+            const r = b.getBoundingClientRect();
+            return {x:r.left + r.width/2, y:r.top + r.height/2};
+        })()""", timeout=5)
+        if not isinstance(pos, dict):
+            return False
+        await cdp.click_at(ws, pos["x"], pos["y"])
+        # Current Gemini opens a menu: Longer / Shorter / Try again. The
+        # circular icon alone does not regenerate. Pick only its exact retry
+        # entry, without changing the model or answer style.
+        retry_js = r"""(() => {
+            const labels = /^(redo|retry|try again|повторить|попробовать (еще|ещё) раз)$/i;
+            const b = [...document.querySelectorAll('[role="menuitem"]')].find(e =>
+                (e.offsetWidth || e.offsetHeight) && e.getAttribute('aria-disabled') !== 'true'
+                && labels.test((e.innerText || e.getAttribute('aria-label') || '').trim()));
+            if (!b) return null;
+            const r = b.getBoundingClientRect();
+            return {x:r.left + r.width/2, y:r.top + r.height/2};
+        })()"""
+        started_js = r"""(() => {
+            const visible = e => !!(e.offsetWidth || e.offsetHeight);
+            return [...document.querySelectorAll('button')].some(b => visible(b)
+                && /stop|останов/i.test(b.getAttribute('aria-label') || ''));
+        })()"""
+        # The menu animates in, so one immediate DOM inspection can miss it.
+        for _ in range(15):
+            retry = await cdp.evaluate(ws, retry_js, timeout=5)
+            if isinstance(retry, dict):
+                await cdp.click_at(ws, retry["x"], retry["y"])
+                break
+            if await cdp.evaluate(ws, started_js, timeout=5):
+                return True  # Older Gemini starts the retry directly.
+            await asyncio.sleep(.1)
+        else:
+            await cdp.key(ws, "Escape", "Escape", 27)
+            return False
+        # Do not reread the old completed answer while the retry is starting.
+        return await self.wait_until(ws, started_js, timeout=3, interval=.1)
+
     async def read_response(self, ws, timeout: int = 45) -> Optional[str]:
         script = """(() => {
             const READ = __READ__;

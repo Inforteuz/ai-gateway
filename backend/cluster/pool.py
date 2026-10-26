@@ -280,7 +280,7 @@ class WorkerTab:
             self.model_name, self.browser_port, self.short_tab, sec, reason or "manual",
         )
 
-    def apply_probe(self, healthy: bool, reason: str) -> None:
+    def apply_probe(self, healthy: bool, reason: str, *, reloaded: bool = False) -> None:
         """Apply a session check result to the worker state.
 
         Both the background watchdog and the admin panel's "check session"
@@ -288,6 +288,16 @@ class WorkerTab:
         """
         self.last_probe = {"ts": int(time.time()), "ok": healthy, "reason": reason}
         if healthy:
+            # A DOM probe proves the page/session is available, not that a
+            # timed-out generation recovered. Only an explicit successful
+            # reload may clear a stale transient request error.
+            if reloaded and self.last_error in ("timeout", "empty", "send_failed"):
+                self.last_error = None
+                self.consecutive_failures = 0
+                if self.cooldown_reason.startswith(("timeout", "streak=")):
+                    # Keep a quota/rate-limit block imposed by another tab.
+                    self._cooldown_until = 0.0
+                    self.cooldown_reason = ""
             blocked = _ACCOUNT_BLOCKED.get(self.account_key)
             if blocked and blocked[1].startswith(("captcha", "probe:captcha", "login", "probe:login")):
                 _ACCOUNT_BLOCKED.pop(self.account_key, None)
@@ -637,6 +647,10 @@ class WorkerTab:
             effort = await self.adapter.set_effort(ws, want_effort)
             if effort:
                 meta["upstream_effort"] = effort
+            # A client that omits effort still gets the adapter's default.
+            # Poll deadlines must use that effective effort, not mistake it
+            # for an unspecified/high request and wait the full minute.
+            meta["effective_effort"] = effort or want_effort
             meta["fallback"] = variant == "fallback"
 
             # Clear the composer before EVERY request. If a previous request was
@@ -698,16 +712,30 @@ class WorkerTab:
                 await self.adapter.after_image_response(ws)
                 mark("registry")
             else:
-                text = await self.adapter.read_response(ws, timeout=timeout)
+                read_started = time.monotonic()
+                timed_out = None
+                try:
+                    text = await self.adapter.read_response(ws, timeout=timeout)
+                except asyncio.TimeoutError as exc:
+                    timed_out = exc
+                    text = None
                 # A bounded retry on the provider's existing answer. Never replay
                 # after live bytes were committed or when verification is required.
                 meta = runmeta.get()
-                if (is_degenerate_response(text) and not meta.get("stream_committed")
+                # Retry the existing response once, without retyping the whole
+                # conversation. Keep it inside the original read budget.
+                retry_budget = min(12, timeout - (time.monotonic() - read_started))
+                technical_error = classify_response(text or "", prompt_text)[0] == CLASS_PROVIDER_ERROR
+                if ((timed_out or is_degenerate_response(text) or technical_error)
+                        and retry_budget >= 2 and not meta.get("stream_committed")
                         and not meta.get("regenerated")
                         and hasattr(self.adapter, "regenerate_response")):
                     if await self.adapter.regenerate_response(ws):
                         meta["regenerated"] = True
-                        text = await self.adapter.read_response(ws, timeout=min(12, timeout))
+                        text = await self.adapter.read_response(ws, timeout=retry_budget)
+                        timed_out = None
+                if timed_out:
+                    raise timed_out
                 mark("answer")
 
             self.last_finished = time.time()

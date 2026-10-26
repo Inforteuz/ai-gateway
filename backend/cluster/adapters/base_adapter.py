@@ -882,7 +882,8 @@ class BaseAIAdapter(ABC):
                             self.name, time.monotonic() - started)
                 raise asyncio.TimeoutError("Provider never started answering")
             if not cur:
-                effort = str(runmeta.get().get("effort") or "").lower()
+                meta = runmeta.get()
+                effort = str(meta.get("effective_effort") or meta.get("effort") or "").lower()
                 if (cfg.ANSWER_FIRST_TEXT_TIMEOUT > 0 and effort in ("none", "minimal", "low")
                         and not prev and time.monotonic() - started > cfg.ANSWER_FIRST_TEXT_TIMEOUT):
                     log.warning("%s: fast-effort request has no answer text after %.1fs; trying another worker",
