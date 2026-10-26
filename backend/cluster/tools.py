@@ -463,8 +463,7 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
             signature, target = previous
             exact_counts[signature] = exact_counts.get(signature, 0) + 1
             if target:
-                name, _ = signature
-                key = (name, target)
+                key = target
                 if key == last_target:
                     target_streak += 1
                 else:
@@ -482,7 +481,7 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
         call_target = _call_target(call)
         if exact_counts.get(signature, 0):
             exact.append(call)
-        elif call_target and name in _MUTATING_TOOLS and target_counts.get((name, call_target), 0) >= max_target_actions:
+        elif call_target and name in _MUTATING_TOOLS and target_counts.get(call_target, 0) >= max_target_actions:
             target.append(call)
     return exact, target
 

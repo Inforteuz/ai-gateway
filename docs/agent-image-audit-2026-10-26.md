@@ -45,7 +45,7 @@ The private service returned 25 results in 1.344 seconds in an initial real quer
 
 ## Validation and rollout
 
-All **786 backend tests passed** on the final code, including image setup serialization and the compact identity-context adjustment. Targeted regressions cover empty tool results, equivalent browser-open commands, repeated successful agent actions, batch duplicates, JSON Schema validation, parallel tool indexes, early stream close, incomplete streams, image completion and opt-in search failures. The shared fake upstream now emits a real finish reason before its DONE marker; premature DONE remains an error in production. Qwen's original 2752×1536 generated file was downloaded and visually checked; the ChatGPT generation and red-square edit were also visually confirmed. The production rollout and post-deployment observations follow below.
+All **787 backend tests passed** on the final code, including image setup serialization and the compact identity-context adjustment. Targeted regressions cover empty tool results, equivalent browser-open commands, repeated successful agent actions, batch duplicates, JSON Schema validation, parallel tool indexes, early stream close, incomplete streams, image completion and opt-in search failures. The shared fake upstream now emits a real finish reason before its DONE marker; premature DONE remains an error in production. Qwen's original 2752×1536 generated file was downloaded and visually checked; the ChatGPT generation and red-square edit were also visually confirmed. The production rollout and post-deployment observations follow below.
 
 
 ## Production observations

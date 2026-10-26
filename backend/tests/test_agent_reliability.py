@@ -139,6 +139,19 @@ def test_successful_mutation_target_limit_catches_changing_loop_and_allows_failu
     assert not exact and not target  # a failed result remains retryable
 
 
+def test_mutation_limit_applies_across_write_and_edit_tools():
+    messages = [{"role": "user", "content": "Build the clock"}]
+    for i, name in enumerate(("write", "edit", "write")):
+        call = {"id": f"old-{i}", "type": "function", "function": {
+            "name": name, "arguments": json.dumps({"path": "clock/index.html", "content": f"v{i}"})}}
+        messages.extend([{ "role": "assistant", "tool_calls": [call]},
+                         {"role": "tool", "tool_call_id": f"old-{i}", "content": "ok"}])
+    current = {"id": "new", "type": "function", "function": {
+        "name": "edit", "arguments": json.dumps({"path": "clock/index.html", "content": "new"})}}
+    exact, target = tools.repeated_successful_actions([current], messages)
+    assert not exact and target == [current]
+
+
 def test_empty_tool_result_is_preserved_and_repeat_not_emitted(cluster_client):
     first = _opening('open ~/Desktop/clock/index.html')
     messages = [{"role":"user","content":"Open the clock"},
