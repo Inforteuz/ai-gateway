@@ -8,6 +8,7 @@ import pytest
 
 from cluster import pool, runmeta, settings as cfg
 from cluster.adapters import gemini_adapter as ga
+from .test_audit_regressions import cluster_client
 
 
 @pytest.mark.parametrize("reloaded", [False, True])
@@ -155,3 +156,70 @@ def test_worker_retries_technical_failure_once_inside_original_budget(monkeypatc
     retries = [x for x in attempts if x[0] == "regenerate"]
     assert len(retries) == int(expected == "recovered")
     assert all(0 < budget <= 45 for name, budget in attempts if name == "read")
+
+
+@pytest.mark.parametrize("effort", ["low", "minimal", "none"])
+def test_fast_effort_does_not_trigger_yaml_plan_or_second_generation(cluster_client, monkeypatch, effort):
+    from cluster import settings as cfg
+    monkeypatch.setattr(cfg, "REASONING_YAML", True)
+    question = "Analyze the cause and compare the available solutions. " * 8
+    response, bal = cluster_client(["A complete direct answer."], {"messages": [{"role": "user", "content": question}],
+                                                               "reasoning_effort": effort})
+    assert response.status_code == 200 and len(bal.prompts) == 1
+    assert "[Javob tartibi" not in bal.prompts[0]
+
+
+def test_configured_stand_in_runs_after_two_failed_accounts(monkeypatch):
+    from cluster import balancer as B
+    from .test_audit_regressions import _Worker, _Pool
+    order = []
+
+    class Worker(_Worker):
+        async def execute_prompt(self, prompt, timeout, **kwargs):
+            order.append(self.browser_port)
+            if self.model_name == "gemini":
+                raise asyncio.TimeoutError()
+            runmeta.get()["fallback"] = False  # Normal worker variant metadata.
+            return "valid answer", []
+
+    workers = [Worker("gemini") for _ in range(4)] + [Worker("deepseek")]
+    for i, worker in enumerate(workers):
+        worker.browser_port = 19880 + i
+    monkeypatch.setattr(cfg, "SPILL_AFTER_FAILURES", 2)
+    monkeypatch.setattr(cfg, "PREWARM_ENABLED", False)
+    bal = B.ClusterBalancer(_Pool(workers))
+
+    async def run():
+        meta = runmeta.start()
+        result = await bal.execute("test", "gemini", spill_to="deepseek", timeout_per_worker=3)
+        assert meta["fallback"] is True
+        return result
+
+    assert asyncio.run(run())[1] == "deepseek"
+    assert order == [19880, 19881, 19884]
+
+
+def test_failure_spill_requires_configured_destination(monkeypatch):
+    from cluster import balancer as B
+    from .test_audit_regressions import _Worker, _Pool
+    order = []
+
+    class Worker(_Worker):
+        async def execute_prompt(self, prompt, timeout, **kwargs):
+            order.append(self.browser_port)
+            if len(order) <= 2:
+                raise asyncio.TimeoutError()
+            return "valid answer", []
+
+    workers = [Worker("gemini") for _ in range(3)]
+    for i, worker in enumerate(workers):
+        worker.browser_port = 19890 + i
+    monkeypatch.setattr(cfg, "SPILL_AFTER_FAILURES", 2)
+    monkeypatch.setattr(cfg, "PREWARM_ENABLED", False)
+    bal = B.ClusterBalancer(_Pool(workers))
+
+    async def run():
+        runmeta.start()
+        return await bal.execute("test", "gemini", timeout_per_worker=3)
+
+    assert asyncio.run(run())[1] == "gemini" and order == [19890, 19891, 19892]

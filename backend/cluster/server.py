@@ -750,7 +750,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             use_reasoning = (
                 cfg.REASONING_YAML and live is None and not tool_names and not want_images and not files
                 and not spec.is_json
-                and (req.reasoning_effort or "").lower() != "none"
+                and (req.reasoning_effort or "").lower() not in ("none", "minimal", "low")
                 and reasoning.should_use(prompt_text, cfg.REASONING_MIN_CHARS))
             base_prompt = prompt_text
             if spec.is_json:

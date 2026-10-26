@@ -50,7 +50,7 @@ def text_profile(body):
     if spec.is_json:
         prompt += "\n\n" + output_format.instruction(spec)
     elif (not offered and not (body.get("stream") and cfg.LIVE_STREAM) and cfg.REASONING_YAML
-          and (body.get("reasoning_effort") or "").lower() != "none"
+          and (body.get("reasoning_effort") or "").lower() not in ("none", "minimal", "low")
           and reasoning.should_use(prompt, cfg.REASONING_MIN_CHARS)):
         prompt += "\n\n" + reasoning.INSTRUCTION
     current = next((m["content"] for m in reversed(flat) if m.get("role") == "user"), "")

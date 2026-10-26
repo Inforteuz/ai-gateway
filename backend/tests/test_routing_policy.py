@@ -155,9 +155,9 @@ def test_private_fallback_does_not_disclose_prompt(env):
     assert response.status_code == 502 and not seen
 
 
-def test_cluster_learns_its_stand_in_only_for_tool_requests(env):
-    # Mid-stream the gateway can no longer fall back, so the cluster re-asks a
-    # failed tool call on the stand-in itself and has to know which model that is.
+def test_cluster_learns_configured_stand_in_for_agent_and_plain_requests(env):
+    # The configured fallback can also avoid trying every stalled account on a
+    # plain request. It remains catalog-controlled and capability-filtered.
     seen, _, key, _ = setup(env)
     add_model(env, "agent", provider="cluster", upstream="qwen")
     add_model(env, "backup", provider="cluster", upstream="deepseek")
@@ -169,7 +169,7 @@ def test_cluster_learns_its_stand_in_only_for_tool_requests(env):
     assert env.client.post("/v1/chat/completions", headers=bearer(key),
                            json={"model": "agent", **body("plain question")}).status_code == 200
     assert seen[0]["sf_stand_in"] == "deepseek"
-    assert "sf_stand_in" not in seen[1]
+    assert seen[1]["sf_stand_in"] == "deepseek"
 
 
 def test_client_cannot_name_a_stand_in(env):

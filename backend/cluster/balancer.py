@@ -361,10 +361,9 @@ class ClusterBalancer:
                 break
             candidates = [w for w in self.pick_candidates(requested_model, require)
                           if id(w) not in attempted and time.time() >= w.cooldown_until]
-            if not candidates:
-                break
             worker = next((w for w in candidates if not _is_busy(w)), None)
-            if worker is None and spill_to:
+            failed_enough = cfg.SPILL_AFTER_FAILURES > 0 and len(failed_ports) >= cfg.SPILL_AFTER_FAILURES
+            if spill_to and (worker is None or failed_enough):
                 # Every tab of the requested model is busy (or must keep its account's
                 # send gap): a free tab of the spill model answers now instead of the
                 # request queueing. Measured 2026-10-25: deepseek answered an 85k-char
@@ -373,12 +372,18 @@ class ClusterBalancer:
                 free = [w for w in self.pick_candidates(spill_to, require)
                         if time.time() >= w.cooldown_until and not _is_busy(w)]
                 if free:
-                    log.info("all %s tabs busy, answering on %s", requested_model, spill_to)
-                    runmeta.get()["fallback"] = True
-                    return await self._dispatch(
+                    log.info("%s unavailable (%d failed accounts, busy=%s), answering on %s",
+                             requested_model, len(failed_ports), worker is None, spill_to)
+                    result = await self._dispatch(
                         prompt_text, spill_to, timeout_per_worker, t0, retried=retried,
                         require=require, attachment_paths=attachment_paths,
                         images_only=images_only, want_images=want_images)
+                    # The worker sets its provider-variant flag while running;
+                    # set cross-provider fallback after it returns.
+                    runmeta.get()["fallback"] = True
+                    return result
+            if not candidates:
+                break
             if worker is None:
                 waited_busy = True
                 async with self._queue_slot(requested_model):

@@ -730,8 +730,11 @@ class WorkerTab:
                         and retry_budget >= 2 and not meta.get("stream_committed")
                         and not meta.get("regenerated")
                         and hasattr(self.adapter, "regenerate_response")):
-                    if await self.adapter.regenerate_response(ws):
+                    if await asyncio.wait_for(self.adapter.regenerate_response(ws), timeout=retry_budget):
                         meta["regenerated"] = True
+                        retry_budget = min(12, timeout - (time.monotonic() - read_started))
+                        if retry_budget <= 0:
+                            raise asyncio.TimeoutError("Response retry budget exhausted")
                         text = await self.adapter.read_response(ws, timeout=retry_budget)
                         timed_out = None
                 if timed_out:

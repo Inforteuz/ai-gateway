@@ -248,17 +248,18 @@ async def reload(pool: ClusterPool, instance: int, lock_wait: float = 20.0) -> D
                 tabs.append({"model": w.model_name, "ok": False, "reason": "no_home_url"})
                 continue
             async with _Locked(w, lock_wait):
+                navigated = False
                 try:
                     async with await w.connect(open_timeout=8) as ws:
                         # Plain navigation: cookies (login) are kept
                         await w.adapter.goto(ws, url)
-                        await w.adapter.wait_for_input(ws, timeout=20)
+                        navigated = await w.adapter.wait_for_input(ws, timeout=20) is not False
                 except Exception as e:
                     log.info("reload %s port=%d connection dropped during navigation: %s",
                              w.model_name, port, type(e).__name__)
                 # Navigation may have recreated the target — probe over a fresh connection
                 await asyncio.sleep(1.0)
-                tabs.append(await _probe_one(w, reloaded=True))
+                tabs.append(await _probe_one(w, reloaded=navigated))
         ok = all(t["ok"] for t in tabs)
         return {"ok": ok, "tabs": tabs,
                 "summary": "qayta yuklandi, sessiya joyida" if ok else

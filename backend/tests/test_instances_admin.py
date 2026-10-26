@@ -480,6 +480,23 @@ def test_reload_navigates_to_home_url_only(cluster_app):
     assert next(i for i in snapshot if i["instance"] == 2)["last_error"] is None
 
 
+def test_failed_navigation_does_not_erase_timeout_on_healthy_old_page(cluster_app):
+    a = GeminiAdapter()
+
+    async def goto(ws, url):
+        raise RuntimeError("navigation failed")
+
+    async def check_session(ws, timeout=5.0, recover=True):
+        return True, "ok"
+
+    a.goto, a.check_session = goto, check_session
+    worker = make_worker(9222, a, "gemini")
+    worker.last_error = "timeout"
+    client = cluster_app(make_pool(worker))
+    assert client.post("/cluster/instances/0/reload").status_code == 200
+    assert worker.last_error == "timeout"
+
+
 def test_busy_worker_returns_409(cluster_app, monkeypatch):
     w = make_worker(9222, ChatGPTAdapter(), "chatgpt")
     client = cluster_app(make_pool(w))
