@@ -119,7 +119,7 @@ def test_repeated_successful_tool_call_ends_agent_loop(cluster_client):
     response, bal = cluster_client([CALL], {"messages": messages, "tools": TOOLS})
     assert response.status_code == 200 and len(bal.prompts) == 1
     assert "tool_calls" not in response.json()["choices"][0]["message"]
-    assert "Ish yakunlandi" in response.json()["choices"][0]["message"]["content"]
+    assert "Task completed" in response.json()["choices"][0]["message"]["content"]
     status = response.json()["gateway"]["tool_protocol"]
     assert status["loop_guard"] == "repeated_tool_action" and status["final_answer"]
 

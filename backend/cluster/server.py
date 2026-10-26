@@ -965,8 +965,15 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         tool_status["loop_guard_count"] = len(repeated_ids)
                         if not calls:
                             final_ready = True
-                            answer = ("Ish yakunlandi. Kerakli amal avval muvaffaqiyatli bajarilgan; "
-                                      "takroriy chaqiruv loopni oldini olish uchun bajarilmadi.")
+                            # Preserve a model-written final envelope when it
+                            # accompanied the duplicate call. Otherwise this is
+                            # a gateway transport notice, so keep its wording
+                            # stable and in English instead of guessing a user
+                            # language or spending another model turn.
+                            model_final = tool_proto.parse_final_answer(answer)
+                            answer = model_final or (
+                                "Task completed. The requested action already succeeded; "
+                                "the repeated call was skipped to prevent a loop.")
                             tool_status.update(final_answer=True, missing_calls=False)
                 finally:
                     # Here, not after the re-ask: a client that hangs up mid re-ask
