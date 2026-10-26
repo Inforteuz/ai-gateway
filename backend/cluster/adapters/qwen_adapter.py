@@ -3,7 +3,7 @@ import time
 import json
 from typing import Optional
 
-from .. import cdp, logs
+from .. import cdp, logs, runmeta
 from .. import settings as cfg
 from .base_adapter import READ_TEXT_JS, BaseAIAdapter, Capabilities
 
@@ -133,6 +133,8 @@ class QwenAdapter(BaseAIAdapter):
         """
         if await cdp.evaluate(ws, self._IMAGE_MODE_JS, timeout=5):
             return "Qwen-Image 3.0"
+        if runmeta.get().get("image_requested"):
+            raise RuntimeError("qwen: image mode was not confirmed after navigation")
         target = {None: cfg.QWEN_PRIMARY_MODEL, "fallback": cfg.QWEN_FALLBACK_MODEL}.get(variant, variant)
         if not target:
             return None
@@ -305,10 +307,21 @@ class QwenAdapter(BaseAIAdapter):
     async def reset_chat_for_images(self, ws, timeout: float = 20.0) -> None:
         # Image mode has its own model. A normal Fast prompt just answers in text.
         # Use a verified blank page, never the previous user's saved conversation.
-        await self.goto(ws, "https://chat.qwen.ai/")
-        await self.wait_for_input(ws, timeout=timeout, selector=QWEN_INPUT)
+        # The old composer remains present briefly after location.href changes.
+        # Wait for a NEW document, not that stale input on the outgoing page.
+        nonce = str(time.time_ns())
+        await cdp.evaluate(ws, f"window.__sf_image_reset = {json.dumps(nonce)}")
+        await self.goto(ws, "https://chat.qwen.ai/?_sf_img=" + nonce)
+        ready = f"""(() => window.__sf_image_reset !== {json.dumps(nonce)}
+            && document.readyState !== 'loading'
+            && !!document.querySelector('textarea.message-input-textarea')
+            && !!document.querySelector('.mode-select-open'))()"""
+        if not await self.wait_until(ws, ready, timeout=timeout, interval=0.25):
+            raise RuntimeError("qwen: fresh image composer did not load")
         if not await self.is_fresh_chat(ws):
             await self._reset_saved_chat(ws, timeout=timeout)
+        if await cdp.evaluate(ws, self._IMAGE_MODE_JS, timeout=5):
+            return
         opener = """(() => {
             const e = document.querySelector('.mode-select-open');
             if (!e) return null;

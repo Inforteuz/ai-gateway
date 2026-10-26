@@ -417,6 +417,10 @@ class WorkerTab:
             # Navigation dropped the connection: normal. The tab URL gets refreshed.
             log.debug("reset: connection dropped during navigation model=%s", self.model_name)
         except Exception as e:
+            if for_images:
+                # A failed mode selection must never send an image task into
+                # ordinary text chat and wait the entire image timeout.
+                raise
             log.warning("reset_chat skipped: %s", e)
 
     @property
@@ -604,6 +608,7 @@ class WorkerTab:
             t_mark[0] = now
 
         # Phase 1: a new chat before every request, so users never get mixed.
+        runmeta.get()["image_requested"] = want_images
         # A pre-opened page is used only if the adapter STRICTLY confirms it is clean.
         # Image requests do not use the pre-opened (temporary) chat, because
         # ChatGPT does not draw images in a temporary chat.

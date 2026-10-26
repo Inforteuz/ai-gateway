@@ -115,10 +115,18 @@ def eligible(body: dict) -> bool:
 
 def payload(body: dict, upstream: str, max_out: int) -> dict:
     """Compact request for the fast model: only the persona and the last message."""
+    text = last_user_text(body) or ""
+    if _normalize(text) in ("aslidachi", "aslida-chi", "aslida chi", "really who are you"):
+        previous = [m for m in body.get("messages", [])[:-1] if m.get("role") == "user"]
+        if previous:
+            # This shortcut was admitted because of the preceding identity
+            # question. Retain that small context so the follow-up makes sense.
+            prior = _text_of(previous[-1].get("content")) or ""
+            text = f"[Previous identity question]: {prior}\n[Current message]: {text}"
     out: dict = {
         "model": upstream,
         "messages": [{"role": "system", "content": PERSONA},
-                     {"role": "user", "content": last_user_text(body) or ""}],
+                     {"role": "user", "content": text}],
         "max_tokens": min(max_out, 200),
         "reasoning_effort": "none",
         "stream": bool(body.get("stream")),

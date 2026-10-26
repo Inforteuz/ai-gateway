@@ -85,9 +85,12 @@ def test_reliable_image_provider_cannot_return_preview_while_generating(monkeypa
 
 
 def test_identity_followup_is_compact_only_with_identity_context():
-    from app.fastpath import eligible
-    assert eligible({"messages": [{"role": "user", "content": "Kimsan?"},
-        {"role": "assistant", "content": "I am an assistant."}, {"role": "user", "content": "Aslidachi"}]})
+    from app.fastpath import eligible, payload
+    body = {"messages": [{"role": "user", "content": "Kimsan?"},
+        {"role": "assistant", "content": "I am an assistant."}, {"role": "user", "content": "Aslidachi"}]}
+    assert eligible(body)
+    compact = payload(body, "fast", 200)["messages"][-1]["content"]
+    assert "Kimsan?" in compact and "Aslidachi" in compact and len(compact) < 120
     assert not eligible({"messages": [{"role": "user", "content": "Fix the program"},
         {"role": "assistant", "content": "It is fixed."}, {"role": "user", "content": "Aslidachi"}]})
 
@@ -160,3 +163,30 @@ def test_qwen_image_mode_does_not_select_a_text_model(monkeypatch):
         return True
     monkeypatch.setattr(cdp, "evaluate", evaluate)
     assert asyncio.run(QwenAdapter().select_variant(None, None)) == "Qwen-Image 3.0"
+
+
+def test_failed_image_reset_never_falls_through_to_send():
+    class Adapter:
+        async def reset_chat_for_images(self, ws):
+            raise RuntimeError("image mode not selected")
+    class Connection:
+        async def __aenter__(self): return None
+        async def __aexit__(self, *args): pass
+    tab = object.__new__(pool.WorkerTab)
+    tab.adapter = Adapter()
+    async def connect(): return Connection()
+    tab.connect = connect
+    with pytest.raises(RuntimeError, match="image mode not selected"):
+        asyncio.run(tab._reset_phase(for_images=True))
+
+
+def test_qwen_cannot_silently_use_text_model_for_image_request(monkeypatch):
+    from cluster.adapters.qwen_adapter import QwenAdapter
+    from cluster import cdp
+    async def evaluate(ws, js, **kw): return False
+    monkeypatch.setattr(cdp, "evaluate", evaluate)
+    async def check():
+        runmeta.start(image_requested=True)
+        with pytest.raises(RuntimeError, match="image mode was not confirmed"):
+            await QwenAdapter().select_variant(None, None)
+    asyncio.run(check())
