@@ -45,7 +45,7 @@ The private service returned 25 results in 1.344 seconds in an initial real quer
 
 ## Validation and rollout
 
-All **782 backend tests passed** on the final code, including image setup serialization and the compact identity-context adjustment. Targeted regressions cover empty tool results, equivalent browser-open commands, batch duplicates, JSON Schema validation, parallel tool indexes, early stream close, incomplete streams, image completion and opt-in search failures. The shared fake upstream now emits a real finish reason before its DONE marker; premature DONE remains an error in production. Qwen's original 2752×1536 generated file was downloaded and visually checked; the ChatGPT generation and red-square edit were also visually confirmed. The production rollout and post-deployment observations follow below.
+All **786 backend tests passed** on the final code, including image setup serialization and the compact identity-context adjustment. Targeted regressions cover empty tool results, equivalent browser-open commands, repeated successful agent actions, batch duplicates, JSON Schema validation, parallel tool indexes, early stream close, incomplete streams, image completion and opt-in search failures. The shared fake upstream now emits a real finish reason before its DONE marker; premature DONE remains an error in production. Qwen's original 2752×1536 generated file was downloaded and visually checked; the ChatGPT generation and red-square edit were also visually confirmed. The production rollout and post-deployment observations follow below.
 
 
 ## Production observations
@@ -58,7 +58,13 @@ All **782 backend tests passed** on the final code, including image setup serial
 - The first Qwen image API integration attempt exposed an old-composer navigation race: a failed image-mode reset was swallowed and the request waited in the wrong mode. Image reset errors now propagate to dispatch before sending. Qwen waits for a newly loaded document and checks its image mode again before choosing a model; a normal text model cannot silently handle an image task. Two live resets from a populated test chat confirmed a blank image composer in **8.208 s** and **8.424 s**. The additional full-endpoint result is recorded below.
 - Model cards and examples now distinguish image generation from image editing in Uzbek, Russian and English. Qwen generation is listed; unverified Qwen editing is excluded. The frontend production build passed.
 
-The old-composer fix and the image-mode failure and concurrency regressions are included in the 782-test run. No more Chrome instances were added. Long agent histories still require full replay within the existing context budgets; these changes do not provide persistent user-bound provider conversations or exactly-once execution across independent client requests.
+The old-composer fix and the image-mode failure and concurrency regressions are included in the 786-test run. No more Chrome instances were added. Long agent histories still require full replay within the existing context budgets; these changes do not provide persistent user-bound provider conversations or exactly-once execution across independent client requests.
+
+### High-effort agent loop reproduced and stopped
+
+The reported Sable 3.7 high-effort session was traced to a client-side tool loop, rather than one gateway stream running for fourteen minutes. The same OpenCode task submitted sixteen successful requests between 18:08 and 18:26; after the first read, the calls repeatedly used `write` while the prompt grew to roughly 55k characters. The gateway had no request-history guard for changing file contents, so each completed write invited another model turn.
+
+The cluster now matches completed calls by tool name and canonical arguments even when the client generates a new call ID. It suppresses an exact successful repeat, and after three consecutive successful mutations of the same target it stops the next mutation when the model keeps changing the payload. A different successful action starts a fresh mutation streak; failed tool results remain retryable. The response ends as a final assistant message with a bounded `gateway.tool_protocol.loop_guard` marker, so the client does not automatically execute another side effect. The guard is persisted in safe usage attribution for administrator monitoring without retaining tool arguments or output.
 
 
 ### Foreground menu failure reproduced and fixed
