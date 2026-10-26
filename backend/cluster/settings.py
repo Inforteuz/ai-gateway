@@ -67,6 +67,11 @@ ANSWER_MAX_SECONDS = float(os.getenv("SF_CLUSTER_ANSWER_MAX_SECONDS", "170"))
 # context.
 MAX_HISTORY_TURNS = int(os.getenv("SF_CLUSTER_MAX_HISTORY", "24"))
 MAX_TURN_CHARS = int(os.getenv("SF_CLUSTER_MAX_TURN_CHARS", "12000"))
+# Agent clients resend their tool history on every turn. Keeping every old
+# exchange makes browser-backed providers spend time uploading and reading
+# context that is no longer needed. The current task and latest tool result
+# are handled separately by compose.py; this cap only trims older history.
+AGENT_MAX_HISTORY_TURNS = int(os.getenv("SF_CLUSTER_AGENT_MAX_HISTORY", "16"))
 
 # Upper limit for the whole prompt (characters). Beyond it the OLDEST turns are
 # dropped; the last question and recent context are always kept.

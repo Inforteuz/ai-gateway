@@ -147,3 +147,18 @@ def test_tool_result_turn_keeps_large_task_once_and_all_results():
     assert prompt.count(task.strip()) == 1
     assert "EXACT TOOL RESULT" in prompt and "call_1" in prompt and "read tool protocol" in prompt
     assert prompt.rfind(task.strip()) > prompt.index("[Current task]")
+
+
+def test_agent_prompt_bounds_old_history_but_keeps_recent_context(monkeypatch):
+    from cluster import compose, settings as cfg
+    monkeypatch.setattr(cfg, "AGENT_MAX_HISTORY_TURNS", 4)
+    messages = []
+    for i in range(8):
+        messages.extend([
+            {"role": "user", "content": f"old task {i}"},
+            {"role": "assistant", "content": f"old answer {i}"},
+        ])
+    messages.append({"role": "user", "content": "current task"})
+    prompt = compose.compile_prompt(messages, tools_instruction="tool protocol")
+    assert "current task" in prompt and "old task 7" in prompt
+    assert "old task 0" not in prompt and "old answer 0" not in prompt

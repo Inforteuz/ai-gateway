@@ -103,8 +103,12 @@ def test_filename_line_joined_to_fence_for_aider():
         assert t(keep) == keep
 
 
-def test_fit_prompt_keeps_task_and_tools_drops_old_history():
+def test_fit_prompt_keeps_task_and_tools_drops_old_history(monkeypatch):
+    from cluster import settings as cfg
     from cluster.compose import compile_prompt, fit_prompt
+    # Disable the normal agent history cap here so this test still exercises
+    # the provider-size fallback itself.
+    monkeypatch.setattr(cfg, "AGENT_MAX_HISTORY_TURNS", 64)
     msgs = [{"role": "system", "content": "Agent ko'rsatmasi. " * 400}]
     for i in range(30):
         msgs += [{"role": "user", "content": f"eski savol {i} " + "x" * 900},

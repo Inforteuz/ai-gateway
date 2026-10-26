@@ -275,8 +275,10 @@ def compile_prompt(messages: Iterable[Mapping[str, Any]],
     budget = cfg.MAX_PROMPT_CHARS - len(system_block) - len(current) - len(attachments_note) - 64
     recent_lines: list[str] = []
     if budget > 0:
+        history_limit = (cfg.AGENT_MAX_HISTORY_TURNS if tools_instruction
+                         else cfg.MAX_HISTORY_TURNS)
         # Fill from the end: recent context matters more.
-        for role, content in reversed(history[-cfg.MAX_HISTORY_TURNS:]):
+        for role, content in reversed(history[-history_limit:]):
             prefix = {"user": "User", "assistant": "Assistant",
                       "tool": "Tool"}.get(role, role.capitalize())
             trimmed = (content if len(content) <= cfg.MAX_TURN_CHARS
