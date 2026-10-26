@@ -45,6 +45,18 @@ _BARE = re.compile(r"(?:^|\n)((?:actions|tool_calls|calls):\s*\n(?:[ \t]+.*\n?)+
 
 _MAX_TOOL_CALLS = 8
 
+# A client may legitimately refine a file a few times in one user turn. Once
+# the same mutating target has succeeded this many times, another write/edit is
+# almost always an agent loop (the model keeps replaying its last plan while
+# the client keeps returning the result). Exact argument repeats are stopped on
+# the second request below; this limit catches changing code written to the same
+# file without blocking the first few repairs.
+MAX_SUCCESSFUL_TARGET_ACTIONS = 3
+_MUTATING_TOOLS = frozenset({
+    "write", "write_file", "edit", "edit_file", "apply_patch", "patch",
+    "shell", "execute", "exec", "exec_command", "bash", "run_command",
+})
+
 
 # Bump when the tool protocol changes; this invalidates cache keys.
 PROTOCOL_VERSION = "tools-5-schema-atomic"
@@ -368,6 +380,111 @@ def repeated_open(calls, messages):
             if target and not re.search(r"error|failed|not found|no such file|denied|non.?zero|exit code:\s*[1-9]", result, re.I):
                 done.add(target)
     return any(_open_target(call) in done for call in calls if _open_target(call))
+
+
+def _call_signature(call):
+    """Stable, content-safe identity for a parsed tool call."""
+    fn = call.get("function") or {}
+    name = str(fn.get("name") or "").strip().lower()
+    try:
+        args = json.loads(fn.get("arguments") or "{}")
+    except (TypeError, ValueError):
+        args = fn.get("arguments") or ""
+    return name, json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _call_target(call):
+    """Return a normalized file/command target for mutation-loop detection."""
+    name, _ = _call_signature(call)
+    if name not in _MUTATING_TOOLS:
+        return None
+    try:
+        args = json.loads((call.get("function") or {}).get("arguments") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(args, Mapping):
+        return None
+    # Different agent clients use different spellings for the same file field.
+    for key in ("path", "file_path", "filePath", "filename", "target", "file", "location"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return posixpath.normpath(value.strip())
+    # A shell command is a target only when it is exactly the same command;
+    # changing commands must not be hidden behind a generic target label.
+    if name in {"shell", "execute", "exec", "exec_command", "bash", "run_command"}:
+        command = args.get("command") or args.get("cmd")
+        return command.strip() if isinstance(command, str) and command.strip() else None
+    return None
+
+
+def _successful_tool_result(content: Any) -> bool:
+    """Conservatively recognize a completed tool result without storing it."""
+    text = str(content or "")
+    return not re.search(
+        r"error|failed|failure|not found|no such file|denied|permission denied|"
+        r"non.?zero|exit code:\s*[1-9]",
+        text,
+        re.I,
+    )
+
+
+def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_SUCCESSFUL_TARGET_ACTIONS):
+    """Find calls already completed in this user turn.
+
+    The OpenAI tool-call IDs are regenerated on every gateway response, so an
+    agent can accidentally replay the same side effect with a new ID. We match
+    the function and canonical arguments, and also cap repeated writes to one
+    target when the model keeps changing the file contents. A new user message
+    resets the guard, and failed results remain retryable.
+
+    Returns ``(exact_repeats, target_loops)`` as lists of current calls. The
+    result contains no arguments or tool output, making it safe to use in logs.
+    """
+    data = [m.model_dump() if hasattr(m, "model_dump") else m for m in messages]
+    start = max((i for i, m in enumerate(data) if isinstance(m, Mapping) and m.get("role") == "user"), default=-1)
+    pending = {}
+    exact_counts = {}
+    target_counts = {}
+    last_target = None
+    target_streak = 0
+    for message in data[start + 1:]:
+        if not isinstance(message, Mapping):
+            continue
+        if message.get("role") == "assistant":
+            for call in message.get("tool_calls") or []:
+                if not isinstance(call, Mapping) or not call.get("id"):
+                    continue
+                signature = _call_signature(call)
+                pending[str(call["id"])] = (signature, _call_target(call))
+        elif message.get("role") == "tool":
+            previous = pending.get(str(message.get("tool_call_id") or ""))
+            if previous is None or not _successful_tool_result(message.get("content")):
+                continue
+            signature, target = previous
+            exact_counts[signature] = exact_counts.get(signature, 0) + 1
+            if target:
+                name, _ = signature
+                key = (name, target)
+                if key == last_target:
+                    target_streak += 1
+                else:
+                    last_target, target_streak = key, 1
+                target_counts[key] = max(target_counts.get(key, 0), target_streak)
+            else:
+                # A read or another non-target action between writes is a
+                # normal edit/test cycle, so it starts a fresh mutation streak.
+                last_target, target_streak = None, 0
+
+    exact, target = [], []
+    for call in calls or []:
+        signature = _call_signature(call)
+        name, _ = signature
+        call_target = _call_target(call)
+        if exact_counts.get(signature, 0):
+            exact.append(call)
+        elif call_target and name in _MUTATING_TOOLS and target_counts.get((name, call_target), 0) >= max_target_actions:
+            target.append(call)
+    return exact, target
 
 
 def unique_open_calls(calls):

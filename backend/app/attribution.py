@@ -32,6 +32,12 @@ def observe(meta, data):
     if isinstance(protocol, dict):
         meta["tool_protocol"] = {k: protocol[k] for k in ("initial_calls", "retried", "recovered", "missing_calls", "final_answer")
                                  if isinstance(protocol.get(k), bool)}
+        guard = protocol.get("loop_guard")
+        if isinstance(guard, str) and _TOOL.fullmatch(guard):
+            meta["tool_protocol"]["loop_guard"] = guard
+        guard_count = protocol.get("loop_guard_count")
+        if isinstance(guard_count, int) and 0 < guard_count <= 128:
+            meta["tool_protocol"]["loop_guard_count"] = guard_count
         elapsed = protocol.get("retry_ms")
         if isinstance(elapsed, int) and 0 <= elapsed <= 3600000:
             meta["tool_protocol"]["retry_ms"] = elapsed

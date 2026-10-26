@@ -122,6 +122,15 @@ def test_request_attribution_excludes_content_and_arguments():
     assert 'SECRET' not in json.dumps(meta)
 
 
+def test_tool_loop_guard_is_safe_attribution():
+    meta = {}
+    attribution.observe(meta, {"gateway": {"tool_protocol": {
+        "loop_guard": "repeated_tool_action", "loop_guard_count": 2,
+        "initial_calls": True}}})
+    assert meta["tool_protocol"]["loop_guard"] == "repeated_tool_action"
+    assert meta["tool_protocol"]["loop_guard_count"] == 2
+
+
 def test_attachment_codes_localize_parameters_and_unknowns_survive():
     from cluster.attachments import AttachmentStore, AttachmentError
     from cluster import settings

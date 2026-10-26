@@ -110,6 +110,19 @@ def test_explicit_final_after_tool_result_skips_unnecessary_retry(cluster_client
         assert status["final_answer"] and not status["retried"] and not status["missing_calls"]
 
 
+def test_repeated_successful_tool_call_ends_agent_loop(cluster_client):
+    previous = {"id": "call_old", "type": "function", "function": {
+        "name": "read_file", "arguments": json.dumps({"path": "/workspace/probe.txt"})}}
+    messages = [{"role": "user", "content": "Read the file"},
+                {"role": "assistant", "content": None, "tool_calls": [previous]},
+                {"role": "tool", "tool_call_id": "call_old", "name": "read_file", "content": "probe-code"}]
+    response, bal = cluster_client([CALL], {"messages": messages, "tools": TOOLS})
+    assert response.status_code == 200 and len(bal.prompts) == 1
+    assert "tool_calls" not in response.json()["choices"][0]["message"]
+    status = response.json()["gateway"]["tool_protocol"]
+    assert status["loop_guard"] == "repeated_tool_action" and status["final_answer"]
+
+
 def test_final_marker_respects_required_and_auto_semantics(cluster_client):
     marker = '```yaml\nfinal_answer: done\n```'
     required, bal = cluster_client([marker, marker], {"messages": MSG, "tools": TOOLS, "tool_choice": "required"})

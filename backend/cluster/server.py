@@ -950,15 +950,24 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                                 raise dispatch_error
                             answer = first_answer
                     calls = tool_proto.unique_open_calls(calls)
-                    if calls and tool_proto.repeated_open(calls, req.messages):
-                        # Client-side tools have already returned for the same open
-                        # target in this user task. Never emit another side effect.
-                        if required:
-                            raise ClusterError(502, "repeated_tool_action", "The same browser-open action already returned in this turn.")
-                        calls = []
-                        final_ready = True
-                        answer = "Faylni brauzerda ochish buyrug‘i avval yuborilgan va vosita qaytgan. Qayta ochish to‘xtatildi."
-                        tool_status.update(final_answer=True, missing_calls=False)
+                    # Client-side tools have already returned for the same action
+                    # in this user task. OpenCode assigns a fresh tool-call ID on
+                    # every turn, so checking only that ID misses the loop. Keep
+                    # unrelated calls in a batch, but suppress the completed
+                    # side effect and end the turn when it was the only action.
+                    exact, target_loops = tool_proto.repeated_successful_actions(calls, req.messages)
+                    open_repeats = [call for call in calls if tool_proto.repeated_open([call], req.messages)]
+                    repeated = exact + target_loops + open_repeats
+                    if calls and repeated:
+                        repeated_ids = {id(call) for call in repeated}
+                        calls = [call for call in calls if id(call) not in repeated_ids]
+                        tool_status["loop_guard"] = "repeated_tool_action"
+                        tool_status["loop_guard_count"] = len(repeated_ids)
+                        if not calls:
+                            final_ready = True
+                            answer = ("The same tool action already succeeded in this task; "
+                                      "the repeated call was stopped to prevent a loop.")
+                            tool_status.update(final_answer=True, missing_calls=False)
                 finally:
                     # Here, not after the re-ask: a client that hangs up mid re-ask
                     # cancels the task, and the time spent must still be recorded.
