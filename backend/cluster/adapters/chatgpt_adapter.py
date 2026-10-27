@@ -209,15 +209,9 @@ class ChatGPTAdapter(BaseAIAdapter):
             }
             return { opened: opened, temporary: isTemp(), toggled: true };
         })()"""
-        state = None
-        try:
-            # NOTE: `reset_js` is an async IIFE, i.e. it returns a Promise.
-            # Without `await_promise=True` `cdp.evaluate` returns an empty `{}`
-            # and the code assumes the mode is off (this silent bug happened
-            # once exactly like that).
-            state = await cdp.evaluate(ws, reset_js, timeout=20, await_promise=True)
-        except Exception:
-            return
+        # reset_js is an async IIFE: await its result. Errors must propagate;
+        # the pool handles navigation disconnects and verifies the new page.
+        state = await cdp.evaluate(ws, reset_js, timeout=20, await_promise=True)
         await asyncio.sleep(0.4)
 
         if isinstance(state, dict) and state.get("temporary"):
@@ -468,6 +462,14 @@ class ChatGPTAdapter(BaseAIAdapter):
 
     async def is_fresh_chat(self, ws) -> bool:
         return await cdp.evaluate(ws, self._FRESH_JS, timeout=8) is True
+
+    async def verify_clean_chat(self, ws) -> bool:
+        return await cdp.evaluate(ws, """(() => {
+            const p = location.pathname.replace(/\\/+$/, '');
+            return p === ''
+                && document.querySelectorAll('[data-message-author-role], [data-markdown-text-style="assistant-message"]').length === 0
+                && ![...document.querySelectorAll('h4, h5')].some(h => /(ChatGPT|You) (said|сказал)/i.test(h.innerText || ''));
+        })()""", timeout=8) is True
 
     # A logged-out ChatGPT page: visible "Log in" / "Sign up for free" buttons.
     # A logged-in user never has them.

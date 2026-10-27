@@ -221,59 +221,63 @@ class DeepSeekDirectClient:
         url = f"{self.BASE_URL}/chat/completion"
         resp = self.session.post(url, headers=req_headers, json=body, stream=True)
         if resp.status_code != 200:
+            resp.close()
             raise DeepSeekAPIError(f"Server xatosi: HTTP {resp.status_code}")
 
-        current_frag_type = "content"
-        for line in resp.iter_lines():
-            if not line:
-                continue
-            decoded = line.decode("utf-8", errors="ignore")
-            if not decoded.startswith("data: "):
-                continue
-            data_str = decoded[6:].strip()
-            if data_str == "[DONE]":
-                break
+        try:
+            current_frag_type = "content"
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                decoded = line.decode("utf-8", errors="ignore")
+                if not decoded.startswith("data: "):
+                    continue
+                data_str = decoded[6:].strip()
+                if data_str == "[DONE]":
+                    break
 
-            try:
-                d = json.loads(data_str)
-            except Exception:
-                continue
+                try:
+                    d = json.loads(data_str)
+                except Exception:
+                    continue
 
-            # API level error response in data stream
-            if d.get("code") not in (None, 0):
-                msg = d.get("msg") or d.get("data", {}).get("biz_msg") or "noma'lum xatolik"
-                raise DeepSeekAPIError(f"DeepSeek javobida xatolik: {msg}", code=d.get("code"))
+                # API level error response in data stream
+                if d.get("code") not in (None, 0):
+                    msg = d.get("msg") or d.get("data", {}).get("biz_msg") or "noma'lum xatolik"
+                    raise DeepSeekAPIError(f"DeepSeek javobida xatolik: {msg}", code=d.get("code"))
 
-            # 1. Initial full response fragment
-            if "v" in d and isinstance(d["v"], dict) and "response" in d["v"]:
-                frags = d["v"]["response"].get("fragments", [])
-                for f in frags:
-                    ftype = f.get("type", "").lower()
-                    current_frag_type = "thinking" if "think" in ftype else "content"
-                    cnt = f.get("content", "")
-                    if cnt:
-                        yield {"type": current_frag_type, "text": cnt}
+                # 1. Initial full response fragment
+                if "v" in d and isinstance(d["v"], dict) and "response" in d["v"]:
+                    frags = d["v"]["response"].get("fragments", [])
+                    for f in frags:
+                        ftype = f.get("type", "").lower()
+                        current_frag_type = "thinking" if "think" in ftype else "content"
+                        cnt = f.get("content", "")
+                        if cnt:
+                            yield {"type": current_frag_type, "text": cnt}
 
-            # 2. Append fragment path: response/fragments/-1/content
-            elif "p" in d:
-                val = d.get("v", "")
-                p = str(d.get("p", "")).lower()
-                if isinstance(val, list) and "fragments" in p:
-                    for item in val:
-                        if isinstance(item, dict):
-                            if "type" in item:
-                                ftype = item.get("type", "").lower()
-                                current_frag_type = "thinking" if "think" in ftype else "content"
-                            if item.get("content"):
-                                yield {"type": current_frag_type, "text": item["content"]}
-                elif val and isinstance(val, str):
-                    if "status" in p:
-                        continue
-                    if "thinking" in p:
-                        yield {"type": "thinking", "text": val}
-                    elif "content" in p or "fragments" in p:
-                        yield {"type": current_frag_type, "text": val}
+                # 2. Append fragment path: response/fragments/-1/content
+                elif "p" in d:
+                    val = d.get("v", "")
+                    p = str(d.get("p", "")).lower()
+                    if isinstance(val, list) and "fragments" in p:
+                        for item in val:
+                            if isinstance(item, dict):
+                                if "type" in item:
+                                    ftype = item.get("type", "").lower()
+                                    current_frag_type = "thinking" if "think" in ftype else "content"
+                                if item.get("content"):
+                                    yield {"type": current_frag_type, "text": item["content"]}
+                    elif val and isinstance(val, str):
+                        if "status" in p:
+                            continue
+                        if "thinking" in p:
+                            yield {"type": "thinking", "text": val}
+                        elif "content" in p or "fragments" in p:
+                            yield {"type": current_frag_type, "text": val}
 
-            # 3. Direct fragment chunk {"v": "text"}
-            elif "v" in d and isinstance(d["v"], str):
-                yield {"type": current_frag_type, "text": d["v"]}
+                # 3. Direct fragment chunk {"v": "text"}
+                elif "v" in d and isinstance(d["v"], str):
+                    yield {"type": current_frag_type, "text": d["v"]}
+        finally:
+            resp.close()

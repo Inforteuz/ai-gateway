@@ -57,10 +57,14 @@ _MUTATING_TOOLS = frozenset({
     "shell", "execute", "exec", "exec_command", "bash", "run_command",
 })
 _QUESTION_TOOLS = frozenset({"question", "ask_question", "ask_user", "request_user_input"})
+_OBSERVATION_TOOLS = frozenset({
+    "read", "read_file", "list", "list_files", "list_directory", "glob", "grep",
+    "search", "search_files", "get_file", "file_read", "view_file",
+})
 
 
 # Bump when the tool protocol changes; this invalidates cache keys.
-PROTOCOL_VERSION = "tools-5-schema-atomic"
+PROTOCOL_VERSION = "tools-6-state-aware-loop-guard"
 
 
 def _no_remote_schema(uri):
@@ -480,7 +484,8 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
     pending = {}
     exact_counts = {}
     question_counts = {}
-    target_counts = {}
+    state_version = 0
+    observed_at = {}
     last_target = None
     target_streak = 0
     for message in data[start + 1:]:
@@ -497,7 +502,12 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
             if previous is None or not _successful_tool_result(message.get("content")):
                 continue
             signature, target = previous
+            # A successful edit/command may change what a read will return.
+            # Re-reading after it is verification, not replaying a stale call.
+            if signature[0] in _MUTATING_TOOLS:
+                state_version += 1
             exact_counts[signature] = exact_counts.get(signature, 0) + 1
+            observed_at[signature] = state_version
             question_signature = _question_signature({
                 "function": {"name": signature[0], "arguments": signature[1]}})
             if question_signature is not None:
@@ -508,7 +518,6 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
                     target_streak += 1
                 else:
                     last_target, target_streak = key, 1
-                target_counts[key] = max(target_counts.get(key, 0), target_streak)
             else:
                 # A read or another non-target action between writes is a
                 # normal edit/test cycle, so it starts a fresh mutation streak.
@@ -520,10 +529,14 @@ def repeated_successful_actions(calls, messages, max_target_actions: int = MAX_S
         name, _ = signature
         call_target = _call_target(call)
         question_signature = _question_signature(call)
-        if exact_counts.get(signature, 0) or (
+        exact_repeat = bool(exact_counts.get(signature, 0))
+        if name in _OBSERVATION_TOOLS and observed_at.get(signature) != state_version:
+            exact_repeat = False
+        if exact_repeat or (
                 question_signature is not None and question_counts.get(question_signature, 0)):
             exact.append(call)
-        elif call_target and name in _MUTATING_TOOLS and target_counts.get(call_target, 0) >= max_target_actions:
+        elif (call_target and name in _MUTATING_TOOLS and call_target == last_target
+              and target_streak >= max_target_actions):
             target.append(call)
     return exact, target
 

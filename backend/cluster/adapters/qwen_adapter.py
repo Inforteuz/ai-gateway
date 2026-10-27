@@ -42,11 +42,11 @@ class QwenAdapter(BaseAIAdapter):
     #                     paste — only images are accepted);
     #   image_gen=True — measured 2026-10-26: the separate Create Image mode
     #                    (Qwen-Image 3.0) produced an image in 56.4 seconds.
-    #   image_edit=True — the same image mode accepts an attached image and an
-    #                    edit instruction; keep this visible to the router so
-    #                    Qwen can be used as an automatic edit fallback.
+    #   image_edit=False — attachment upload succeeded, but the live edit probe
+    #                    returned no image in 90 s. Enable only after a complete
+    #                    edit has been verified, not merely an accepted upload.
     caps = Capabilities(tool_calling=True, vision=True, files=False, image_gen=True,
-                        image_edit=True,
+                        image_edit=False,
                         temporary_chat=True, delete_chats=True)
     IMAGE_DONE_RELIABLE = True
     _IMAGE_MODE_JS = "!!document.querySelector('textarea[placeholder=\"Describe the image you want to generate.\"]')"
@@ -125,6 +125,9 @@ class QwenAdapter(BaseAIAdapter):
     def has_variant(self, variant: str) -> bool:
         return variant == "fallback" and bool(cfg.QWEN_FALLBACK_MODEL) \
             and cfg.QWEN_FALLBACK_MODEL != cfg.QWEN_PRIMARY_MODEL
+
+    async def verify_clean_chat(self, ws) -> bool:
+        return await self.is_fresh_chat(ws)
 
     async def select_variant(self, ws, variant: Optional[str]) -> Optional[str]:
         """Selects the requested Qwen model.

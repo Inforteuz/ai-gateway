@@ -231,14 +231,15 @@ class GeminiAdapter(BaseAIAdapter):
     DEFAULT_EFFORT = "low"
 
     async def set_effort(self, ws, effort: Optional[str]) -> Optional[str]:
-        """Picks the reasoning level from the menu. The level persists on the account, so the
-        last one set is remembered and the menu is not opened if unchanged (~2 s saved)."""
+        """Pick the level on this page, never infer it from another account/tab.
+
+        Adapter instances are shared by all workers. A cached Python attribute
+        can silently leave one account on High when another requested Low.
+        """
         effort = (effort or self.DEFAULT_EFFORT).strip().lower()
         labels = self.EFFORT_LABELS.get(effort)
         if not labels:
             return None
-        if getattr(self, "_effort_set", None) == effort:
-            return effort
         pos = await cdp.evaluate(ws, """(() => {
             const b = [...document.querySelectorAll('button')]
                 .find(b => /Выбор режима|mode picker|choose.*mode|select.*mode/i.test(b.getAttribute('aria-label') || ''));
@@ -277,20 +278,21 @@ class GeminiAdapter(BaseAIAdapter):
         if isinstance(item, dict):
             await cdp.click_at(ws, item["x"], item["y"])
             await asyncio.sleep(0.4)
-            self._effort_set = effort
         # Close the menu if it stayed open
         if await cdp.evaluate(ws, "!!document.querySelector('.cdk-overlay-pane [role=menuitem]')", timeout=5):
             await cdp.key(ws, "Escape", "Escape", 27)
         return effort if isinstance(item, dict) else None
 
-    async def is_fresh_chat(self, ws) -> bool:
-        ok = await cdp.evaluate(ws, """(() => {
+    async def verify_clean_chat(self, ws) -> bool:
+        return await cdp.evaluate(ws, """(() => {
             const p = location.pathname.replace(/\\/+$/, '');
             return (p === '/app' || p === '') && document.querySelectorAll('model-response, user-query').length === 0
                 && [...document.querySelectorAll('rich-textarea .ql-editor')].some(e => e.offsetWidth && e.offsetHeight)
                 && ![...document.querySelectorAll('button')].some(b => __STOP__.test(b.getAttribute('aria-label') || ''));
-        })()""".replace("__STOP__", _STOP_RE), timeout=8)
-        if ok is not True:
+        })()""".replace("__STOP__", _STOP_RE), timeout=8) is True
+
+    async def is_fresh_chat(self, ws) -> bool:
+        if not await self.verify_clean_chat(ws):
             return False
         # A pre-warmed page must be in temporary mode. If the button has not appeared yet
         # (cold load) the page does NOT count as clean — the only exception is a definite logged-out mode.

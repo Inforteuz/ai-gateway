@@ -14,6 +14,7 @@ disk by this module and deleted when the request finishes.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import http.client
@@ -84,6 +85,8 @@ class AttachmentStore:
     def __init__(self) -> None:
         self._dir: Optional[str] = None
         self.items: list[Attachment] = []
+        self._pending: set[asyncio.Task] = set()
+        self._cleanup_requested = False
 
     def __enter__(self) -> "AttachmentStore":
         return self
@@ -99,6 +102,12 @@ class AttachmentStore:
         return self._dir
 
     def cleanup(self) -> None:
+        # A cancelled HTTP request cannot stop an in-flight file download in a
+        # thread. Defer deletion until that thread exits so it cannot recreate
+        # files after cleanup or write into a deleted request directory.
+        if any(not task.done() for task in self._pending):
+            self._cleanup_requested = True
+            return
         for a in self.items:
             try:
                 os.unlink(a.path)
@@ -111,6 +120,21 @@ class AttachmentStore:
                 pass
         self.items = []
         self._dir = None
+
+    async def run_io(self, func, *args):
+        """Run blocking attachment work without stalling other API requests."""
+        task = asyncio.create_task(asyncio.to_thread(func, *args))
+        self._pending.add(task)
+
+        def finished(done):
+            self._pending.discard(done)
+            if not done.cancelled():
+                done.exception()  # also retrieve errors after the caller disconnects
+            if self._cleanup_requested:
+                self.cleanup()
+
+        task.add_done_callback(finished)
+        return await asyncio.shield(task)
 
     @property
     def total_size(self) -> int:
@@ -137,9 +161,11 @@ class AttachmentStore:
         # prefix like "a1b2c3d4-" would leak there. Uniqueness comes from the
         # per-request directory; duplicate names within a request get numbered.
         path = os.path.join(self.dir, safe)
-        if os.path.exists(path):
-            stem, dot, tail = safe.partition(".")
-            path = os.path.join(self.dir, f"{stem}-{len(self.items) + 1}{dot}{tail}")
+        stem, ext = os.path.splitext(safe)
+        suffix = 2
+        while os.path.exists(path):
+            path = os.path.join(self.dir, f"{stem}-{suffix}{ext}")
+            suffix += 1
         with open(path, "wb") as f:
             f.write(data)
         os.chmod(path, 0o600)
@@ -152,7 +178,7 @@ class AttachmentStore:
         mime = head[5:].split(";")[0] or "application/octet-stream"
         if ";base64" in head.lower():
             try:
-                data = base64.b64decode(payload, validate=False)
+                data = base64.b64decode(re.sub(r"\s+", "", payload), validate=True)
             except (binascii.Error, ValueError) as e:
                 raise AttachmentError(f"The base64 payload could not be read: {e}", 'attachment_invalid_base64') from e
         else:
@@ -277,17 +303,21 @@ def parse_message_content(content: Any, store: AttachmentStore) -> ParsedContent
             raw = part.get("image_url") or part.get("image") or {}
             url = raw.get("url") if isinstance(raw, Mapping) else str(raw)
             if not url:
-                continue
+                raise AttachmentError("An image needs an image_url or data URI", 'attachment_missing_data')
             out.attachments.append(_ingest(store, url, name="rasm"))
 
         elif kind in ("file", "input_file", "document"):
-            raw = part.get("file") or part.get("input_file") or {}
+            # Chat-completions uses nested `file`; input_file parts may put
+            # filename/file_data directly on the part.
+            raw = part.get("file") or part.get("input_file") or part
             if not isinstance(raw, Mapping):
-                continue
+                raise AttachmentError("A file needs inline data or a public URL", 'attachment_missing_data')
             name = str(raw.get("filename") or raw.get("name") or "fayl")
             url = raw.get("file_data") or raw.get("file_url") or raw.get("url")
             if not url:
-                continue
+                if raw.get("file_id"):
+                    raise AttachmentError("file_id is not supported; send file_data or file_url", 'attachment_file_id_unsupported')
+                raise AttachmentError("A file needs file_data or file_url", 'attachment_missing_data')
             out.attachments.append(_ingest(store, str(url), name=name))
 
     out.text = "\n".join(t for t in texts if t).strip()

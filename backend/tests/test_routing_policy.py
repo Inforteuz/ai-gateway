@@ -45,7 +45,7 @@ def test_simple_tool_route_prefers_fast_no_thinking_upstream():
                   model("chat-fast", "chatgpt", allow_thinking=0)]
     selected = routing.tool_target(
         source, candidates,
-        body("Open the file and show its contents",
+        body("Read /tmp/probe.txt",
              tools=[{"type": "function", "function": {"name": "read_file"}}]),
     )
     assert selected and selected[0]["id"] == "qwen-fast"
@@ -136,7 +136,7 @@ def test_gateway_simple_tool_route_uses_fast_upstream(env):
     tools = [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}}]
     response = env.client.post(
         "/v1/chat/completions", headers=bearer(key),
-        json={"model": "slow", **body("Open the file and show its contents", tools=tools)},
+        json={"model": "slow", **body("Read /tmp/probe.txt", tools=tools)},
     )
     assert response.status_code == 200
     assert response.headers["x-sf-routed-model"] == "qwen-fast"

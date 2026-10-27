@@ -7,6 +7,7 @@ import os
 import random
 import shutil
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -423,11 +424,10 @@ class WorkerTab:
             # Navigation dropped the connection: normal. The tab URL gets refreshed.
             log.debug("reset: connection dropped during navigation model=%s", self.model_name)
         except Exception as e:
-            if for_images:
-                # A failed mode selection must never send an image task into
-                # ordinary text chat and wait the entire image timeout.
-                raise
-            log.warning("reset_chat skipped: %s", e)
+            # Sending after a failed reset can disclose a previous user's
+            # conversation. Let dispatch select another worker instead.
+            log.warning("reset_chat failed: %s", type(e).__name__)
+            raise
 
     @property
     def account_key(self) -> tuple:
@@ -634,6 +634,10 @@ class WorkerTab:
         async with await self.connect() as ws:
             # The page may still be loading: wait for the input field
             await self.adapter.wait_for_input(ws, timeout=15)
+            if not warm and not want_images:
+                verify_reset = getattr(self.adapter, "verify_clean_chat", None)
+                if verify_reset is not None and await verify_reset(ws) is False:
+                    raise RuntimeError(f"{self.model_name}: new chat isolation check failed")
             mark("page")
 
             # Bot check: pause + reload ONCE without cache (owner's decision).
@@ -996,6 +1000,7 @@ class DeepSeekDirectWorker(WorkerTab):
         )
         self.token = (token or cfg.DEEPSEEK_USER_TOKEN).strip()
         self._client: Optional[Any] = None
+        self._stream_future: Optional[asyncio.Future] = None
 
     @property
     def client(self):
@@ -1024,9 +1029,19 @@ class DeepSeekDirectWorker(WorkerTab):
 
     def is_available(self) -> bool:
         return (time.time() >= self.cooldown_until and not self.lock.locked()
-                and not self.dispatch_lock.locked())
+                and not self.dispatch_lock.locked() and not self.sibling_blocked())
+
+    def sibling_blocked(self) -> bool:
+        # Cancelling an asyncio caller does not stop its synchronous HTTP read.
+        # Keep this client out of dispatch until that read and cleanup finish.
+        return bool(self._stream_future and not self._stream_future.done())
+
+    def state(self, now: Optional[float] = None) -> str:
+        return "BUSY" if self.sibling_blocked() else super().state(now)
 
     async def probe_session(self) -> tuple[bool, str]:
+        if self.sibling_blocked():
+            return True, "busy"
         loop = asyncio.get_event_loop()
         try:
             await loop.run_in_executor(None, self.client.get_user_info)
@@ -1042,6 +1057,8 @@ class DeepSeekDirectWorker(WorkerTab):
         images_only: bool = False,
         want_images: bool = False,
     ) -> Tuple[str, List[tuple[str, str]]]:
+        if self.sibling_blocked():
+            raise RuntimeError("The previous direct request is still stopping")
         send_text, tmpdir = self._overflow_to_file(
             prompt_text, attachment_paths, images_only, want_images)
         paths = attachment_paths
@@ -1093,30 +1110,62 @@ class DeepSeekDirectWorker(WorkerTab):
         on_reasoning = meta.get("on_reasoning")
         meta["reasoning_content"] = ""
         accumulated_text = ""
+        stop = threading.Event()
+        client = self.client
+        cleanup_seconds = [0.0]
 
         try:
             import queue
-            q: queue.Queue = queue.Queue()
+            q: queue.Queue = queue.Queue(maxsize=64)
             DONE = object()
 
+            def enqueue(item):
+                while not stop.is_set():
+                    try:
+                        q.put(item, timeout=.1)
+                        return
+                    except queue.Full:
+                        pass
+
             def produce():
+                stream = None
                 try:
-                    for chunk in self.client.stream_chat(
+                    stream = client.stream_chat(
                         prompt=prompt_text,
                         ref_file_ids=ref_file_ids,
                         thinking=thinking,
                         session_id=session_id,
-                    ):
-                        q.put(chunk)
+                    )
+                    for chunk in stream:
+                        if stop.is_set():
+                            break
+                        enqueue(chunk)
                 except Exception as ex:
-                    q.put(ex)
+                    enqueue(ex)
                 finally:
-                    q.put(DONE)
+                    # The generator owns the response. Close it from its own
+                    # thread before reusing the client or deleting its session.
+                    if hasattr(stream, "close"):
+                        try:
+                            stream.close()
+                        except Exception as ex:
+                            enqueue(ex)
+                    if cfg.DEEPSEEK_AUTO_CLEANUP:
+                        cleanup_started = time.monotonic()
+                        try:
+                            client.delete_chat_session(session_id)
+                        except Exception as ex:
+                            log.warning("deepseek_direct cleanup failed: %s", type(ex).__name__)
+                        cleanup_seconds[0] = time.monotonic() - cleanup_started
+                    enqueue(DONE)
 
-            loop.run_in_executor(None, produce)
+            self._stream_future = loop.run_in_executor(None, produce)
 
             while True:
-                item = await loop.run_in_executor(None, q.get)
+                try:
+                    item = await loop.run_in_executor(None, q.get, True, .1)
+                except queue.Empty:
+                    continue
                 if item is DONE:
                     break
                 if isinstance(item, Exception):
@@ -1131,7 +1180,11 @@ class DeepSeekDirectWorker(WorkerTab):
                         if on_progress is not None:
                             on_progress(accumulated_text)
 
+            await asyncio.shield(self._stream_future)
             mark("answer")
+            if cleanup_seconds[0]:
+                phases["answer"] = round(max(0, phases["answer"] - cleanup_seconds[0]), 2)
+                phases["cleanup"] = round(cleanup_seconds[0], 2)
             self._record_outcome(True)
             # No account clock here: this worker has no browser tab to share an
             # account with, so there is nothing to pace against.
@@ -1145,12 +1198,7 @@ class DeepSeekDirectWorker(WorkerTab):
                 self.set_cooldown(cfg.RATE_LIMIT_COOLDOWN, reason="rate_limit")
             raise
         finally:
-            if cfg.DEEPSEEK_AUTO_CLEANUP and session_id:
-                try:
-                    await loop.run_in_executor(None, self.client.delete_chat_session, session_id)
-                    mark("cleanup")
-                except Exception as ex:
-                    log.warning("deepseek_direct: chat seansini o'chirishda xatolik: %s", ex)
+            stop.set()
 
 
 class ChallengeDetected(RuntimeError):

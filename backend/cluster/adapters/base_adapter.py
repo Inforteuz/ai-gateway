@@ -738,6 +738,14 @@ class BaseAIAdapter(ABC):
         """
         return False
 
+    async def verify_clean_chat(self, ws) -> Optional[bool]:
+        """Post-reset isolation check; None means this adapter has no verifier.
+
+        Unlike prewarming, a freshly reset regular chat can be accepted here.
+        Providers with measured message selectors override this method.
+        """
+        return None
+
     async def check_session(self, ws, timeout: float = 5.0,
                             recover: bool = True) -> tuple[bool, str]:
         """Whether the session is alive — checked WITHOUT sending a prompt (no quota used).

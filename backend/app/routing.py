@@ -1,13 +1,13 @@
 """Routing policy: preserve privacy, capabilities and the requested price ceiling."""
 from __future__ import annotations
 
+import re
+
 from . import catalog
 
 
-# Short tool turns are usually file listing/opening, status checks or one small
-# mutation. They do not benefit from a high reasoning pass, but they do pay its
-# browser/UI latency. Keep the classifier conservative: long, planning,
-# debugging and design prompts stay on the requested model.
+# Only unambiguous read/open/list turns qualify for optional speed routing.
+# Planning, mutations, follow-ups and explicit reasoning keep their model.
 _TOOL_COMPLEX_HINTS = (
     "plan", "planning", "analyze", "analyse", "debug", "refactor", "architecture",
     "design", "compare", "explain why", "implement", "implementation", "build",
@@ -15,6 +15,15 @@ _TOOL_COMPLEX_HINTS = (
     "план", "анализ", "отлад", "архитект", "сравни",
 )
 _TOOL_SPEED_ORDER = {"qwen": 0, "gemini": 1, "chatgpt": 2, "deepseek": 3}
+# A short prompt is not evidence of a simple task ("davom et", "fix it").
+# Only recognize one small read/open/list operation with a literal target.
+_TOOL_SIMPLE = re.compile(
+    r"(?:please\s+)?(?:open|read|show|list|cat|ls)\s+(?:the\s+)?"
+    r"(?:file\s+)?[\w./~:\\-]+(?:\s+(?:directory|folder|contents))?"
+    r"|(?:открой|прочитай|покажи)\s+(?:файл\s+)?[\w./~:\\-]+"
+    r"|[\w./~:\\-]+\s+(?:faylini\s+)?(?:och|ochib ber|o'qi|o'qib ber|ko'rsat)",
+    re.I,
+)
 
 
 def compatible(source, target, endpoint="chat/completions"):
@@ -75,24 +84,34 @@ def _simple_tool_request(body, profile) -> bool:
         return False
     if body.get("tool_choice") == "none":
         return False
+    if (str(body.get("reasoning_effort") or "").lower() in ("medium", "high", "xhigh")
+            or body.get("think") is True or body.get("reasoning")):
+        return False
     offered = body.get("tools") or []
     if len(offered) > 16:
         return False
     current = ""
     for message in reversed(body.get("messages") or []):
+        # Keep one agent task on its requested route after tools have started.
+        if isinstance(message, dict) and (message.get("role") == "tool" or message.get("tool_calls")):
+            return False
         if isinstance(message, dict) and message.get("role") == "user":
             content = message.get("content") or ""
             if isinstance(content, str):
                 current = content
+            elif isinstance(content, list):
+                current = " ".join(str(p.get("text") or "") for p in content if isinstance(p, dict))
             break
+    current = current.strip().rstrip(".!?").translate({ord(c): "'" for c in "‘’ʻʼ`"})
     low = current.lower()
-    return (0 < len(current.strip()) <= 1200
+    return (0 < len(current) <= 300
             and "```" not in current
-            and not any(hint in low for hint in _TOOL_COMPLEX_HINTS))
+            and not any(hint in low for hint in _TOOL_COMPLEX_HINTS)
+            and _TOOL_SIMPLE.fullmatch(current) is not None)
 
 
 def tool_target(source, candidates, body):
-    """Pick a measured fast, no-thinking cluster model for a simple tool turn.
+    """Pick a no-thinking cluster model by configured priority for a simple tool turn.
 
     The public model and price remain those requested by the client. This is a
     capacity route like ``size_target``: it only changes the internal upstream
@@ -111,6 +130,8 @@ def tool_target(source, candidates, body):
     eligible = []
     for target in candidates:
         if not target.get("enabled") or target.get("provider") != "cluster":
+            continue
+        if target.get("route_health") == "down" or target.get("allow_thinking", 1):
             continue
         if target["id"] != source["id"] and not compatible(source, target):
             continue

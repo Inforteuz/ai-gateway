@@ -167,12 +167,13 @@ def test_refine_skipped_for_tools_json_mode_and_images(env):
     tools = [{"type": "function", "function": {"name": "f", "parameters": {"type": "object", "properties": {}}}}]
     chat(env, key, "sf-lite-checked", tools=tools)
     chat(env, key, "sf-lite-checked", response_format={"type": "json_object"})
-    chat(env, key, "sf-lite-checked", messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:..."}}]}])
+    rejected = chat(env, key, "sf-lite-checked", messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:..."}}]}])
+    assert rejected.status_code == 400 and rejected.json()["error"]["code"] == "unsupported_feature"
     env.up["finish"] = "length"
     chat(env, key, "sf-lite-checked")                                          # truncated draft
     assert env.ext.get("calls", 0) == 0                                        # nothing was sent out
     reasons = [r["refined"] for r in env.db.all("SELECT refined FROM usage_logs ORDER BY id")]
-    assert reasons == ["fallback:tools", "fallback:json_mode", "fallback:non_text_input", "fallback:truncated_draft"]
+    assert reasons == ["fallback:tools", "fallback:json_mode", None, "fallback:truncated_draft"]
 
 
 def test_fallback_uses_cheaper_sibling_price(env):
