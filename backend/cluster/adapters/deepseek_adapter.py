@@ -122,6 +122,9 @@ class DeepSeekAdapter(BaseAIAdapter):
             && !!document.querySelector('textarea'))()""", timeout=8)
         return ok is True
 
+    async def verify_clean_chat(self, ws) -> bool:
+        return await self.is_fresh_chat(ws)
+
     async def read_response(self, ws, timeout: int = 45) -> Optional[str]:
         # Take the last .ds-markdown (the answer). User messages live in a separate container.
         # Text is read with READ_TEXT_JS so the code banner (language + "Copy" +

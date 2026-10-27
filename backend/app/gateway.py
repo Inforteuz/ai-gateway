@@ -552,12 +552,19 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         raise ApiError(400, "invalid_prompt", "'prompt' berilmagan.")
     if endpoint == "images/edits" and not body.get("image"):
         raise ApiError(400, "invalid_image", "'image' berilmagan.")
+    if model["provider"] == "local" and count_attachments(body):
+        raise ApiError(400, "unsupported_feature",
+                       "This model cannot read image or file attachments. Choose a model with file or vision support.",
+                       en="This model cannot read image or file attachments. Choose a model with file or vision support.")
 
     # max_tokens: always capped, so the worst-case cost is known up front.
     settings = await run_in_threadpool(db.get_settings)
     route_meta = {}
     if endpoint == "chat/completions" and not force_model and model["provider"] == "cluster":
-        candidates = [dict(r) for r in await run_in_threadpool(db.all, "SELECT * FROM models WHERE enabled=1 AND listed=1 AND provider='cluster'")]
+        candidates = [dict(r) for r in await run_in_threadpool(db.all,
+            "SELECT m.*, h.state AS route_health FROM models m "
+            "LEFT JOIN model_health h ON h.upstream=m.upstream_name "
+            "WHERE m.enabled=1 AND m.listed=1 AND m.provider='cluster'")]
         # Small tool turns are much faster on a no-thinking, tool-capable
         # upstream. Long or planning-heavy turns fall through to the existing
         # input-size route and keep the requested model's full capacity.

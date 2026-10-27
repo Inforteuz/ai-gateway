@@ -62,14 +62,12 @@ async def collect(response, total_seconds, reasoning_seconds):
     budget = Budget(reasoning_seconds)
     output = {"object": "chat.completion", "choices": []}
     choices = {}
-    complete = False
     try:
         async for line in bounded_lines(response, total_seconds, budget):
             if not line.startswith("data:"):
                 continue
             raw = line[5:].strip()
             if raw == "[DONE]":
-                complete = True
                 break
             if not raw:
                 continue
@@ -105,7 +103,9 @@ async def collect(response, total_seconds, reasoning_seconds):
                         target["function"][k] += (tc.get("function") or {}).get(k) or ""
                 if ch.get("finish_reason"):
                     c["finish_reason"] = ch["finish_reason"]
-        if not complete and not (choices and all(c["finish_reason"] for c in choices.values())):
+        # DONE is a transport marker, not proof of a completed answer/tool.
+        # Require every choice to finish even when that marker was received.
+        if not choices or not all(c["finish_reason"] for c in choices.values()):
             raise GuardStopped("stream_interrupted")
         output["choices"] = [choices[k] for k in sorted(choices)]
         return output

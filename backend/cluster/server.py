@@ -655,25 +655,20 @@ def _loop_notice(messages) -> str:
     low = _norm_apos(text)
     # Uzbek Cyrillic has distinctive letters; handle it before generic Cyrillic.
     if any(ch in low for ch in "ўқғҳ"):
-        return ("Vazifa bajarildi. Bu amal avval bajarilgan, shuning uchun uni "
-                "qayta takrorlamadim.")
+        return "Bu amalni qayta takrorlamadim. Oldingi natija yuqorida."
     # Cyrillic is a reliable signal for the supported Russian UI language. The
     # fallback is Russian even for a short Cyrillic message with no keywords.
     if any("а" <= ch <= "я" or ch in "ёғқўҳ" for ch in low):
-        return ("Задача выполнена. Это действие уже было выполнено, поэтому я "
-                "не стал повторять его.")
+        return "Я не стал повторять это действие. Предыдущий результат показан выше."
     # Apostrophes in Uzbek words (o'g', o'zgartir, so'rov) are a strong signal,
     # including short prompts that contain too few dictionary words to score.
     if "o'" in low or "g'" in low:
-        return ("Vazifa bajarildi. Bu amal avval bajarilgan, shuning uchun uni "
-                "qayta takrorlamadim.")
+        return "Bu amalni qayta takrorlamadim. Oldingi natija yuqorida."
     uz = sum(1 for word in _UZBEK_LOOP_WORDS if word in low)
     en = sum(1 for word in _ENGLISH_LOOP_WORDS if word in low.split() or word in low)
     if uz > en and uz > 0:
-        return ("Vazifa bajarildi. Bu amal avval bajarilgan, shuning uchun uni "
-                "qayta takrorlamadim.")
-    return ("The task is complete. This action was already done, so I did not "
-            "repeat it.")
+        return "Bu amalni qayta takrorlamadim. Oldingi natija yuqorida."
+    return "I did not repeat this action. Its earlier result is shown above."
 
 
 def _model_can(pool, requested: str, cap: str) -> bool:
@@ -746,8 +741,8 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
     store = attach.AttachmentStore()
     store.__enter__()
     try:
-        prompt_text, files, require, tool_names = _prepare_request(
-            req.messages, store, req.tools, req.tool_choice)
+        prompt_text, files, require, tool_names = await store.run_io(
+            _prepare_request, req.messages, store, req.tools, req.tool_choice)
     except attach.AttachmentError as e:
         store.__exit__(None, None, None)
         raise ClusterError(400, e.code, str(e), details=e.details) from e
@@ -1489,7 +1484,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
 
     with attach.AttachmentStore() as store:
         try:
-            files = [await asyncio.to_thread(attach._ingest, store, src, f"image-{i + 1}")
+            files = [await store.run_io(attach._ingest, store, src, f"image-{i + 1}")
                      for i, src in enumerate(sources)]
         except attach.AttachmentError as e:
             raise ClusterError(400, e.code, str(e), details=e.details) from e
