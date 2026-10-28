@@ -1,4 +1,5 @@
 """Regressions for a container restart leaving one instance's X display down."""
+import asyncio
 import errno
 import json
 import os
@@ -162,3 +163,43 @@ def test_python_restart_accepts_configured_instance_twelve(monkeypatch, tmp_path
     assert self_heal.request_restart(12) == (True, None)
     assert self_heal.request_restart(13)[0] is False
     assert self_heal.request_restart(-1)[0] is False
+
+
+def test_service_ready_while_qwen_prepares_and_shutdown_cancels_it(monkeypatch):
+    from fastapi import FastAPI
+    from cluster import server
+
+    async def run():
+        started, cancelled = asyncio.Event(), asyncio.Event()
+
+        class Worker:
+            model_name = "qwen"
+            def is_available(self): return True
+
+            async def prewarm(self):
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cancelled.set()
+
+        class Pool:
+            workers = [Worker()]
+            def __init__(self, ports): pass
+            async def scan(self, force=False): pass
+
+        monkeypatch.setattr(server, "ClusterPool", Pool)
+        monkeypatch.setattr(server, "get_proxy_pool", lambda: None)
+        for setting in ("CHAT_CLEANUP_ENABLED", "SELF_HEAL_INTERVAL", "PROXY_HEALTH_INTERVAL",
+                        "MEM_GUARD_INTERVAL", "PROXY_LIST_URL"):
+            monkeypatch.setattr(server.cfg, setting, 0)
+        context = server.lifespan(FastAPI())
+        await asyncio.wait_for(context.__aenter__(), timeout=0.5)
+        try:
+            await asyncio.wait_for(started.wait(), timeout=0.5)
+            assert not cancelled.is_set()
+        finally:
+            await context.__aexit__(None, None, None)
+        assert cancelled.is_set()
+
+    asyncio.run(run())

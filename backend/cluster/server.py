@@ -304,14 +304,16 @@ async def lifespan(app: FastAPI):
     if cfg.PROXY_LIST_URL and cfg.PROXY_REFRESH_INTERVAL:
         tasks.append(asyncio.create_task(proxy_auto_refresh(cfg.PROXY_LIST_URL, cfg.PROXY_REFRESH_INTERVAL)))
     await app.state.pool.scan(force=True)
-    # Complete the slow first Qwen temporary-chat navigation before serving requests.
-    # The worker method skips itself when disabled, busy, unhealthy, or queued.
-    await _prewarm_qwen_workers(app.state.pool)
+    # Qwen preparation must not keep healthy providers offline during startup.
+    # Prewarm uses the worker lock and skips busy/queued workers, so live
+    # requests can safely arrive while this tracked background task runs.
+    tasks.append(asyncio.create_task(_prewarm_qwen_workers(app.state.pool)))
     try:
         yield
     finally:
         for t in tasks:
             t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         log.info("cluster shutting down")
 
 
