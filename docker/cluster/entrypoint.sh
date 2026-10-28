@@ -22,6 +22,8 @@ if [ -z "${SF_VNC_PASSWORD:-}" ]; then
 fi
 
 mkdir -p /data/state /data/profiles /data/backups /data/attachments /data/.vnc /run/gateway-heal
+# Create this once as root before concurrent, unprivileged X servers start.
+install -d -m 1777 -o root -g root /tmp/.X11-unix
 chown -R gateway:gateway /data /run/gateway-heal
 chmod 700 /data/.vnc
 
