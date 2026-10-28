@@ -58,6 +58,8 @@ Qizishdan himoya faol bo‘lib, CPU imkoniyatining katta qismini vaqtincha chekl
 
 15:30 atrofida Tailscale ulanishi yana uzildi; foydalanuvchi qayta ulaganidan keyin tiklandi. 15:50 da yana offline bo‘ldi. Taxminan 20 daqiqalik oraliq avtomatik uyqu sozlamasini ham tekshirishga asos bo‘ladi, lekin hozircha bu sabab tasdiqlanmagan. Uzilishlarning qizish bilan bog‘liqligi ham isbotlanmagan.
 
+Keyingi ulanish tekshiruvida server “Connected” deb ko‘ringaniga qaramay SSH, IPv4/IPv6 va health ulanmagan. Mac’dan VPS’ga bevosita Tailscale UDP ping ishladi. `tailscale debug derp waw` Varshavadagi uch relay’ning IPv4 TCP 443 ulanishlari rad etilganini ko‘rsatdi; Frankfurt tekshiruvida uch relay bilan DERP ulanishi muvaffaqiyatli bo‘ldi. Bu kuzatuv “server uxlagan” xulosasini tasdiqlamaydi: tarmoq/relay yo‘li ham ishlamayapti. Frankfurt’ni vaqtinchalik afzal ko‘rish orqali ulanishni tiklash urinilmoqda. Serverning uyqu sozlamalari hali o‘qilmadi va o‘zgartirilmadi.
+
 ## Qaytarish uchun saqlangan holat
 
 Serverda boshlang‘ich lokal diff va konfiguratsiya: `~/ai-gateway-rollbacks/audit-2026-10-28-9b4ee10/`. Oldingi image’lar `ai-gateway-api:rollback-20261028`, `ai-gateway-cluster:rollback-20261028` va oraliq `ai-gateway-cluster:display-recovery-26c70e4` tag’larida saqlandi. Database yoki akkaunt profillari almashtirilmadi.
