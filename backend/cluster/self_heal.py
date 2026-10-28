@@ -5,8 +5,9 @@ connections are accepted, but CDP requests get no reply. The model on that
 port is then completely down and, worse, every scan blocks until its timeout,
 slowing down the whole cluster.
 
-SOLUTION: if a port fails to respond several times in a row, the instance is
-restarted with `systemctl restart`. Login data lives on disk inside
+SOLUTION: if a port fails to respond several times in a row, a privileged
+helper restarts the instance. The Docker helper also starts failed display
+dependencies before Chrome. Login data lives on disk inside
 `--user-data-dir` and Chrome flushes it cleanly on SIGTERM, so the session
 survives the restart (verified in practice). Even so, the cookie file is
 backed up before every recovery, so a session lost unexpectedly can still
@@ -48,6 +49,7 @@ PROBE_TIMEOUT = float(os.getenv("SF_CLUSTER_HEAL_PROBE_TIMEOUT", "8"))
 # How long to wait for CDP after a restart (seconds).
 RECOVERY_WAIT = float(os.getenv("SF_CLUSTER_HEAL_WAIT", "90"))
 MAX_PER_HOUR = int(os.getenv("SF_CLUSTER_HEAL_MAX_PER_HOUR", "3"))
+MAX_INSTANCES = int(os.getenv("SF_MAX_INSTANCES", "10"))
 
 
 @dataclass
@@ -99,11 +101,12 @@ def request_restart(inst: int) -> tuple[bool, str | None]:
     The cluster service runs with `NoNewPrivileges=yes`, which blocks sudo
     entirely (and rightly so: the service must not be able to escalate).
     So the restart request is sent through the file `/run/ai-gateway-heal/<N>.req`:
-    a systemd `path` unit sees it and a root-side script restarts ONLY
-    `ai-gateway-chrome@<N>`. The script validates the number itself, so no
-    other command can be run through this channel.
+    a systemd `path` unit (or the Docker heal watcher) sees it and a root-side
+    script restarts ONLY that configured instance and its failed display
+    dependencies. The helper validates the number itself, so no arbitrary
+    command can be run through this channel.
     """
-    if not (0 <= inst <= 9):
+    if not (0 <= inst < MAX_INSTANCES):
         return False, f"noto'g'ri instansiya raqami: {inst}"
     req = REQUEST_DIR / f"{inst}.req"
     try:
