@@ -77,7 +77,8 @@ for ch in $CHANNELS; do
     cat >> "$CONF" <<EOF
 
 [program:xvfb-$idx]
-command=/usr/bin/Xvfb $disp -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+command=/usr/local/bin/python -m cluster.display $disp -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+directory=/opt/gateway
 user=gateway
 priority=10
 autorestart=true
@@ -125,7 +126,8 @@ if [ "${#ports[@]}" -eq 0 ]; then
     cat >> "$CONF" <<'EOF'
 
 [program:xvfb-0]
-command=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+command=/usr/local/bin/python -m cluster.display :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
+directory=/opt/gateway
 user=gateway
 priority=10
 autorestart=true
