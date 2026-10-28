@@ -1,5 +1,7 @@
 # AI Gateway: tezlik, agent, media va fayllar auditi — 2026-10-27
 
+**2026-10-28 yangilanishi:** quyidagi audit tuzatishlari production’ga chiqarildi. #1 instansiya, startup kechikishi, jonli sinovdagi qolgan timeout’lar va server harorati bo‘yicha natijalar [keyingi hisobotda](production-recovery-2026-10-28.md). Quyidagi “joylanmadi” qaydlari 27-oktabrdagi holatni ifodalaydi.
+
 **Hukm: hali “hamma modelda muammo yo‘q” deb tasdiqlab bo‘lmaydi.** Quyidagi xatolar mahalliy kodda tuzatildi va sinovlardan o‘tdi. Production serverga ulanish tiklanmagani sababli bu audit davomida yangilanish joylanmadi, haqiqiy modellar bilan yangi o‘lchov olinmadi.
 
 Boshlang‘ich kod: `a636674`. Boshlang‘ich tekshiruv: **802 test / 97.04 s**. Yakuniy kod: **845 test / 93.85 s**. Bu soniyalar test to‘plamining ishlash vaqti; modellarning javob tezligi yaxshilanganining o‘lchovi emas. Frontend production build va Python sintaksis tekshiruvi ham muvaffaqiyatli.
