@@ -45,6 +45,70 @@ def test_reload_keeps_an_account_block_from_a_sibling():
     pool._ACCOUNT_BLOCKED.pop(a.account_key, None)
 
 
+def test_worker_effort_is_cached_per_page_and_changes_are_applied():
+    class Adapter:
+        DEFAULT_EFFORT = "low"
+
+        def __init__(self):
+            self.calls = []
+
+        async def set_effort(self, ws, effort):
+            self.calls.append(effort)
+            return effort or self.DEFAULT_EFFORT
+
+    adapter = Adapter()
+    w = pool.WorkerTab(19875, "effort-cache", "gemini", "ws://unused", adapter)
+
+    async def run():
+        assert await w._set_effort(None, None) == "low"
+        assert await w._set_effort(None, None) == "low"
+        assert await w._set_effort(None, "high") == "high"
+        assert await w._set_effort(None, None) == "low"
+
+    asyncio.run(run())
+    assert adapter.calls == [None, "high", None]
+
+
+def test_qwen_stops_after_first_confirmed_send(monkeypatch):
+    """A confirmed Qwen send must not fall through to another send gesture."""
+    from cluster.adapters import qwen_adapter as qa
+
+    adapter = qa.QwenAdapter()
+    events = []
+    sent_checks = 0
+
+    async def evaluate(ws, script, timeout=20):
+        nonlocal sent_checks
+        if "Object.getOwnPropertyDescriptor" in script:
+            events.append("fill")
+            return 5
+        if "querySelectorAll('.qwen-chat-message-user').length" in script:
+            if "users >" in script:
+                sent_checks += 1
+                return True  # Qwen accepted the first Enter gesture.
+            return 0
+        events.append("focus")
+        return True
+
+    async def key(ws, value):
+        events.append(("key", value))
+
+    async def unexpected_click(*args, **kwargs):
+        pytest.fail("a fallback click would submit the prompt twice")
+
+    async def no_wait(_):
+        return None
+
+    monkeypatch.setattr(qa.cdp, "evaluate", evaluate)
+    monkeypatch.setattr(qa.cdp, "key", key)
+    monkeypatch.setattr(qa.cdp, "hover_click", unexpected_click)
+    monkeypatch.setattr(qa.asyncio, "sleep", no_wait)
+
+    assert asyncio.run(adapter.send_prompt(object(), "hello")) is True
+    assert sent_checks == 1
+    assert events == ["fill", "focus", ("key", "Enter")]
+
+
 def test_fast_default_effort_is_used_for_first_text_deadline(monkeypatch):
     from cluster.adapters import base_adapter as ba
     from .test_live_stream import _poll_adapter

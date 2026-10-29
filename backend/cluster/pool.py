@@ -12,7 +12,7 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import websockets
 import websockets.exceptions
@@ -454,6 +454,17 @@ class WorkerTab:
             log.warning("reset_chat failed: %s", type(e).__name__)
             raise
 
+    async def _set_effort(self, ws, requested: Optional[str]) -> Optional[str]:
+        """Apply a provider effort setting once per confirmed worker state."""
+        key = (requested or getattr(self.adapter, "DEFAULT_EFFORT", ""))
+        if self._effort_cache_key == key and self._effort_cache_value:
+            return self._effort_cache_value
+        effort = await self.adapter.set_effort(ws, requested)
+        if effort:
+            self._effort_cache_key = key
+            self._effort_cache_value = effort
+        return effort
+
     @property
     def account_key(self) -> tuple:
         """Key identifying the account: one provider in one browser = one account."""
@@ -688,14 +699,7 @@ class WorkerTab:
             # roughly 1–3 seconds on Gemini.  Reuse the confirmed setting for
             # this worker until the page target changes.  A different request
             # (or an image effort) still goes through the adapter normally.
-            effort_key = (want_effort or getattr(self.adapter, "DEFAULT_EFFORT", ""))
-            if self._effort_cache_key == effort_key and self._effort_cache_value:
-                effort = self._effort_cache_value
-            else:
-                effort = await self.adapter.set_effort(ws, want_effort)
-                if effort:
-                    self._effort_cache_key = effort_key
-                    self._effort_cache_value = effort
+            effort = await self._set_effort(ws, want_effort)
             if effort:
                 meta["upstream_effort"] = effort
             # A client that omits effort still gets the adapter's default.
@@ -1408,7 +1412,8 @@ class ClusterPool:
             for w in self.workers
         ]
 
-    async def probe_sessions(self, force: bool = False) -> Dict[str, str]:
+    async def probe_sessions(self, force: bool = False,
+                             workers: Optional[Sequence[WorkerTab]] = None) -> Dict[str, str]:
         """Check the session of every idle worker (without sending a prompt).
 
         Workers that lost their login are flagged `needs_attention="login"` and
@@ -1417,7 +1422,7 @@ class ClusterPool:
         Returns {worker_key: reason} for problematic workers only.
         """
         problems: Dict[str, str] = {}
-        for w in list(self.workers):
+        for w in list(workers) if workers is not None else list(self.workers):
             if w.lock.locked():
                 continue
             if not force and w.needs_attention == "captcha" and time.time() < w.cooldown_until:

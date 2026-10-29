@@ -244,6 +244,10 @@ MAX_COOLDOWN_WAIT = float(os.getenv("SF_CLUSTER_MAX_COOLDOWN_WAIT", "25"))
 
 # How often the session probe (watchdog) runs (seconds)
 SESSION_PROBE_INTERVAL = int(os.getenv("SF_CLUSTER_SESSION_PROBE", "600"))
+# If a lightweight provider/session probe times out, retry just that unhealthy
+# tab soon; a 10-minute normal watchdog interval otherwise strands recovered
+# tabs for most of the hour's useful traffic window.
+SESSION_PROBE_RETRY_INTERVAL = int(os.getenv("SF_CLUSTER_SESSION_PROBE_RETRY", "30"))
 
 # Approximate tokenization (not real, but matches the backend's CHARS_PER_TOKEN_EST=2.5)
 CHARS_PER_TOKEN = 2.5
