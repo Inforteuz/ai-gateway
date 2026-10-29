@@ -191,6 +191,7 @@ volumes and data: `docker compose down && docker compose up -d` (never add `-v`)
 | `SF_CHROME_CHANNELS` | e.g. `gemini,qwen` - one Chrome instance per channel, in order (instance 0, 1, ...); a channel may repeat (`gemini,gemini,qwen`): each instance has its own profile and is a separate worker |
 | `SF_CLUSTER_LIVE_STREAM` | `1` (default) = `stream: true` answers from web-chat channels are sent while the provider writes them (first words in ~1-2 s instead of at the end). Applies to requests without tools / JSON format / images; such requests skip the structured-reasoning template. `0` = send the whole answer at the end |
 | `SF_CHROME_BLOCK_TRACKERS` | `1` (default) = Chrome does not resolve analytics/tracking hosts (lighter tabs; no effect behind an upstream proxy) |
+| `SF_CHROME_GRAPHICS` | `basic` (default) disables software 3D rendering for chat automation. Text, uploads, ordinary images and VNC still use 2D rendering. Set `software-gl` only for a page requiring WebGL; it restores the previous SwiftShader mode and can use substantial CPU even while idle. Restart the cluster after changing this setting. |
 | `SF_CLUSTER_RATE_LIMIT_COOLDOWN` | seconds a worker rests after the provider rate-limits it (default 900); healthy workers take the traffic meanwhile |
 | `SF_UPSTREAM_URL` | Ollama URL (`http://ollama:11434` for the bundled container) |
 | `API_BIND`, `API_PORT` | where the API is published on the host (default `127.0.0.1:8310`) |
