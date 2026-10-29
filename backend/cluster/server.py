@@ -176,16 +176,27 @@ async def session_watchdog(app: FastAPI, interval: int = 300) -> None:
     requests do not land on them.
     """
     await asyncio.sleep(30)  # give startup a moment
+    retry_workers = None
     while True:
         try:
             pool: ClusterPool = app.state.pool
-            problems = await pool.probe_sessions()
+            # Probe only transiently unhealthy tabs on the short retry.  A
+            # full sweep every 30 s would add CDP load to all 15 browsers;
+            # healthy workers retain the normal, inexpensive 10-minute cycle.
+            problems = await pool.probe_sessions(
+                force=retry_workers is not None, workers=retry_workers)
             if problems:
                 log.warning("session watchdog: %d problematic workers: %s",
                             len(problems), problems)
+            retry_workers = [
+                w for w in pool.workers
+                if isinstance(w.last_probe, dict) and not w.last_probe.get("ok")
+                and str(w.last_probe.get("reason") or "").startswith(("probe_failed", "ws:"))
+            ]
         except Exception as e:
             log.error("session watchdog error: %s", e)
-        await asyncio.sleep(interval)
+            retry_workers = None
+        await asyncio.sleep(cfg.SESSION_PROBE_RETRY_INTERVAL if retry_workers else interval)
 
 
 async def chat_cleanup_watchdog(app: FastAPI, interval: int) -> None:

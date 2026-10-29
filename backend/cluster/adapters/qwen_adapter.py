@@ -13,7 +13,7 @@ log = logs.get("qwen")
 # One adapter instance serves all Qwen browser workers.  Context-local state
 # lets each request remember the send method that worked for its own worker
 # without a concurrent account overwriting another account's preference.
-_SEND_PREF = contextvars.ContextVar("qwen_send_pref", default=None)
+_SEND_PREF = contextvars.ContextVar("qwen_send_pref", default="enter_key")
 
 # chat.qwen.ai (2026+ UI) DOM structure:
 #   .qwen-chat-message-assistant                       <- message container
@@ -59,13 +59,8 @@ class QwenAdapter(BaseAIAdapter):
 
     def __init__(self):
         super().__init__("qwen")
-        # Send controls can differ between browser accounts and tabs.  Keep
-        # the successful method per adapter instance instead of sharing it
-        # through the class (a failed account should not slow its sibling).
-        self._send_pref = type(self)._send_pref
-
     def set_send_preference(self, preference):
-        return _SEND_PREF.set(preference or self._send_pref)
+        return _SEND_PREF.set(preference or "enter_key")
 
     @staticmethod
     def get_send_preference():
@@ -432,20 +427,26 @@ class QwenAdapter(BaseAIAdapter):
         await asyncio.sleep(0.4)
 
         # There are several ways to send and which one works depends on the
-        # site's current version. So AFTER each method we check whether the text
-        # field emptied: if so — sent; if not — move to the next method. The code
-        # used to return True after "clicking" while nothing was actually sent
-        # and the request silently vanished.
-        length_js = f"((document.querySelector({QWEN_INPUT!r}) || {{}}).value || '').length"
-
+        # site's current version. A Qwen composer can retain the text briefly
+        # after accepting it, so an empty-field-only check used to try all four
+        # methods and added ~8–10 s to a short request. Confirm the new user
+        # bubble or active generation first, then fall back to the field state.
+        sent_before = await cdp.evaluate(ws, "document.querySelectorAll('.qwen-chat-message-user').length", timeout=5) or 0
+        sent_js = f"""(() => {{
+            const users = document.querySelectorAll('.qwen-chat-message-user').length;
+            const generating = !!document.querySelector(
+                'button[aria-label*="stop" i], .stop-button, [class*="stop-generat" i]');
+            const input = document.querySelector({QWEN_INPUT!r});
+            return users > {int(sent_before)} || generating || !((input || {{}}).value || '').length;
+        }})()"""
         async def was_sent() -> bool:
-            # SPEED: previously it waited a fixed 0.8 s after every method; since the first
-            # two methods do not work on this page each request lost ~3 s. Now it checks
-            # every 0.15 s (at most 1 s).
-            for _ in range(7):
-                await asyncio.sleep(0.15)
+            # Fast, positive confirmation avoids repeating Enter/click after
+            # Qwen has already accepted the request. Retain the composer-empty
+            # signal as a compatibility fallback for older page versions.
+            for _ in range(10):
+                await asyncio.sleep(0.1)
                 try:
-                    if not await cdp.evaluate(ws, length_js, timeout=8):
+                    if await cdp.evaluate(ws, sent_js, timeout=5):
                         return True
                 except Exception:
                     pass
@@ -499,13 +500,12 @@ class QwenAdapter(BaseAIAdapter):
                    "enter_key": enter_key, "key_events": key_events}
         # SPEED: the method that worked last is tried first (at one point only Enter
         # worked and the two earlier methods cost ~3 s per request).
-        preference = _SEND_PREF.get() or self._send_pref
+        preference = _SEND_PREF.get()
         order = sorted(methods, key=lambda n: n != preference)
         for name in order:
             await methods[name]()
             if await was_sent():
                 _SEND_PREF.set(name)
-                self._send_pref = name
                 return True
 
         log.warning("qwen: could not send the request (all 4 methods failed)")
