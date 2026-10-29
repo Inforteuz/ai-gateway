@@ -104,6 +104,24 @@ def test_local_speed_route_keeps_code_and_long_turns_on_coder(prompt):
     assert routing.local_speed_target(source, target, body(prompt)) is None
 
 
+def test_gateway_local_speed_route_uses_fast_upstream_and_reports_it(env):
+    from .test_routing_policy import setup
+    _, _, key, _ = setup(env)
+    add_model(env, "sable-3.0", upstream="qwen3-coder:30b", provider="local", allow_thinking=1)
+    add_model(env, "sable-2.0", upstream="qwen3:14b", provider="local", allow_thinking=1)
+
+    response = env.client.post(
+        "/v1/chat/completions", headers=bearer(key),
+        json={"model": "sable-3.0", **body("Salom, qisqa javob ber.")},
+    )
+
+    assert response.status_code == 200
+    assert env.up["last"]["model"] == "qwen3:14b"
+    assert env.up["last"]["reasoning_effort"] == "none"
+    assert response.headers["x-sf-routed-model"] == "sable-2.0"
+    assert response.headers["x-sf-route-reason"] == "local_speed"
+
+
 def setup(env):
     seen = []
     fake = FastAPI()
