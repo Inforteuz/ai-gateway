@@ -261,9 +261,14 @@ class GeminiAdapter(BaseAIAdapter):
     # Reasoning level (logged in, the "Уровень рассуждений" menu; measured):
     # Низкая (default) / Средний / Высокая. In the English UI: Low / Medium / High.
     EFFORT_LABELS = {
-        "none": ("Низкая", "Low"), "minimal": ("Низкая", "Low"), "low": ("Низкая", "Low"),
-        "medium": ("Средний", "Medium"),
-        "high": ("Высокая", "High"), "xhigh": ("Высокая", "High"),
+        # Gemini updated its Russian menu to grammatically masculine labels:
+        # "Низкий / Средний / Высокий". Older pages used feminine forms.
+        "none": ("Низкий", "Низкая", "Низкое", "Low"),
+        "minimal": ("Низкий", "Низкая", "Низкое", "Low"),
+        "low": ("Низкий", "Низкая", "Низкое", "Low"),
+        "medium": ("Средний", "Средняя", "Среднее", "Medium"),
+        "high": ("Высокий", "Высокая", "Высокое", "High"),
+        "xhigh": ("Высокий", "Высокая", "Высокое", "High"),
     }
     DEFAULT_EFFORT = "low"
 
@@ -313,8 +318,18 @@ class GeminiAdapter(BaseAIAdapter):
                     expanded = True
                     await cdp.click_at(ws, sub["x"], sub["y"])
         if isinstance(item, dict):
-            await cdp.click_at(ws, item["x"], item["y"])
-            await asyncio.sleep(0.4)
+            # A menu state check costs one quick DOM read and avoids a click,
+            # menu re-render, and selection verification when the requested
+            # effort is already active. This is common for the default Low.
+            selected = await cdp.evaluate(ws, """(() => {
+                const want = %s;
+                return [...document.querySelectorAll('.cdk-overlay-pane [role=menuitem]')]
+                    .some(e => e.offsetParent && e.classList.contains('selected')
+                        && want.some(w => (e.innerText || '').trim().startsWith(w)));
+            })()""" % json.dumps(list(labels)), timeout=5)
+            if not selected:
+                await cdp.click_at(ws, item["x"], item["y"])
+                await asyncio.sleep(0.4)
         # Close the menu if it stayed open
         if await cdp.evaluate(ws, "!!document.querySelector('.cdk-overlay-pane [role=menuitem]')", timeout=5):
             await cdp.key(ws, "Escape", "Escape", 27)
