@@ -13,7 +13,7 @@ log = logs.get("qwen")
 # One adapter instance serves all Qwen browser workers.  Context-local state
 # lets each request remember the send method that worked for its own worker
 # without a concurrent account overwriting another account's preference.
-_SEND_PREF = contextvars.ContextVar("qwen_send_pref", default="enter_key")
+_SEND_PREF = contextvars.ContextVar("qwen_send_pref", default="mouse_click")
 
 # chat.qwen.ai (2026+ UI) DOM structure:
 #   .qwen-chat-message-assistant                       <- message container
@@ -60,7 +60,7 @@ class QwenAdapter(BaseAIAdapter):
     def __init__(self):
         super().__init__("qwen")
     def set_send_preference(self, preference):
-        return _SEND_PREF.set(preference or "enter_key")
+        return _SEND_PREF.set(preference or "mouse_click")
 
     @staticmethod
     def get_send_preference():
@@ -75,7 +75,7 @@ class QwenAdapter(BaseAIAdapter):
     # the page sits in a clean chat that is not saved to history; markers —
     # `.temporary-chat-entry[aria-pressed="true"]`, icon `#qwpcicon-temporaryDialogueSelected`,
     # text "Temporary Chat — This chat won't appear in history".
-    _send_pref: str = "enter_key"   # default for compatibility; copied per adapter instance
+    _send_pref: str = "mouse_click"
     TEMP_URL = "https://chat.qwen.ai/?temporary-chat=true"
     _TEMP_STATE_JS = """(() => {
         const e = document.querySelector('.temporary-chat-entry');
@@ -464,14 +464,21 @@ class QwenAdapter(BaseAIAdapter):
             }})()""")
 
         async def mouse_click():
-            # Vue often ignores a DOM click — use a real mouse click
-            await cdp.hover_click(ws, f"""(() => {{
+            # The send control is fixed and already visible; a full hover cycle
+            # wastes ~2 s on Qwen's animated composer. Read fresh coordinates
+            # once and issue the real mouse click directly.
+            locator = f"""(() => {{
                 const b = document.querySelector({SEND_BUTTON!r});
                 if (!b || b.offsetParent === null) return null;
                 const r = b.getBoundingClientRect();
                 return {{ x: Math.round(r.left + r.width / 2),
                           y: Math.round(r.top + r.height / 2) }};
-            }})()""")
+            }})()"""
+            pos = await cdp.evaluate(ws, locator, timeout=5)
+            if not isinstance(pos, dict) or pos.get("x") is None:
+                return False
+            await cdp.click_at(ws, pos["x"], pos["y"])
+            return True
 
         async def enter_key():
             await cdp.evaluate(ws, f"""(() => {{
