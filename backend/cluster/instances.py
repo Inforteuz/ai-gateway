@@ -218,7 +218,11 @@ async def _probe_one(w: WorkerTab, *, reloaded: bool = False) -> Dict[str, Any]:
             healthy, reason = await w.adapter.check_session(ws, recover=False)
     except Exception as e:
         healthy, reason = False, f"ws:{type(e).__name__}"
-    w.apply_probe(healthy, reason, reloaded=reloaded)
+    # The admin explicitly asked to check this instance. Once the session is
+    # healthy, let a recovered account leave a soft provider rate-limit block;
+    # the background watchdog and per-request preflight still keep the stricter
+    # automatic rules.
+    w.apply_probe(healthy, reason, reloaded=reloaded, clear_rate_limit=True)
     return {"model": w.model_name, "ok": healthy, "reason": reason}
 
 
