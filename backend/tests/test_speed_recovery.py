@@ -85,28 +85,31 @@ def test_qwen_stops_after_first_confirmed_send(monkeypatch):
         if "querySelectorAll('.qwen-chat-message-user').length" in script:
             if "users >" in script:
                 sent_checks += 1
-                return True  # Qwen accepted the first Enter gesture.
+                return True  # Qwen accepted the first mouse-click gesture.
             return 0
-        events.append("focus")
-        return True
+        if ".chat-prompt-send-button" in script:
+            events.append("locate")
+            return {"x": 100, "y": 80}
+        pytest.fail("an unexpected send gesture was attempted")
 
-    async def key(ws, value):
-        events.append(("key", value))
+    async def click(ws, x, y):
+        events.append(("click", x, y))
 
-    async def unexpected_click(*args, **kwargs):
-        pytest.fail("a fallback click would submit the prompt twice")
+    async def unexpected(*args, **kwargs):
+        pytest.fail("a fallback send gesture would submit the prompt twice")
 
     async def no_wait(_):
         return None
 
     monkeypatch.setattr(qa.cdp, "evaluate", evaluate)
-    monkeypatch.setattr(qa.cdp, "key", key)
-    monkeypatch.setattr(qa.cdp, "hover_click", unexpected_click)
+    monkeypatch.setattr(qa.cdp, "click_at", click)
+    monkeypatch.setattr(qa.cdp, "key", unexpected)
+    monkeypatch.setattr(qa.cdp, "hover_click", unexpected)
     monkeypatch.setattr(qa.asyncio, "sleep", no_wait)
 
     assert asyncio.run(adapter.send_prompt(object(), "hello")) is True
     assert sent_checks == 1
-    assert events == ["fill", "focus", ("key", "Enter")]
+    assert events == ["fill", "locate", ("click", 100, 80)]
 
 
 def test_fast_default_effort_is_used_for_first_text_deadline(monkeypatch):
