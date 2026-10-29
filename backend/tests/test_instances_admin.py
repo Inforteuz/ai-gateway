@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from app import vnc
 from cluster import instances as inst
+from cluster import pool as pool_mod
 from cluster import server as srv
 from cluster import settings as ccfg
 from cluster.adapters import chatgpt_adapter as cga
@@ -453,6 +454,24 @@ def test_probe_does_not_reload_page_and_unknown_instance_404(cluster_app):
     assert r.status_code == 200 and r.json()["ok"] is False and seen["recover"] is False
     assert w.needs_attention == "login" and inst.LAST_ACTION[9222]["action"] == "probe"
     assert client.post("/cluster/instances/9/probe").status_code == 404
+
+
+def test_manual_healthy_probe_clears_rate_limit_cooldown(cluster_app):
+    a = QwenAdapter()
+
+    async def check_session(ws, timeout=5.0, recover=True):
+        return True, "ok"
+    a.check_session = check_session
+    w = make_worker(9234, a, "qwen")
+    pool_mod._ACCOUNT_BLOCKED.pop(w.account_key, None)
+    w.last_error = pool_mod.CLASS_RATE_LIMIT
+    w.set_cooldown(240, reason="rate_limit:too many requests")
+    client = cluster_app(make_pool(w, ports=(9234,)))
+    r = client.post("/cluster/instances/12/probe")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert w.cooldown_until == 0 and w.last_error is None
+    assert inst.worker_state(w) == inst.STATE_OK
+    assert w.account_key not in pool_mod._ACCOUNT_BLOCKED
 
 
 def test_reload_navigates_to_home_url_only(cluster_app):

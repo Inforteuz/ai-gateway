@@ -300,11 +300,16 @@ class WorkerTab:
             self.model_name, self.browser_port, self.short_tab, sec, reason or "manual",
         )
 
-    def apply_probe(self, healthy: bool, reason: str, *, reloaded: bool = False) -> None:
+    def apply_probe(self, healthy: bool, reason: str, *, reloaded: bool = False,
+                    clear_rate_limit: bool = False) -> None:
         """Apply a session check result to the worker state.
 
         Both the background watchdog and the admin panel's "check session"
         button go through here, so they follow the same rules.
+
+        A successful manual probe may clear a provider rate-limit cooldown. The
+        page can recover because the operator changed the model, while an account
+        wide quota/login/captcha block still needs its own recovery path.
         """
         self.last_probe = {"ts": int(time.time()), "ok": healthy, "reason": reason}
         if healthy:
@@ -319,6 +324,17 @@ class WorkerTab:
                     self._cooldown_until = 0.0
                     self.cooldown_reason = ""
             blocked = _ACCOUNT_BLOCKED.get(self.account_key)
+            if (clear_rate_limit and not self.needs_attention
+                    and (str(self.cooldown_reason or "").startswith("rate_limit")
+                         or bool(blocked and blocked[1].startswith("rate_limit")))):
+                self._cooldown_until = 0.0
+                self.cooldown_reason = ""
+                if self.last_error == CLASS_RATE_LIMIT:
+                    self.last_error = None
+                if blocked and blocked[1].startswith("rate_limit"):
+                    _ACCOUNT_BLOCKED.pop(self.account_key, None)
+                log.info("rate-limit cooldown cleared after healthy manual probe model=%s port=%d",
+                         self.model_name, self.browser_port)
             if blocked and blocked[1].startswith(("captcha", "probe:captcha", "login", "probe:login")):
                 _ACCOUNT_BLOCKED.pop(self.account_key, None)
             if self.needs_attention:
@@ -989,16 +1005,18 @@ class WorkerTab:
         # 1. Is this a real answer or a service message (quota/login/rate-limit)?
         kind, kw = classify_response(raw, prompt_text)
         meta = runmeta.get()
-        if (kind == CLASS_RATE_LIMIT and "high demand" in raw.lower()
-                and meta.get("allow_fallback") and not meta.get("force_variant")
+        if (kind == CLASS_RATE_LIMIT and meta.get("allow_fallback")
+                and not meta.get("force_variant") and not meta.get("image_requested")
                 and self._last_variant is None and not meta.get("_fallback_tried")
                 and self.adapter.has_variant("fallback")):
-            # The primary model is busy ("high demand") and the admin allows fallback: this
-            # request is run once on the fallback model, and following requests go there for
-            # a short while too. The response flags it via `gateway.fallback_model` and a header.
+            # A primary-model limit includes both "high demand" and ordinary rate-limit
+            # banners. Providers often limit one model while another remains available, so
+            # run this request once on the fallback and keep it sticky briefly. The response
+            # flags the switch via `gateway.fallback_model` and a header.
             meta["_fallback_tried"] = True
             self.prefer_fallback_until = time.time() + cfg.FALLBACK_STICKY_SECONDS
-            log.warning("%s: primary model busy (high demand), retrying on fallback model", self.model_name)
+            log.warning("%s: primary model rate-limited (%s), retrying on fallback model",
+                        self.model_name, kw[:40])
             # Same prepared text and attachments (incl. a context.txt, still on disk until execute_prompt ends)
             return await self._execute_prompt(prompt_text, send_text, timeout, attachment_paths,
                                               images_only, want_images)

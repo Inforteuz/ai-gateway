@@ -21,6 +21,7 @@ from .conftest import CHAT, SOM, add_key, add_model, add_user, bearer
 
 HIGH_DEMAND = ("Oops! There was an issue connecting to Qwen3.7-Plus.\n"
                "The service is currently experiencing high demand. Please try again later.")
+RATE_LIMITED = "Too many requests. Please try again later."
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +89,14 @@ def test_high_demand_switches_to_fallback_when_allowed():
     assert w.prefer_fallback_until > time.time()               # the next requests go to the fallback for a short while
     (raw2, _), meta2 = _run(w, allow_fallback=True)
     assert w.seen[-1] == "fallback" and meta2["fallback"] is True
+
+
+def test_any_primary_rate_limit_switches_to_fallback_when_allowed():
+    w = _worker({"primary": RATE_LIMITED, "fallback": "zaxira javob"})
+    (raw, _), meta = _run(w, allow_fallback=True)
+    assert raw == "zaxira javob" and meta["fallback"] is True
+    assert w.seen == [None, "fallback"]
+    assert w.prefer_fallback_until > time.time()
 
 
 def test_high_demand_without_permission_is_busy_error():
