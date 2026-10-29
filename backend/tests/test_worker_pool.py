@@ -62,6 +62,16 @@ def test_least_used_healthy_worker_first():
     assert B.ClusterBalancer(_Pool([w0, w1])).pick_candidates("gemini")[0] is w1
 
 
+def test_probe_failed_worker_is_quarantined_until_probe_recovers():
+    w0, w1 = worker(9222), worker(9223)
+    w0.apply_probe(False, "probe_failed:TimeoutError")
+    bal = B.ClusterBalancer(_Pool([w0, w1]))
+    assert not w0.is_available()
+    assert bal.pick_candidates("gemini") == [w1]
+    w0.apply_probe(True, "ok")
+    assert w0.is_available()
+
+
 def test_auto_image_requests_use_fast_image_priority():
     class ImageAdapter:
         def __init__(self):
