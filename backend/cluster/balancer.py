@@ -363,6 +363,7 @@ class ClusterBalancer:
         last_error = ""
         tried = 0
         failed_ports: set[int] = set()
+        gemini_timed_out = False
 
         waited_busy = False
         # One bounded queue slot per request, and reselect across ALL accounts on
@@ -375,7 +376,8 @@ class ClusterBalancer:
             candidates = [w for w in self.pick_candidates(requested_model, require)
                           if id(w) not in attempted and time.time() >= w.cooldown_until]
             worker = next((w for w in candidates if not _is_busy(w)), None)
-            failed_enough = cfg.SPILL_AFTER_FAILURES > 0 and len(failed_ports) >= cfg.SPILL_AFTER_FAILURES
+            failed_enough = (cfg.SPILL_AFTER_FAILURES > 0 and
+                             (len(failed_ports) >= cfg.SPILL_AFTER_FAILURES or gemini_timed_out))
             if spill_to and (worker is None or failed_enough):
                 # Every tab of the requested model is busy (or must keep its account's
                 # send gap): a free tab of the spill model answers now instead of the
@@ -475,6 +477,10 @@ class ClusterBalancer:
                     raise
                 except asyncio.TimeoutError:
                     failed_ports.add(worker.browser_port)
+                    # A second Gemini account often hits the same first-token delay.
+                    # If a compatible stand-in is already configured, avoid another
+                    # full timeout; unavailable stand-ins still fall through to Gemini.
+                    gemini_timed_out = requested_model.lower() == "gemini"
                     worker.set_cooldown(30, reason="timeout")
                     last_error = f"{worker.model_name} (port {worker.browser_port}): timeout"
                     log.warning(last_error)

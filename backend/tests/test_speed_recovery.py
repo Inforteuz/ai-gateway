@@ -236,7 +236,7 @@ def test_fast_effort_does_not_trigger_yaml_plan_or_second_generation(cluster_cli
     assert "[Javob tartibi" not in bal.prompts[0]
 
 
-def test_configured_stand_in_runs_after_two_failed_accounts(monkeypatch):
+def test_configured_stand_in_runs_after_first_gemini_timeout(monkeypatch):
     from cluster import balancer as B
     from .test_audit_regressions import _Worker, _Pool
     order = []
@@ -263,7 +263,33 @@ def test_configured_stand_in_runs_after_two_failed_accounts(monkeypatch):
         return result
 
     assert asyncio.run(run())[1] == "deepseek"
-    assert order == [19880, 19881, 19884]
+    assert order == [19880, 19884]
+
+
+def test_gemini_timeout_tries_next_account_if_stand_in_is_unavailable(monkeypatch):
+    from cluster import balancer as B
+    from .test_audit_regressions import _Worker, _Pool
+    order = []
+
+    class Worker(_Worker):
+        async def execute_prompt(self, prompt, timeout, **kwargs):
+            order.append(self.browser_port)
+            if len(order) == 1:
+                raise asyncio.TimeoutError()
+            return "valid answer", []
+
+    workers = [Worker("gemini") for _ in range(2)]
+    for i, worker in enumerate(workers):
+        worker.browser_port = 19900 + i
+    monkeypatch.setattr(cfg, "SPILL_AFTER_FAILURES", 2)
+    monkeypatch.setattr(cfg, "PREWARM_ENABLED", False)
+    bal = B.ClusterBalancer(_Pool(workers))
+
+    async def run():
+        runmeta.start()
+        return await bal.execute("test", "gemini", spill_to="deepseek", timeout_per_worker=3)
+
+    assert asyncio.run(run())[1] == "gemini" and order == [19900, 19901]
 
 
 def test_failure_spill_requires_configured_destination(monkeypatch):

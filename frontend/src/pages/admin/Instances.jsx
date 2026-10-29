@@ -166,7 +166,7 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
             <div title={tr("VNC orqali tekshiring; sessiya joyida bo'lsa, \"RAM bo'shatish\" blokni olib tashlaydi.")}> {tr("Avto-tiklash to'xtatilgan:")} {tr(BLOCK_REASON[mem.blocked.reason] || mem.blocked.reason)} ({fmtAgo(mem.blocked.ts)})
             </div>
           )}
-          {it.last_error && <div className="inst-clip" title={tr(it.last_error)}>{tr(it.last_error)}</div>}
+          {it.last_error && <div className="inst-clip" title={tr(it.last_error)}>{tr("· Oxirgi xato: {v0}", { v0: it.last_error })}</div>}
         </div>
       )}
 
