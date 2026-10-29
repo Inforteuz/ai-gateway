@@ -366,6 +366,7 @@ export default {
   'dash.hello': 'Salom, {name}',
   'dash.lead': "{brand} platformasidagi hisobingiz holati va so'nggi faollik.",
   'dash.offline': "Model serveri hozir ulanmagan. So'rovlar bajarilmaydi, lekin pul ham yechilmaydi. Ulanish tiklanganda avtomatik ishlaydi.",
+  'dash.someModelsOffline': "Ayrim modellar hozir javob bermayapti. Har bir model holatini holat sahifasida ko'ring.",
   'dash.statusPage': 'Holat sahifasi',
   'dash.usageLabel': 'Foydalanish',
   'dash.freeNote': "Hamkorlar uchun so'rovlar bepul.",

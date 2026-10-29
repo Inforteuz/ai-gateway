@@ -28,7 +28,7 @@ export default function Dashboard() {
   const daily = useLoad(() => api.get('/portal/usage/daily?days=30'), [], { refreshMs: 15_000 })
   const usage = useLoad(() => api.get('/portal/usage?limit=5'), [], { refreshMs: 15_000 })
   const keys = useLoad(() => api.get('/portal/keys'), [])
-  const model = useLoad(() => api.get('/portal/status'), [], { refreshMs: 30_000 })
+  const model = useLoad(() => api.get('/portal/status/models'), [], { refreshMs: 30_000 })
   const [tab, setTab] = useState('requests')
   const s = sum.data
   const low = s && s.balance - s.held < 1000 * MICRO
@@ -48,8 +48,8 @@ export default function Dashboard() {
         action={<span className="date-pill"><IconCalendar /> {fmtDateLong()}</span>}
       />
 
-      {model.data && !model.data.model_online && (
-        <div className="alert alert--warn" style={{ marginBottom: 20 }}>{t('dash.offline')} <Link to="/status">{t('dash.statusPage')}</Link></div>
+      {model.data?.items?.some((item) => item.state === 'down') && (
+        <div className="alert alert--warn" style={{ marginBottom: 20 }}>{t('dash.someModelsOffline')} <Link to="/status">{t('dash.statusPage')}</Link></div>
       )}
       <ErrorNote error={sum.error} retry={sum.reload} />
       {!s && !sum.error && <Loading />}

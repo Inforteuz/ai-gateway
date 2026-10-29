@@ -366,6 +366,7 @@ export default {
   'dash.hello': 'Hi, {name}',
   'dash.lead': 'Your {brand} account status and recent activity.',
   'dash.offline': "The model server is currently offline. Requests won't run, but you won't be charged either. It will resume automatically once the connection is restored.",
+  'dash.someModelsOffline': 'Some models are currently unavailable. Check the status page for each model’s availability.',
   'dash.statusPage': 'Status page',
   'dash.usageLabel': 'Usage',
   'dash.freeNote': 'Requests are free for partners.',
