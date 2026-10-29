@@ -413,6 +413,8 @@ async def proxy(request: Request, endpoint: str):
         await check_rate(request, key)
         ticket, body, model, max_out, stream = await _prepare(request, endpoint, key, request_id, t0, ctx)
     except ApiError as exc:
+        log.warning("request rejected id=%s model=%s endpoint=%s status=%s code=%s", request_id,
+                    ctx.get("model", "-"), endpoint, exc.status, exc.code)
         exc.headers = {**exc.headers, "X-Request-Id": request_id}
         await _log_rejection(state, key, request_id, endpoint, ctx, exc, client_ip(request))
         raise
@@ -576,6 +578,25 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             model, route_meta = selected
             model = {**model, "public_id": public_id}
             log.info("%s route: %s -> %s chars=%d (%s)", route_meta.get("route_reason", "size"),
+                     price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
+    # Sable 3.0 uses the larger coder model.  Tiny text-only turns do not need
+    # it and are noticeably faster on Sable 2.0; keep code, tool, attachment,
+    # and explicit reasoning turns on the requested model.
+    if (endpoint == "chat/completions" and not force_model and model["provider"] == "local"
+            and model.get("id") == "sable-3.0" and not count_attachments(body)):
+        target = await run_in_threadpool(
+            db.one, "SELECT * FROM models WHERE id=? AND enabled=1", ("sable-2.0",))
+        selected = routing.local_speed_target(model, dict(target) if target else None, body)
+        if selected:
+            price_source = model
+            model, route_meta = selected
+            model = {**model, "public_id": public_id}
+            # The fast route is for small direct answers; do not let Sable
+            # 2.0's normal medium-thinking default erase the latency win.
+            if route_meta.get("route_reason") == "local_speed" and not any(
+                    k in body for k in ("reasoning_effort", "think", "reasoning")):
+                body = {**body, "reasoning_effort": "none"}
+            log.info("local speed route: %s -> %s chars=%d (%s)",
                      price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
     ctx["legacy_sunset"] = settings.get("legacy_models_sunset") or ""
     if model["provider"] == "external" and not ((settings.get("external_base_url") or "").strip() and (settings.get("external_api_key") or "").strip()):
@@ -901,6 +922,12 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "X-Request-Id": request_id},
         )
     except BaseException as exc:
+        if isinstance(exc, ApiError):
+            log.warning("provider attempt failed id=%s model=%s endpoint=%s status=%s code=%s", request_id,
+                        model.get("id", "-"), endpoint, exc.status, exc.code)
+        elif not isinstance(exc, asyncio.CancelledError):
+            log.exception("request attempt crashed id=%s model=%s endpoint=%s", request_id,
+                          model.get("id", "-"), endpoint)
         if isinstance(exc, ApiError):
             exc.headers = {**exc.headers, "X-Request-Id": request_id}
         # Error or client disconnect: release the hold and the semaphore.
