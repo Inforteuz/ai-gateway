@@ -445,7 +445,7 @@ async def proxy(request: Request, endpoint: str):
         response.headers["X-Fallback-Model"] = stand_in
         response.headers["X-SF-Routed-Model"] = stand_in
         response.headers["X-SF-Route-Reason"] = ticket2.attribution["route_reason"]
-    if ticket.attribution.get("route_reason") in ("input_size", "tool_speed") and "X-Fallback-Model" not in response.headers:
+    if ticket.attribution.get("route_reason") in ("input_size", "tool_speed", "local_speed") and "X-Fallback-Model" not in response.headers:
         response.headers["X-SF-Routed-Model"] = model["id"]
         response.headers["X-SF-Route-Reason"] = ticket.attribution["route_reason"]
     extra = legacy_headers(ctx.get("requested") or "", ctx.get("legacy_sunset") or "")
