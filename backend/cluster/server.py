@@ -57,6 +57,28 @@ async def _prewarm_qwen_workers(pool: ClusterPool) -> None:
             log.warning("Qwen startup prewarm failed: %s", exc)
 
 
+async def _prepare_worker_pages(pool: ClusterPool) -> None:
+    """Calm idle browser decorations without delaying startup or resetting chats."""
+    limit = asyncio.Semaphore(3)
+
+    async def prepare(worker):
+        hook = getattr(worker.adapter, "prepare_page", None)
+        if not callable(hook):
+            return
+        async with limit:
+            if worker.lock.locked() or getattr(worker.lock, "_waiters", None):
+                return
+            try:
+                async with worker.lock:
+                    async with await worker.connect(open_timeout=5) as ws:
+                        await hook(ws)
+            except Exception as exc:
+                log.debug("page preparation deferred model=%s: %s", worker.model_name, type(exc).__name__)
+
+    await asyncio.gather(*(asyncio.wait_for(prepare(worker), timeout=12)
+                           for worker in list(pool.workers)), return_exceptions=True)
+
+
 class ChatMessage(BaseModel):
     role: str
     # OpenAI multimodal: `content` may be a string OR an array of parts
@@ -308,6 +330,7 @@ async def lifespan(app: FastAPI):
     # Prewarm uses the worker lock and skips busy/queued workers, so live
     # requests can safely arrive while this tracked background task runs.
     tasks.append(asyncio.create_task(_prewarm_qwen_workers(app.state.pool)))
+    tasks.append(asyncio.create_task(_prepare_worker_pages(app.state.pool)))
     try:
         yield
     finally:

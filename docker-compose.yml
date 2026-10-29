@@ -122,6 +122,8 @@ services:
       SF_CHROME_SANDBOX: ${SF_CHROME_SANDBOX:-1}
       # Site isolation: 1 = on (default), 0 = off to save memory
       SF_CHROME_SITE_ISOLATION: ${SF_CHROME_SITE_ISOLATION:-1}
+      # Chat automation needs 2D rendering; software 3D rendering is opt-in.
+      SF_CHROME_GRAPHICS: ${SF_CHROME_GRAPHICS:-basic}
       # Requests longer than a provider's input field: instructions + history go as an attached
       # context.txt instead of being cut (1, default) or are trimmed (0)
       SF_CLUSTER_OVERFLOW_FILE: ${SF_CLUSTER_OVERFLOW_FILE:-1}

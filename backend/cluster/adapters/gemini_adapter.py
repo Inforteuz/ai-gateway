@@ -78,6 +78,43 @@ class GeminiAdapter(BaseAIAdapter):
     def __init__(self):
         super().__init__("gemini")
 
+    # These are Gemini's decorative new-chat background layers, not answer or
+    # progress animations. Animating their large blurred gradients continuously
+    # saturated software rendering on the production host, including when idle.
+    _QUIET_BACKGROUND_JS = """(() => {
+        if (!document.head) return false;
+        if (document.getElementById('sf-quiet-background')) return true;
+        const style = document.createElement('style');
+        style.id = 'sf-quiet-background';
+        style.textContent = '.nl-blob,.gradient-strip{animation:none!important;}';
+        document.head.appendChild(style);
+        return true;
+    })()"""
+
+    async def prepare_page(self, ws) -> bool:
+        """Make decorative backgrounds static without changing chat contents."""
+        try:
+            return bool(await cdp.evaluate(ws, self._QUIET_BACKGROUND_JS, timeout=5))
+        except Exception as exc:
+            # A navigating page can reject the evaluation; input readiness and
+            # the next probe retry it. This is not a session/authentication error.
+            log.debug("gemini: background preparation deferred: %s", type(exc).__name__)
+            return False
+
+    async def wait_for_input(self, ws, timeout: float = 10.0,
+                             selector: str = GEMINI_INPUT) -> bool:
+        await self.prepare_page(ws)
+        ready = await super().wait_for_input(ws, timeout=timeout, selector=selector)
+        if ready:
+            # Navigation may have replaced the document during the wait.
+            await self.prepare_page(ws)
+        return ready
+
+    async def check_session(self, ws, timeout: float = 5.0,
+                            recover: bool = True) -> tuple[bool, str]:
+        await self.prepare_page(ws)
+        return await super().check_session(ws, timeout=timeout, recover=recover)
+
     # --- Mode picker ----------------------------------------------------------------
     #
     # MEASURED on two live accounts. The chip next to the composer is found by class,

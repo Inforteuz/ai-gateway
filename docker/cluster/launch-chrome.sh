@@ -115,11 +115,23 @@ fi
 # window would only make the provider's page harder to read over VNC.
 WINDOW_SIZE="${SF_CHROME_WINDOW_SIZE:-1920,1080}"
 
-# Small disk cache and software GL keep memory low. The DevTools port listens on 127.0.0.1
+# Chat input and ordinary image output use 2D rendering. Forced SwiftShader
+# kept idle browsers' software GPU processes consuming substantial CPU.
+# Basic rendering keeps text, uploads, image elements and VNC available without
+# running a software 3D GPU. Keep the previous mode available for pages that need it.
+GRAPHICS_ARGS=()
+case "${SF_CHROME_GRAPHICS:-basic}" in
+    basic) GRAPHICS_ARGS=(--disable-gpu --disable-software-rasterizer) ;;
+    software-gl) GRAPHICS_ARGS=(--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader) ;;
+    *) echo "[chrome-$IDX] invalid SF_CHROME_GRAPHICS (use basic or software-gl)" >&2; exit 1 ;;
+esac
+echo "[chrome-$IDX] graphics: ${SF_CHROME_GRAPHICS:-basic}"
+
+# Small disk cache. The DevTools port listens on 127.0.0.1
 # inside the container only; nothing outside the container can reach it.
 # Chrome stderr (dbus noise in containers) is dropped; set SF_CHROME_STDERR=/dev/stderr to debug.
 "$CHROME" \
-    "${SANDBOX_ARGS[@]}" \
+    ${SANDBOX_ARGS[@]+"${SANDBOX_ARGS[@]}"} \
     --remote-debugging-port=$((9222 + IDX)) \
     --remote-debugging-address=127.0.0.1 \
     --user-data-dir="$PROFILE_DIR" \
@@ -131,17 +143,17 @@ WINDOW_SIZE="${SF_CHROME_WINDOW_SIZE:-1920,1080}"
     --disable-dev-shm-usage \
     --password-store=basic \
     --disable-blink-features=AutomationControlled \
-    "${ISOLATION_ARGS[@]}" \
+    ${ISOLATION_ARGS[@]+"${ISOLATION_ARGS[@]}"} \
     --disable-features="$DISABLED_FEATURES" \
     --disable-gpu-shader-disk-cache \
     --disk-cache-size=33554432 \
-    --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader \
+    "${GRAPHICS_ARGS[@]}" \
     --lang="${SF_CHROME_LANG:-en-US}" \
     --window-size="$WINDOW_SIZE" \
     --window-position=0,0 \
     --start-maximized \
-    "${PROXY_ARGS[@]}" \
-    "${BLOCK_ARGS[@]}" \
+    ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} \
+    ${BLOCK_ARGS[@]+"${BLOCK_ARGS[@]}"} \
     "$START_URL" 2>"${SF_CHROME_STDERR:-/dev/null}" &
 CHROME_PID=$!
 
