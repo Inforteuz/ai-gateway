@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import time
 import json
 from typing import Optional
@@ -8,6 +9,11 @@ from .. import settings as cfg
 from .base_adapter import READ_TEXT_JS, BaseAIAdapter, Capabilities
 
 log = logs.get("qwen")
+
+# One adapter instance serves all Qwen browser workers.  Context-local state
+# lets each request remember the send method that worked for its own worker
+# without a concurrent account overwriting another account's preference.
+_SEND_PREF = contextvars.ContextVar("qwen_send_pref", default=None)
 
 # chat.qwen.ai (2026+ UI) DOM structure:
 #   .qwen-chat-message-assistant                       <- message container
@@ -53,12 +59,28 @@ class QwenAdapter(BaseAIAdapter):
 
     def __init__(self):
         super().__init__("qwen")
+        # Send controls can differ between browser accounts and tabs.  Keep
+        # the successful method per adapter instance instead of sharing it
+        # through the class (a failed account should not slow its sibling).
+        self._send_pref = type(self)._send_pref
+
+    def set_send_preference(self, preference):
+        return _SEND_PREF.set(preference or self._send_pref)
+
+    @staticmethod
+    def get_send_preference():
+        return _SEND_PREF.get()
+
+    @staticmethod
+    def reset_send_preference(token):
+        if token is not None:
+            _SEND_PREF.reset(token)
 
     # Temporary chat (measured on the live page): opened with `?temporary-chat=true`
     # the page sits in a clean chat that is not saved to history; markers —
     # `.temporary-chat-entry[aria-pressed="true"]`, icon `#qwpcicon-temporaryDialogueSelected`,
     # text "Temporary Chat — This chat won't appear in history".
-    _send_pref: str = "enter_key"   # send method that worked last (tried first)
+    _send_pref: str = "enter_key"   # default for compatibility; copied per adapter instance
     TEMP_URL = "https://chat.qwen.ai/?temporary-chat=true"
     _TEMP_STATE_JS = """(() => {
         const e = document.querySelector('.temporary-chat-entry');
@@ -477,10 +499,12 @@ class QwenAdapter(BaseAIAdapter):
                    "enter_key": enter_key, "key_events": key_events}
         # SPEED: the method that worked last is tried first (at one point only Enter
         # worked and the two earlier methods cost ~3 s per request).
-        order = sorted(methods, key=lambda n: n != self._send_pref)
+        preference = _SEND_PREF.get() or self._send_pref
+        order = sorted(methods, key=lambda n: n != preference)
         for name in order:
             await methods[name]()
             if await was_sent():
+                _SEND_PREF.set(name)
                 self._send_pref = name
                 return True
 

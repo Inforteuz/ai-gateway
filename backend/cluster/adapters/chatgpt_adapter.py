@@ -211,7 +211,12 @@ class ChatGPTAdapter(BaseAIAdapter):
         })()"""
         # reset_js is an async IIFE: await its result. Errors must propagate;
         # the pool handles navigation disconnects and verifies the new page.
-        state = await cdp.evaluate(ws, reset_js, timeout=20, await_promise=True)
+        # The SPA action normally completes in ~1–3 s.  A hung React promise
+        # used to consume the hard-coded 20 s before the worker could fail over
+        # to another tab.  Keep a short bounded window and use the existing
+        # navigation fallback when the page is genuinely slow.
+        script_timeout = min(8.0, max(3.0, float(timeout)))
+        state = await cdp.evaluate(ws, reset_js, timeout=script_timeout, await_promise=True)
         await asyncio.sleep(0.4)
 
         if isinstance(state, dict) and state.get("temporary"):
@@ -269,7 +274,8 @@ class ChatGPTAdapter(BaseAIAdapter):
         })()"""
         state = None
         try:
-            state = await cdp.evaluate(ws, js, timeout=20, await_promise=True)
+            script_timeout = min(8.0, max(3.0, float(timeout)))
+            state = await cdp.evaluate(ws, js, timeout=script_timeout, await_promise=True)
         except Exception:
             state = None
         await asyncio.sleep(0.4)

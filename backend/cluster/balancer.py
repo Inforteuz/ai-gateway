@@ -152,7 +152,15 @@ class ClusterBalancer:
 
         available = [w for w in target if w.is_available() and not _is_busy(w)]
         available.sort(key=_key)
-        busy_but_fresh = [w for w in target if w not in available and time.time() >= w.cooldown_until]
+        # A worker with a failed session probe is unhealthy, not merely busy.
+        # Keep it out of the fallback queue as well; otherwise the second list
+        # below silently reintroduced the exact timeout-prone tab that
+        # WorkerTab.is_available() had filtered out.
+        busy_but_fresh = [w for w in target
+                          if w not in available
+                          and time.time() >= w.cooldown_until
+                          and not (isinstance(getattr(w, "last_probe", None), dict)
+                                   and w.last_probe.get("ok") is False)]
         busy_but_fresh.sort(key=_key)
         backup = [w for w in others if w.is_available()]
         backup.sort(key=_key)

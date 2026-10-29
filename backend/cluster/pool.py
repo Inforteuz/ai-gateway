@@ -200,6 +200,14 @@ class WorkerTab:
         # {"ts", "ok", "reason"}. The admin panel status is derived from it,
         # to tell "login required" apart from "page crashed".
         self.last_probe: Optional[Dict[str, Any]] = None
+        # Provider controls (for example Gemini's reasoning menu) persist on a
+        # browser account.  Keep this per worker, never on the shared adapter:
+        # adapters are reused by all accounts and a shared cache can leak one
+        # account's state into another.  The value is only a latency hint; a
+        # failed request clears it and the next request verifies the control.
+        self._effort_cache_key: Optional[str] = None
+        self._effort_cache_value: Optional[str] = None
+        self._send_pref: Optional[str] = None
 
     @property
     def short_tab(self) -> str:
@@ -256,8 +264,16 @@ class WorkerTab:
         _ACCOUNT_INFLIGHT.get(self.account_key, set()).discard(self.tab_id)
 
     def is_available(self) -> bool:
+        # A failed session probe is a transport/page-health failure, not a
+        # usable worker.  Previously these tabs remained available and were
+        # selected again immediately, adding another full upstream timeout.
+        # The watchdog continues probing them and a successful probe restores
+        # availability through apply_probe().
+        probe = self.last_probe
+        probe_failed = isinstance(probe, dict) and probe.get("ok") is False
         return (time.time() >= self.cooldown_until and not self.lock.locked()
-                and not self.dispatch_lock.locked() and not self.sibling_blocked())
+                and not self.dispatch_lock.locked() and not self.sibling_blocked()
+                and not probe_failed)
 
     def state(self, now: Optional[float] = None) -> str:
         """One-word state for monitoring: ACTIVE (free and healthy), BUSY (serving a request),
@@ -268,6 +284,8 @@ class WorkerTab:
             return "BUSY"
         if now < self.cooldown_until:
             return "EXHAUSTED" if self.needs_attention == "quota" else "COOLDOWN"
+        if isinstance(self.last_probe, dict) and self.last_probe.get("ok") is False:
+            return "COOLDOWN"
         return "ACTIVE"
 
     def set_cooldown(self, seconds: Optional[int] = None, reason: str = "") -> None:
@@ -339,6 +357,11 @@ class WorkerTab:
             self.last_error = None
             self.needs_attention = None
             return
+        # A failed attempt may have reloaded or left the provider control in an
+        # unknown state.  Re-check effort on the next request instead of
+        # trusting a stale latency hint.
+        self._effort_cache_key = None
+        self._effort_cache_value = None
         self.failed_requests += 1
         if transient:
             self.set_cooldown(cfg.TRANSPORT_ERROR_COOLDOWN, reason="transport")
@@ -397,6 +420,8 @@ class WorkerTab:
                 raise
             log.info("ws_url refreshed model=%s port=%d", self.model_name, self.browser_port)
             self.ws_url = fresh
+            self._effort_cache_key = None
+            self._effort_cache_value = None
             return await websockets.connect(fresh, ping_interval=None,
                                             open_timeout=open_timeout,
                                             max_size=CDP_MAX_MESSAGE)
@@ -659,7 +684,18 @@ class WorkerTab:
             # For image requests reasoning only slows the image down: when the client
             # sets no level, the fastest one (IMAGE_EFFORT) is used.
             want_effort = meta.get("effort") or (cfg.IMAGE_EFFORT if want_images else None)
-            effort = await self.adapter.set_effort(ws, want_effort)
+            # Effort is an account/page setting and opening its menu costs
+            # roughly 1–3 seconds on Gemini.  Reuse the confirmed setting for
+            # this worker until the page target changes.  A different request
+            # (or an image effort) still goes through the adapter normally.
+            effort_key = (want_effort or getattr(self.adapter, "DEFAULT_EFFORT", ""))
+            if self._effort_cache_key == effort_key and self._effort_cache_value:
+                effort = self._effort_cache_value
+            else:
+                effort = await self.adapter.set_effort(ws, want_effort)
+                if effort:
+                    self._effort_cache_key = effort_key
+                    self._effort_cache_value = effort
             if effort:
                 meta["upstream_effort"] = effort
             # A client that omits effort still gets the adapter's default.
@@ -692,7 +728,23 @@ class WorkerTab:
                 log.info("%s: request %d chars > %d, trimming old history",
                          self.model_name, len(prompt_text), limit)
                 prompt_text = fit_prompt(prompt_text, limit)
-            sent = await self.adapter.send_prompt(ws, prompt_text)
+            async def send_once() -> bool:
+                # Qwen's DOM has several send mechanisms.  Its adapter exposes
+                # a context-local hint so parallel accounts can remember their
+                # own successful method without racing on the shared adapter.
+                set_pref = getattr(self.adapter, "set_send_preference", None)
+                get_pref = getattr(self.adapter, "get_send_preference", None)
+                reset_pref = getattr(self.adapter, "reset_send_preference", None)
+                token = set_pref(self._send_pref) if set_pref else None
+                try:
+                    return await self.adapter.send_prompt(ws, prompt_text)
+                finally:
+                    if get_pref:
+                        self._send_pref = get_pref()
+                    if reset_pref:
+                        reset_pref(token)
+
+            sent = await send_once()
             mark("send")
             if not sent:
                 # After a reset the page may not have finished reloading, so the
@@ -701,7 +753,7 @@ class WorkerTab:
                 # non-writable for up to 10 seconds).
                 await asyncio.sleep(3.0)
                 await self.adapter.wait_for_input(ws, timeout=15)
-                sent = await self.adapter.send_prompt(ws, prompt_text)
+                sent = await send_once()
             if not sent:
                 self.last_error = "send_failed"
                 self._record_outcome(False)
