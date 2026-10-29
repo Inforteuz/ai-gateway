@@ -4,6 +4,7 @@ import asyncio
 import pytest
 
 from cluster import cdp
+from cluster.adapters import gemini_adapter
 from cluster.adapters import get_adapter
 from cluster.adapters.base_adapter import BaseAIAdapter
 from cluster.adapters.gemini_adapter import GeminiAdapter, _fix_code_labels
@@ -28,6 +29,51 @@ def test_chip_stands_for_the_configured_model():
     # An account with no paid plan sits on "Auto": the menu has to be opened
     assert not GeminiAdapter._chip_is("Gemini Авто", "3.1 Pro")
     assert not GeminiAdapter._chip_is("", "3.1 Pro")
+
+
+@pytest.mark.parametrize("effort,labels", [
+    ("none", ("Низкий", "Низкая", "Низкое", "Low")),
+    ("low", ("Низкий", "Низкая", "Низкое", "Low")),
+    ("medium", ("Средний", "Средняя", "Среднее", "Medium")),
+    ("high", ("Высокий", "Высокая", "Высокое", "High")),
+    ("xhigh", ("Высокий", "Высокая", "Высокое", "High")),
+])
+def test_gemini_effort_matches_current_and_older_russian_labels(effort, labels):
+    assert GeminiAdapter.EFFORT_LABELS[effort] == labels
+
+
+@pytest.mark.parametrize("selected,expected_clicks", [(True, 1), (False, 2)])
+def test_gemini_effort_skips_reselecting_the_active_menu_item(monkeypatch, selected, expected_clicks):
+    clicks = []
+
+    async def evaluate(ws, js, timeout=20.0, **kwargs):
+        if "Выбор режима|mode picker" in js:
+            return {"x": 10, "y": 20}
+        if "classList.contains('selected')" in js:
+            return selected
+        if "want.some(w => (e.innerText || '').trim().startsWith(w))" in js:
+            return {"x": 30, "y": 40}
+        if "document.querySelector('.cdk-overlay-pane [role=menuitem]')" in js:
+            return True
+        raise AssertionError(js[:160])
+
+    async def click(ws, x, y):
+        clicks.append((x, y))
+
+    async def key(ws, *args):
+        pass
+
+    async def sleep(seconds):
+        pass
+
+    monkeypatch.setattr(gemini_adapter.cdp, "evaluate", evaluate)
+    monkeypatch.setattr(gemini_adapter.cdp, "click_at", click)
+    monkeypatch.setattr(gemini_adapter.cdp, "key", key)
+    monkeypatch.setattr(gemini_adapter.asyncio, "sleep", sleep)
+    assert asyncio.run(GeminiAdapter().set_effort(object(), "none")) == "none"
+    assert len(clicks) == expected_clicks
+    if not selected:
+        assert clicks[-1] == (30, 40)
 
 
 def test_variant_is_offered_only_when_a_fallback_model_differs(monkeypatch):
