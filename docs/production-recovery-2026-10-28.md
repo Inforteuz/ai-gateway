@@ -1,6 +1,26 @@
 # Production yangilanishi va #1 instansiya — 2026-10-28
 
-## Chiqarilgan o‘zgarishlar
+## 2026-10-29: internet tiklangandan keyingi tekshiruv
+
+Foydalanuvchi oldingi uzilish vaqtida serverning interneti o‘chganini aniqladi. Internet tiklangach SSH, bevosita va ommaviy `/portal/health` yana ishladi (HTTP 200). Avvalgi relay kuzatuvlari internet uzilishining o‘rniga tasdiqlangan asosiy sabab sifatida talqin qilinmasligi kerak. Mac’dagi vaqtinchalik DERP afzalligi avvalroq standart holatga qaytarilgan; serverga shu sozlama qo‘llangan deb hisoblanmaydi.
+
+Yangi holat avvalgi rolloutdan farq qiladi: `/home/banda/Desktop/aicollections/ai-gateway` va avvalgi rollback katalogi topilmadi. Home ichida compose fayllari qidiruvi ham natija bermadi; foydalanuvchi papkaga tegmaganini aytdi. Yo‘qolish sababi aniqlanmadi. Mavjud bo‘lmagan loyiha katalogi mahalliy Git tarixidan to‘liq bundle orqali qayta yaratildi (`6aefc04` gacha). Mavjud katalog ustidan yozilmadi.
+
+API va database ishlayotgan, lekin `ai-gateway-cluster-1` to‘xtagan edi: `2026-10-29 13:35:35 +05:00` da SIGTERM olgan va exit code 0 bilan chiqqan; OOM belgisi yo‘q. To‘xtatishni kim yoki nima bergani aniqlanmagan. Shu sabab portalning HTTP 200 javobi brauzer modellari ishlayotganini isbotlamaydi. Eski cluster image `5064982` (`e5a74415bc23`) edi. Profillar joylashgan `ai-gateway_cluster-data` volume mavjud; amaldagi container konfiguratsiyasi maxfiy katalogga saqlandi (`~/.ai-gateway-recovery-20261029/`, mode 700).
+
+`81af006` endi **production’ga chiqarildi**. Yangi cluster image: `15d52a1ddc16`, revision label `81af006`. Avvalgi `e5a74415bc23` image asosida faqat `entrypoint.sh` almashtirildi; Chrome va kutubxonalar yangilanmadi. Eski image `ai-gateway-cluster:rollback-20261029` tag’ida saqlandi. Faqat cluster konteyneri almashtirildi; API, database va search konteynerlarining ID’lari o‘zgarmadi.
+
+Yo‘qolgan `.env` va production’dagi qo‘shimcha source fayllarining aynan asl nusxalari topilmadi. Shu sabab eski compose faylini taxminiy sozlamalar bilan ishga tushirish o‘rniga, saqlangan `docker inspect` ma’lumotidan **faqat cluster** uchun konfiguratsiya tiklandi. Kalit qiymatlari chiqarilmadi. Yangi konteynerning environment’i, hostname, command, entrypoint, profile volume, portlar, network, restart policy, capability/security sozlamalari va resurs cheklovlari eski konteyner bilan dasturiy solishtirildi: farq topilmadi. API’ning amaldagi Gunicorn va Telnyx environment’i shu konteyner ichida saqlandi; hostdagi yo‘qolgan barcha custom source fayllar tiklandi degan kafolat berilmaydi.
+
+Operatsion buyruq: `scripts/run-recovered-cluster.sh up -d --no-deps --no-build cluster`. U maxfiy `~/.ai-gateway-recovery-20261029/cluster.compose.json` faylidan foydalanadi (mode 600), asl named volume va network’ni external sifatida ulaydi. Wrapper Git’dan tashqarida. Hozirgi tiklash faqat cluster xizmati uchun; oddiy to‘liq `docker compose up` qilishdan oldin boshqa yo‘qolgan production konfiguratsiyasini ham tiklash kerak. `profile-check` yordamchi nusxasi tekshirilmagan deb belgilandi: uni original volume o‘rniga avtomatik tiklash mumkin emas.
+
+Rolloutdan keyin barcha **54 ta Supervisor xizmati RUNNING**: 13 tadan Chrome, Xvfb, openbox va VNC, cluster va heal-watch. `/health` `ok` berdi; dastlabki snapshot 0–12 instansiyalarni `ok` ko‘rsatdi. Keyingi haqiqiy session probe 15 tabdan 12 tasini sog‘lom deb topdi; Gemini 9223 va Qwen 9229/9234 tablari timeout berdi. 9223 (#1) alohida qayta probe’da `ok` bo‘ldi. Demak ekran/startup nosozligi tuzatilgan, ammo yuk ostidagi session timeout’lar hanuz mavjud. Bular modeldan yakuniy javob olish sinovi emas.
+
+Yangi, cache’dan tashqari Gemini generation sinovi (`17 + 26`, `reasoning_effort=none`, streaming) **202.22 s**da `upstream_failed` bilan tugadi. Birinchi haqiqiy matn ham, yakuniy javob ham yo‘q; stream xato va `[DONE]` bilan yopildi. Log’da 9222 da Quill orqali kiritilgan so‘rov yuborilishi tasdiqlanmagani va `could not type into the input field`, 9223 da temporary chat yoqilishi tasdiqlanmagani ko‘rindi. Bu latency yaxshilanganining dalili emas. Qizish yagona sabab deb olinmaydi: adapterdagi yuborish/reset yo‘lini ham tuzatish va qayta sinash kerak. Issiqlik cheklovi ostida keng parallel/media sinovlari bajarilmadi; barcha model, tool, fayl va media bo‘yicha yakuniy e2e hukm ochiq qoladi.
+
+Brauzer xizmati to‘xtagan holda ham `sensors` CPU package haroratini **91°C** (high 80°C, critical 100°C) va powerclamp `cur_state=49` deb ko‘rsatdi. Load avvalgi 125–128 dan taxminan 4.44 ga pasaygan bo‘lsa ham, issiqlik cheklovi qolgan. Brauzerlar qayta yoqilgach load **116.86**, cluster CPU **1111.41%** kuzatildi. Sovitish tizimini jismonan tekshirish kerak; termal himoya o‘zgartirilmadi. Foydalanuvchi kompyuter institutda ekanini va hozir sovitgichni tekshira olmasligini aytdi.
+
+## 2026-10-28 holati: chiqarilgan o‘zgarishlar
 
 - `9b4ee10`: avvalgi end-to-end audit tuzatishlari serverga chiqarildi.
 - `26c70e4`: eski X ekran qulflari va ishlamay qolgan ekran xizmatlarini tiklash chiqarildi.
