@@ -85,6 +85,25 @@ def test_fallback_distinguishes_provider_capacity_from_key_limits():
     assert _stand_in_for(cluster, ApiError(503, "server_busy", "busy"), target, actual_provider="local") == "backup"
 
 
+def test_local_speed_route_uses_sable20_only_for_short_plain_text():
+    source = model("sable-3.0", "qwen3-coder:30b", provider="local", allow_thinking=1)
+    target = model("sable-2.0", "qwen3:14b", provider="local", allow_thinking=1)
+    selected = routing.local_speed_target(source, target, body("Salom, o'zingni bir so'z bilan tanishtir."))
+    assert selected and selected[0]["id"] == "sable-2.0"
+    assert selected[1]["route_reason"] == "local_speed"
+
+
+@pytest.mark.parametrize("prompt", [
+    "Write a Python function that parses JSON",
+    "Davom et va faylni tahlil qil",
+    "x" * 1201,
+])
+def test_local_speed_route_keeps_code_and_long_turns_on_coder(prompt):
+    source = model("sable-3.0", "qwen3-coder:30b", provider="local", allow_thinking=1)
+    target = model("sable-2.0", "qwen3:14b", provider="local", allow_thinking=1)
+    assert routing.local_speed_target(source, target, body(prompt)) is None
+
+
 def setup(env):
     seen = []
     fake = FastAPI()

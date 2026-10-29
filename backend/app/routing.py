@@ -25,6 +25,17 @@ _TOOL_SIMPLE = re.compile(
     re.I,
 )
 
+# qwen3-coder:30b is the right local model for code and agent turns, but it is
+# needlessly slow for a short greeting or a one-line factual answer. Keep those
+# turns on the smaller Sable 2.0 model while preserving Sable 3.0 for code,
+# attachments, tools, and explicit reasoning. This is an internal capacity
+# route: billing and the public model name remain the requested model.
+_LOCAL_FAST_MAX_CHARS = 1200
+_LOCAL_COMPLEX_HINTS = _TOOL_COMPLEX_HINTS + (
+    "code", "kod", "script", "function", "class", "python", "javascript",
+    "stack trace", "error", "ошиб", "код", "скрипт",
+)
+
 
 def compatible(source, target, endpoint="chat/completions"):
     if not target or not target.get("enabled") or source["id"] == target["id"]:
@@ -34,6 +45,44 @@ def compatible(source, target, endpoint="chat/completions"):
     if endpoint != "chat/completions" and target["provider"] != source["provider"]:
         return False
     return True
+
+
+def local_speed_target(source, target, body):
+    """Use Sable 2.0 for tiny text-only Sable 3.0 turns.
+
+    The route is deliberately conservative. A continuation, code task, tool
+    turn, attachment, or requested reasoning level must stay on the coder
+    model; only a short plain-text request is eligible.
+    """
+    if (not source or not target or source.get("id") != "sable-3.0"
+            or target.get("id") != "sable-2.0"
+            or source.get("provider") != "local" or target.get("provider") != "local"
+            or not target.get("enabled") or not compatible(source, target)):
+        return None
+    if body.get("tools") or body.get("tool_choice") not in (None, "auto"):
+        return None
+    response_format = body.get("response_format") or {}
+    if isinstance(response_format, dict) and response_format.get("type") in ("json_object", "json_schema"):
+        return None
+    if any(k in body for k in ("think", "reasoning")) or str(body.get("reasoning_effort") or "").lower() in {"medium", "high", "xhigh"}:
+        return None
+    messages = body.get("messages") or []
+    if any(not isinstance(m, dict) or m.get("role") == "tool" or m.get("tool_calls") for m in messages):
+        return None
+    current = ""
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            content = message.get("content") or ""
+            if not isinstance(content, str):
+                return None
+            current = content.strip()
+            break
+    if not current or len(current) > _LOCAL_FAST_MAX_CHARS or "```" in current:
+        return None
+    low = current.lower()
+    if any(hint in low for hint in _LOCAL_COMPLEX_HINTS):
+        return None
+    return target, {"route_reason": "local_speed", "prompt_chars": len(current), "source_model": source["id"]}
 
 
 def price_ceiling(source, target):
