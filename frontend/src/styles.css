@@ -3512,3 +3512,9 @@ html .cmp-warn > :first-child { font-family: var(--font-display); }
 @media (max-width: 1100px), (max-height: 860px) { .auth-art { display: none; } }
 /* Phones: keep the form title clear of the language switch pinned to the corner */
 @media (max-width: 560px) { .auth-form { padding-top: 72px; } }
+
+/* Panel docs: the TOC column is hidden below 1300px, so the content takes the full width
+   (`.main .docs-layout` outranked the plain media rule and left a 100px text column on phones) */
+@media (max-width: 1300px) { .main .docs-layout { grid-template-columns: minmax(0, 1fr); } }
+/* Admin figures that are words ("no data") instead of numbers stay one size smaller */
+.metric b { overflow-wrap: anywhere; }
