@@ -1821,4 +1821,6 @@ export default {
   "sahifadagi sana: 2026-09-22": "дата на странице: 2026-09-22",
   "topshiriqqa ~40 daqiqa": "~40 минут на задачу",
   "Bajarildi": "Готово",
+  "Bitta so‘rov narxi": "Цена одного запроса",
+  "300 kirish + 500 chiqish token": "300 входных + 500 выходных токенов",
 }

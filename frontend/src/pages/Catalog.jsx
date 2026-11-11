@@ -5,10 +5,7 @@ import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { ErrorNote, Loading, PageHead, useLoad } from '../components/ui.jsx'
 import SpeedFigure from '../components/SpeedFigure.jsx'
-import {
-  IconBox, IconChart, IconCode, IconDoc, IconLayers, IconSearch,
-  IconShield, IconSparkles, IconZap,
-} from '../components/icons.jsx'
+import { IconSearch } from '../components/icons.jsx'
 import { MICRO, fmtNumber } from '../format.js'
 
 // Short hints: which model to pick when.
@@ -40,15 +37,6 @@ function hintOf(m) {
   return { tag, hint: m.description || '' }
 }
 
-// Icon and color per label, matching the colored tiles in the mockup.
-const LOOK = {
-  'Bepul': [<IconZap key="i" />, ''],
-  'Tekshiruvli': [<IconShield key="i" />, ''],
-  'Rasm yaratadi': [<IconBox key="i" />, 'violet'],
-  'Agent rejimi': [<IconCode key="i" />, ''],
-  'Uzun kontekst': [<IconDoc key="i" />, 'sky'],
-  'Fikrlaydi': [<IconSparkles key="i" />, 'violet'],
-}
 
 const SORTS = [
   ['default', 'Tavsiya etilgan'],
@@ -91,7 +79,6 @@ export default function Catalog() {
         lead={tr("Barcha mavjud modellar va ularning narxlari. Loyihangiz uchun eng mos modelni tanlang.")}
         action={
           <div className="note-card">
-            <span className="ico-chip"><IconSparkles /></span>
             <div>
               <b>{tr("Bitta API — ko'p imkoniyat")}</b>
               <p>{tr("Matn, kod, tahlil va ko'p bosqichli vazifalar uchun zamonaviy modellar.")}</p>
@@ -127,12 +114,10 @@ export default function Catalog() {
         <div className="price-list">
           {list.map((m) => {
             const h = hintOf(m)
-            const [ico, tone] = LOOK[h.tag] || [<IconLayers key="i" />, '']
             const b = (bench.data?.items || []).find((x) => x.id === m.id)
             const free = freeMode || (m.price_in_per_1m === 0 && m.price_out_per_1m === 0)
             return (
               <Link className="price-row price-row--link" key={m.id} to={`/app/catalog/${m.id}`}>
-                <span className={`ico-chip ico-chip--lg ${tone ? `ico-chip--${tone}` : ''}`}>{tr(ico)}</span>
                 <div style={{ minWidth: 0 }}>
                   <div className="hstack" style={{ gap: 9, marginBottom: 3 }}>
                     <span className="price-model">{tr(m.display_name)}</span>
@@ -142,21 +127,21 @@ export default function Catalog() {
                   <code>{m.id}</code>
                   <p className="muted small" style={{ marginTop: 7, maxWidth: '30rem' }}>{h.hint === m.description ? modelDescription(m) : tr(h.hint)}</p>
                   <div className="hstack" style={{ gap: 7, marginTop: 9 }}>
-                    {CAP_TAGS.filter(([k]) => m.capabilities?.[k]).map(([k, label]) => <span className="tag" key={k}>{tr(label)}</span>)}
+                    {CAP_TAGS.filter(([k, label]) => m.capabilities?.[k] && tr(label) !== h.tag).map(([k, label]) => <span className="tag" key={k}>{tr(label)}</span>)}
                     {m.capabilities?.reasoning_levels?.length > 0 && <span className="tag">{tr("Fikrlash:")} {m.capabilities.reasoning_levels.join(', ')}</span>}
                   </div>
                 </div>
                 <div className="model-metrics">
                   <div className="mm">
-                    <span className="mm-top"><span className="ico-chip ico-chip--sm"><IconDoc /></span> {tr("Kontekst")}</span>
+                    <span className="mm-top">{tr("Kontekst")}</span>
                     <b>{fmtNumber(m.context_window)}</b><span className="sub">{tr("token")}</span>
                   </div>
                   <div className="mm">
-                    <span className="mm-top"><span className="ico-chip ico-chip--sm"><IconZap /></span> {tr("Tezlik")}</span>
+                    <span className="mm-top">{tr("Tezlik")}</span>
                     <SpeedFigure measured={m.measured} />
                   </div>
                   <div className="mm">
-                    <span className="mm-top"><span className="ico-chip ico-chip--sm"><IconChart /></span> {tr("Sinov natijasi")}</span>
+                    <span className="mm-top">{tr("Sinov natijasi")}</span>
                     <b>{tr(b ? `${Math.round(b.ratio * 100)}%` : '—')}</b><span className="sub">{tr("(bizning sinov)")}</span>
                   </div>
                 </div>
@@ -166,11 +151,9 @@ export default function Catalog() {
                     <div className="price-figs">
                       <span className="price-figs__cap">{tr("Narx (1M token uchun)")}</span>
                       <div>
-                        <span className="ico-chip ico-chip--sm"><IconBox /></span>
                         <div><b>{fmtNumber(m.price_in_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("Kiruvchi tokenlar")}</span></div>
                       </div>
                       <div>
-                        <span className="ico-chip ico-chip--sm ico-chip--rose"><IconBox /></span>
                         <div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("Chiquvchi tokenlar")}</span></div>
                       </div>
                     </div>
@@ -184,22 +167,22 @@ export default function Catalog() {
 
       <div className="block">
         <div className="block-head"><h2>{tr("Narx qanday hisoblanadi")}</h2></div>
-        <div className="panel">
-          <ul className="muted small" style={{ margin: 0, paddingLeft: '1.2em', display: 'grid', gap: 8 }}>
+        <div className="panel price-explain">
+          <ul className="price-rules">
             <li>{tr("Narx =")} <b>{tr("kirish tokenlar")}</b> {tr("× kirish narxi +")} <b>{tr("chiqish tokenlar")}</b> {tr("× chiqish narxi.")}</li>
             <li>{tr("So'rov boshida eng ko'p sarflanishi mumkin summa vaqtincha band qilinadi, javobdan keyin haqiqiy summa yechiladi.")}</li>
-            <li>{tr("O'rtacha so'rov (300 kirish + 500 chiqish token) uchun taxminiy narx:")} <ul style={{ marginTop: 4 }}>
-                {all.map((m) => {
-                  const avg = (300 * (m.price_in_per_1m / MICRO) + 500 * (m.price_out_per_1m / MICRO)) / 1_000_000
-                  if (avg === 0) return <li key={m.id}><code>{m.id}</code> {tr("— bepul")}</li>
-                  return <li key={m.id}><code>{m.id}</code> — <b>~{avg.toFixed(0)} {tr("so'm")}</b></li>
-                })}
-              </ul>
-            </li>
             <li>{tr("Model javob bermasa yoki xato qaytarsa, pul yechilmaydi.")}</li>
             <li>{tr("Ba'zi modellarda so'rov mazmuni javob tayyorlash uchun hamkor xizmatga ham yuboriladi. Matnlar bizda saqlanmaydi; qaysi modelda shundayligi model sahifasida yozilgan.")}</li>
             {limits && <li>{tr("Standart chegara: daqiqasiga")} {tr(limits.default_rpm)} {tr("ta so'rov, bir javobda ko'pi bilan")} {fmtNumber(limits.max_max_tokens)} {tr("token.")}</li>}
           </ul>
+          {/* One average request, printed as a receipt: what each model would charge for it */}
+          <div className="receipt price-explain__receipt">
+            <div className="receipt-head"><b>{tr("Bitta so‘rov narxi")}</b><span>{tr("300 kirish + 500 chiqish token")}</span></div>
+            {all.map((m) => {
+              const avg = (300 * (m.price_in_per_1m / MICRO) + 500 * (m.price_out_per_1m / MICRO)) / 1_000_000
+              return <div className="rline" key={m.id}><span>{m.id}</span><span>{tr(avg === 0 ? tr("bepul") : `~${avg.toFixed(0)} ${tr("so'm")}`)}</span></div>
+            })}
+          </div>
         </div>
       </div>
     </>

@@ -1821,4 +1821,6 @@ export default {
   "sahifadagi sana: 2026-09-22": "sahifadagi sana: 2026-09-22",
   "topshiriqqa ~40 daqiqa": "topshiriqqa ~40 daqiqa",
   "Bajarildi": "Bajarildi",
+  "Bitta so‘rov narxi": "Bitta so‘rov narxi",
+  "300 kirish + 500 chiqish token": "300 kirish + 500 chiqish token",
 }

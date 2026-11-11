@@ -1821,4 +1821,6 @@ export default {
   "sahifadagi sana: 2026-09-22": "date on the page: 2026-09-22",
   "topshiriqqa ~40 daqiqa": "~40 minutes per task",
   "Bajarildi": "Done",
+  "Bitta so‘rov narxi": "Cost of one request",
+  "300 kirish + 500 chiqish token": "300 input + 500 output tokens",
 }

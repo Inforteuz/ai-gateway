@@ -3425,3 +3425,59 @@ button.key-analytics-row:hover { background: var(--bg-sunken); }
   .table--usage td:nth-child(8) { grid-area: 5 / 1 / 6 / 3; font-size: 0.84rem; }
   .table--usage .request-details { max-width: none; }
 }
+
+/* ---------- Catalog: model sheet without icon tiles; pricing rules beside a receipt ---------- */
+.price-row--link { grid-template-columns: minmax(0, 1fr) 360px 250px 16px; gap: 24px; padding: 20px 24px; }
+.price-row--link .price-model { font-size: 1.12rem; }
+.price-row--link .tag--ok { background: none; padding: 0; color: var(--primary); }
+.model-metrics { gap: 18px; }
+.mm .mm-top { font-size: 0.76rem; color: var(--fg-subtle); }
+.mm b { font-family: var(--font-display); font-weight: 650; }
+.price-row--link .price-figs > div { display: block; }
+.price-row--link .price-figs b { font-family: var(--font-display); font-weight: 650; }
+.note-card { gap: 0; }
+.price-explain { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 28px; align-items: start; }
+.price-rules { margin: 0; padding-left: 1.1em; display: grid; gap: 10px; color: var(--fg-muted); font-size: 0.92rem; line-height: 1.6; }
+.price-rules b { color: var(--fg); }
+.price-explain__receipt { margin: 8px 4px 10px 0; }
+.price-explain__receipt .rline > :last-child { font-variant-numeric: tabular-nums; }
+@media (max-width: 1300px) {
+  .price-row--link { grid-template-columns: minmax(0, 1fr); }
+  .price-row--link > div:nth-child(2) { grid-column: 1 / -1; }
+}
+@media (max-width: 860px) {
+  .price-explain { grid-template-columns: minmax(0, 1fr); }
+  .price-explain__receipt { max-width: 380px; width: 100%; justify-self: center; margin: 4px 0 10px; }
+}
+
+/* ---------- Account: identity on the left, password on the right ---------- */
+.account-grid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 20px; align-items: start; max-width: 1040px; }
+.account-id { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.account-id h2 { font-size: 1.12rem; font-weight: 650; letter-spacing: -0.02em; }
+.account-id .avatar {
+  width: 48px; height: 48px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: var(--primary-wash); color: var(--primary); font-family: var(--font-display); font-weight: 700; font-size: 1.2rem;
+}
+.account-card .kv { row-gap: 0; }
+.account-card .kv dt, .account-card .kv dd { padding: 11px 0; border-top: 1px solid var(--border); margin: 0; }
+.account-card .kv dd { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .account-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Playground: settings breathe (grid gap does not reach into <details>) ---------- */
+.pg-bench__fold { padding: 18px 18px 20px; }
+.pg-bench__fold > summary { font-family: var(--font-display); font-weight: 650; font-size: 1rem; }
+.pg-bench__fold[open] > :not(summary) { margin-top: 18px; }
+.pg-bench__fold[open] > summary + * { margin-top: 14px; }
+.pg-field { gap: 7px; }
+.pg-price { margin-top: 1px; }
+.pg-chat__model { font-family: var(--font-display); }
+.pg-empty > p:first-child, .pg-empty { font-size: 0.95rem; }
+.pg-starter { background: var(--bg-elev); }
+.pg-receipt { box-shadow: 0 10px 24px -18px rgba(10, 10, 15, 0.45); }
+.account-grid > .panel + .panel { margin-top: 0; }
+@media (max-width: 560px) {
+  .page-head__row > .note-card { flex: 1 1 100%; max-width: none; }
+  .model-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .mm .mm-top { white-space: normal; line-height: 1.25; }
+  .price-row--link { padding: 18px 16px; }
+}

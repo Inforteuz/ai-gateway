@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { PageHead, PasswordInput, useToast } from '../components/ui.jsx'
-import { IconShield, IconUser } from '../components/icons.jsx'
 
 export default function Account() {
   useLocaleRefresh()
@@ -28,10 +27,11 @@ export default function Account() {
   return (
     <>
       <PageHead eyebrow={tr("Hisob sozlamalari")} title={tr("Profil")} lead={tr("Hisob ma'lumotlaringiz va kirish paroli.")} />
-      <div className="panel" style={{ maxWidth: 560 }}>
-        <div className="panel-head">
-          <span className="ico-chip"><IconUser /></span>
-          <div className="panel-head__t" style={{ flex: 1 }}><h2>{tr("Hisob ma'lumotlari")}</h2></div>
+      <div className="account-grid">
+      <div className="panel account-card">
+        <div className="account-id">
+          <span className="avatar" aria-hidden="true">{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</span>
+          <h2>{tr("Hisob ma'lumotlari")}</h2>
         </div>
         <dl className="kv">
           <dt>{tr("Email")}</dt><dd>{tr(user.email)}</dd>
@@ -39,9 +39,8 @@ export default function Account() {
           <dt>{tr("Rol")}</dt><dd>{tr(user.role === 'admin' ? tr("Administrator") : tr("Foydalanuvchi"))}</dd>
         </dl>
       </div>
-      <div className="panel" style={{ maxWidth: 560, marginTop: 18 }}>
+      <div className="panel">
         <div className="panel-head">
-          <span className="ico-chip"><IconShield /></span>
           <div className="panel-head__t" style={{ flex: 1 }}><h2>{tr("Parolni almashtirish")}</h2></div>
         </div>
         <form className="form" onSubmit={submit}>
@@ -51,6 +50,7 @@ export default function Account() {
           <label className="field">{tr("Yangi parolni takrorlang")}<PasswordInput required minLength={8} value={form.again} onChange={set('again')} autoComplete="new-password" /></label>
           <button className="btn btn--primary" disabled={busy}>{tr("Parolni almashtirish")}</button>
         </form>
+      </div>
       </div>
     </>
   )
