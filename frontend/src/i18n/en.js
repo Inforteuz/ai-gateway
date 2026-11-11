@@ -400,6 +400,9 @@ export default {
   'dash.recentLead': 'The latest requests sent to the API',
   'dash.all': 'All',
   'dash.recentEmpty': 'No requests yet. They will show up here after your first request.',
+  'dash.stubTitle': 'This month',
+  'dash.stubToday': 'Today',
+  'dash.stubTodaySpent': 'spent today',
 
   'chart.aria': 'Daily metrics chart',
   'chart.tokens': '{n} tokens',

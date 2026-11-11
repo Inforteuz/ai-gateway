@@ -400,6 +400,9 @@ export default {
   'dash.recentLead': "API'ga yuborilgan so'nggi so'rovlar",
   'dash.all': 'Hammasi',
   'dash.recentEmpty': "Hali so'rov yo'q. Birinchi so'rovdan keyin shu yerda chiqadi.",
+  'dash.stubTitle': 'Shu oy hisobi',
+  'dash.stubToday': 'Bugun',
+  'dash.stubTodaySpent': 'bugun sarflandi',
 
   'chart.aria': "Kunlik ko'rsatkichlar diagrammasi",
   'chart.tokens': '{n} token',

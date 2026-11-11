@@ -8,7 +8,7 @@ import FreeQuota from '../components/FreeQuota.jsx'
 import ModelBreakdown from '../components/ModelBreakdown.jsx'
 import { useAuth } from '../auth.js'
 import { ErrorNote, Loading, PageHead, Pager, StatCard, useLoad } from '../components/ui.jsx'
-import { IconChart, IconClock, IconCoins, IconLayers, IconSearch } from '../components/icons.jsx'
+import { IconClock, IconCoins, IconLayers, IconSearch } from '../components/icons.jsx'
 import { levelShort } from '../reasoning.jsx'
 import { useT } from '../i18n/index.jsx'
 import { fmtDateTime, fmtInt, fmtSom } from '../format.js'
@@ -60,7 +60,7 @@ export default function Usage() {
         </div>
         <section className="panel usage-chart">
           <div className="panel-head" style={{ marginBottom: 8 }}>
-            <div className="panel-head__t"><h3><span className="ico-chip ico-chip--sm"><IconChart /></span> {t('usage.dailyCost')}</h3></div>
+            <div className="panel-head__t"><h3>{t('usage.dailyCost')}</h3></div>
           </div>
           {days.length > 0 ? <BarChart items={days.slice(-7)} metric="cost" compact /> : <Loading rows={1} />}
         </section>
@@ -70,7 +70,7 @@ export default function Usage() {
 
       <section className="panel block">
         <div className="panel-head" style={{ marginBottom: 8 }}>
-          <div className="panel-head__t"><h3><span className="ico-chip ico-chip--sm"><IconLayers /></span> {t('usage.byModel')}</h3></div>
+          <div className="panel-head__t"><h3>{t('usage.byModel')}</h3></div>
         </div>
         <ModelBreakdown days={30} freeMode={freeMode} keyId={keyId} />
       </section>
@@ -96,7 +96,7 @@ export default function Usage() {
       {data && rows.length > 0 && (
         <section className="panel">
           <div className="table-wrap">
-            <table className="table">
+            <table className="table table--usage">
               <thead>
                 <tr>
                   <th>{t('usage.colTime')}</th><th>{t('usage.colModel')}</th><th>{t('usage.colTokens')}</th><th>{t('usage.colType')}</th>
@@ -109,7 +109,7 @@ export default function Usage() {
                   return (
                     <tr key={r.id}>
                       <td className="muted nowrap">{fmtDateTime(r.created_at)}</td>
-                      <td><span className="tag tag--sky tag--mono">{tr(r.model)}</span></td>
+                      <td><code className="model-id">{tr(r.model)}</code></td>
                       <td className="nowrap">
                         {bad ? <span className="muted">—</span> : (<>
                           <b>{fmtInt(r.prompt_tokens)}</b> <span className="dim">{t('usage.in')}</span> + <b>{fmtInt(r.completion_tokens)}</b> <span className="dim">{t('usage.out')}</span>
@@ -118,13 +118,13 @@ export default function Usage() {
                       </td>
                       <td>{r.reasoning
                         ? <span className="tag tag--violet">{t('usage.reasoning', { level: levelShort(t, r.reasoning) })}</span>
-                        : <span className="tag tag--ok">{t('usage.chat')}</span>}</td>
+                        : <span className="muted">{t('usage.chat')}</span>}</td>
                       <td className="muted nowrap">{tr(r.latency_ms ? t('common.seconds', { n: (r.latency_ms / 1000).toFixed(1) }) : '—')}</td>
                       <td className="nowrap">{r.cost === 0
-                        ? <span className="tag">{t('common.free')}</span>
-                        : <span className="tag tag--bad">{fmtSom(-r.cost, { sign: true })}</span>}</td>
+                        ? <span className="dim">{t('common.free')}</span>
+                        : <span className="num">{fmtSom(-r.cost, { sign: true })}</span>}</td>
                       <td className="nowrap">
-                        <span className={`tag ${bad ? 'tag--bad' : 'tag--ok'}`}>
+                        <span className={bad ? 'tag tag--bad' : 'status-ok'}>
                           <i className="req-dot" aria-hidden="true" />{tr(bad ? t('req.error', { code: r.status_code }) : t('req.success'))}
                         </span>
                         {bad && <span className="stack dim small">{t('req.failedNote', { reason: (r.reason || r.error) ? tr(r.reason || r.error) : t('usage.failed') })}</span>}
