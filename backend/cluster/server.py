@@ -1588,7 +1588,10 @@ _VIDEO_ERRORS = {
     "timeout": (504, "timeout", "The video took too long to render. Try again.", None),
     "download_failed": (502, "generation_failed", "The finished video could not be read. Try again.", None),
     "image_upload_failed": (502, "invalid_image", "The image could not be used as the first frame.", None),
+    "account_error": (502, "generation_failed", "The video could not be started. Try again.", None),
 }
+# Failures that belong to one account, not to the request: the next free Flow tab gets one try.
+_VIDEO_RETRY_ELSEWHERE = {"account_error", "generation_not_started", "flow_unavailable"}
 
 
 @app.post("/v1/videos/generations", dependencies=[Depends(_auth)])
@@ -1610,19 +1613,19 @@ async def videos_generations(req: VideoRequest, request: Request):
         raise HTTPException(status_code=400, detail="`prompt` must not be empty")
     pool = request.app.state.balancer.pool
     await pool.scan(force=False)
-    deadline = time.monotonic() + cfg.VIDEO_QUEUE_WAIT
-    worker = None
-    while worker is None:
-        tabs = pool.workers_for_model("flow")
-        if not tabs:
-            raise ClusterError(503, "model_unavailable", "Video generation is unavailable right now.", 60)
-        free = [w for w in tabs if w.is_available() and not w.lock.locked()]
-        if free:
-            worker = min(free, key=lambda w: w.last_used)
-            break
-        if time.monotonic() > deadline:
-            raise ClusterError(503, "server_busy", "All video slots are busy. Try again shortly.", 30)
-        await asyncio.sleep(1.0)
+
+    async def pick(exclude) -> Any:
+        deadline = time.monotonic() + cfg.VIDEO_QUEUE_WAIT
+        while True:
+            tabs = [w for w in pool.workers_for_model("flow") if w not in exclude]
+            if not tabs:
+                raise ClusterError(503, "model_unavailable", "Video generation is unavailable right now.", 60)
+            free = [w for w in tabs if w.is_available() and not w.lock.locked()]
+            if free:
+                return min(free, key=lambda w: w.last_used)
+            if time.monotonic() > deadline:
+                raise ClusterError(503, "server_busy", "All video slots are busy. Try again shortly.", 30)
+            await asyncio.sleep(1.0)
 
     portrait = str(req.size or "").strip() in ("720x1280", "1080x1920", "9:16")
     t_start = time.monotonic()
@@ -1644,28 +1647,38 @@ async def videos_generations(req: VideoRequest, request: Request):
             image_path = _os.path.join(store.dir, "first-frame." + mime.split("/")[1].replace("jpeg", "jpg"))
             with open(image_path, "wb") as f:
                 f.write(raw)
-        async with worker.lock:
-            worker.last_used = time.time()
-            try:
-                async with await worker.connect() as ws:
-                    data, meta = await worker.adapter.generate_video(
-                        ws, prompt, image_path=image_path, aspect="9:16" if portrait else "16:9",
-                        timeout=cfg.VIDEO_REQUEST_TIMEOUT)
-            except FlowError as e:
-                worker.failed_requests += 1
-                if e.code == "quota_exceeded":
-                    worker.set_cooldown(cfg.VIDEO_QUOTA_COOLDOWN, "quota")
-                log.warning("video failed port=%d code=%s detail=%s", worker.browser_port, e.code, e)
-                status, code, message, retry = _VIDEO_ERRORS.get(e.code, _VIDEO_ERRORS["generation_failed"])
-                raise ClusterError(status, code, message, retry)
-            except ClusterError:
-                raise
-            except Exception as e:
-                worker.failed_requests += 1
-                log.exception("video crashed port=%d", worker.browser_port)
-                raise ClusterError(502, "generation_failed", "The video could not be generated. Try again.") from e
-            worker.total_requests += 1
-            worker.last_finished = time.time()
+        tried: list = []
+        data = None
+        while data is None:
+            worker = await pick(tried)
+            tried.append(worker)
+            async with worker.lock:
+                worker.last_used = time.time()
+                try:
+                    async with await worker.connect() as ws:
+                        data, meta = await worker.adapter.generate_video(
+                            ws, prompt, image_path=image_path, aspect="9:16" if portrait else "16:9",
+                            timeout=cfg.VIDEO_REQUEST_TIMEOUT)
+                except FlowError as e:
+                    worker.failed_requests += 1
+                    if e.code == "quota_exceeded":
+                        worker.set_cooldown(cfg.VIDEO_QUOTA_COOLDOWN, "quota")
+                    elif e.code in _VIDEO_RETRY_ELSEWHERE:
+                        worker.set_cooldown(1800, f"flow:{e.code}")
+                    log.warning("video failed port=%d code=%s detail=%s", worker.browser_port, e.code, e)
+                    if (e.code in _VIDEO_RETRY_ELSEWHERE or e.code == "quota_exceeded") and len(tried) < 2 and any(
+                            w not in tried and w.is_available() for w in pool.workers_for_model("flow")):
+                        continue
+                    status, code, message, retry = _VIDEO_ERRORS.get(e.code, _VIDEO_ERRORS["generation_failed"])
+                    raise ClusterError(status, code, message, retry)
+                except ClusterError:
+                    raise
+                except Exception as e:
+                    worker.failed_requests += 1
+                    log.exception("video crashed port=%d", worker.browser_port)
+                    raise ClusterError(502, "generation_failed", "The video could not be generated. Try again.") from e
+                worker.total_requests += 1
+                worker.last_finished = time.time()
 
     fps = 24
     if pro:

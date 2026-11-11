@@ -49,6 +49,9 @@ NO_CREDITS = ["недостаточно бонус", "not enough credit", "out o
 UPLOAD = ["Загрузить", "Upload"]
 ADD_TO_PROMPT = ["Добавить в запрос", "Add to prompt"]
 NEW_PROJECT = ["Новый проект", "New project"]
+# The agent's own failure reply (measured on one account: "Something went wrong. Please try again.")
+AGENT_ERROR = ["something went wrong", "что-то пошло не так", "произошла ошибка"]
+TRY_AGAIN = ["Try again", "Повторить попытку", "Повторить", "Попробовать ещё раз"]
 MAX_VIDEO_BYTES = 40 * 1024 * 1024
 
 
@@ -147,6 +150,11 @@ class FlowAdapter(BaseAIAdapter):
     async def tiles(self, ws) -> list[dict]:
         return await self._js(ws, self.TILES_JS) or []
 
+    async def _agent_errors(self, ws) -> int:
+        """How many agent failure replies the chat shows (compared before/after a send)."""
+        return int(await self._js(ws, f"""(() => {{ const t = document.body.innerText.toLowerCase();
+            return {json.dumps(AGENT_ERROR)}.reduce((n, m) => n + t.split(m).length - 1, 0); }})()""") or 0)
+
     # --- image as the first frame ---------------------------------------------------------------
     async def _wait_event(self, ws, method: str, timeout: float) -> Optional[dict]:
         end = time.monotonic() + timeout
@@ -198,19 +206,41 @@ class FlowAdapter(BaseAIAdapter):
         await asyncio.sleep(1.0)
 
     # --- generation ----------------------------------------------------------------------------
+    SEND_POS_JS = """(() => {
+        const b = Array.from(document.querySelectorAll('button')).reverse()
+          .find(x => /arrow_forward/.test(x.innerText || '') && !x.disabled && x.getAttribute('aria-disabled') !== 'true');
+        if (!b) return null; const r = b.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()"""
+    COMPOSER_TEXT_JS = f"((document.querySelector({json.dumps(COMPOSER)}) || {{}}).innerText || '').trim().length"
+
     async def _send(self, ws, text: str) -> None:
+        """Types the prompt into a cleared composer and presses "Start generation".
+
+        Measured: the button is still disabled for a moment after the text lands, and
+        Enter does not send in Flow — so wait for it to enable, click it, and confirm
+        the composer emptied (a real mouse click as a fallback).
+        """
         ok = await self._js(ws, f"""(() => {{ const c = document.querySelector({json.dumps(COMPOSER)});
             if (!c) return false; c.focus(); return true; }})()""")
         if not ok:
             raise FlowError("flow_unavailable", "Flow composer not found")
+        await self.clear_composer_text(ws, COMPOSER)
         await cdp.insert_text(ws, text)
-        await asyncio.sleep(0.3)
-        sent = await self._js(ws, """(() => {
-            const b = Array.from(document.querySelectorAll('button')).reverse()
-              .find(x => /arrow_forward/.test(x.innerText || '') && !x.disabled);
-            if (b) { b.click(); return true; } return false; })()""")
-        if not sent:
-            await cdp.key(ws)
+        pos = None
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not pos:
+            pos = await self._js(ws, self.SEND_POS_JS)
+            if not pos:
+                await asyncio.sleep(0.25)
+        if not pos:
+            raise FlowError("generation_not_started", "Flow send button stayed disabled")
+        await self._js(ws, """(() => { const b = Array.from(document.querySelectorAll('button')).reverse()
+            .find(x => /arrow_forward/.test(x.innerText || '') && !x.disabled); if (b) b.click(); return !!b; })()""")
+        if await self.wait_until(ws, f"!({self.COMPOSER_TEXT_JS})", 4):
+            return
+        await cdp.click_at(ws, pos["x"], pos["y"])
+        if not await self.wait_until(ws, f"!({self.COMPOSER_TEXT_JS})", 6):
+            raise FlowError("generation_not_started", "Flow did not take the prompt")
 
     async def generate_video(self, ws, prompt: str, *, image_path: Optional[str] = None,
                              model_label: str = "Veo 3.1 Lite", aspect: str = "16:9",
@@ -226,11 +256,19 @@ class FlowAdapter(BaseAIAdapter):
                              f"Do not ask questions and do not make variations. Video description: {prompt}")
         # Approval (skipped when the project is set to never confirm) or a new rendering tile
         approved = False
+        retried = False
+        errors_before = await self._agent_errors(ws)
         end = time.monotonic() + 60
         while time.monotonic() < end:
             body = (await self._js(ws, "document.body.innerText.toLowerCase()") or "")
             if any(n in body for n in NO_CREDITS):
                 raise FlowError("quota_exceeded", "Flow daily credits are used up on this account")
+            if await self._agent_errors(ws) > errors_before:
+                if retried or not await cdp.click_text(ws, TRY_AGAIN, timeout=3):
+                    raise FlowError("account_error", "Flow agent answered with an error on this account")
+                retried = True
+                errors_before += 1
+                end = time.monotonic() + 60
             now = await self.tiles(ws)
             if len(now) > len(before):
                 break
