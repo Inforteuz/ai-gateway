@@ -119,7 +119,7 @@ function Detail({ id, onClose, onChanged, onSecret }) {
                     <td className="num nowrap">{fmtSom(k.month_spent)}</td>
                     <td className="actions">
                       {k.status === 'active' && <>
-                        <button className="btn btn--small" disabled={busy} onClick={() => run(() => api.patch(`/portal/admin/keys/${k.id}`, { free: !k.free }), k.free ? 'Pullik qilindi' : 'Bepul qilindi')}>{k.free ? 'Pullik qilish' : 'Bepul qilish'}</button>
+                        <button className="btn btn--small" disabled={busy} onClick={() => run(() => api.patch(`/portal/admin/keys/${k.id}`, { free: !k.free }), tr(k.free ? 'Pullik qilindi' : 'Bepul qilindi'))}>{tr(k.free ? 'Pullik qilish' : 'Bepul qilish')}</button>
                         <button className="btn btn--small btn--danger" disabled={busy} onClick={() => run(() => api.post(`/portal/admin/keys/${k.id}/revoke`), tr("Kalit bekor qilindi"))}>{tr("Bekor qilish")}</button>
                       </>}
                     </td>

@@ -108,7 +108,7 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
     setPending(action)
     try {
       const r = await api.post(`/portal/admin/instances/${it.instance}/${action}`, body)
-      toast(r.summary || 'Bajarildi', r.ok === false ? 'error' : 'ok')
+      toast(tr(r.summary || 'Bajarildi'), r.ok === false ? 'error' : 'ok')
       return r
     } catch (e) {
       toast(e.message, 'error')
