@@ -1736,4 +1736,9 @@ export default {
   "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan": "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan",
   "Mijoz dasturlari": "Mijoz dasturlari",
   "So'rov yuborgan dastur: opencode, curl va boshqalar": "So'rov yuborgan dastur: opencode, curl va boshqalar",
+  "Kalitlar puli": "Kalitlar puli",
+  "kalitlar puli": "kalitlar puli",
+  "Pool manzili": "Pool manzili",
+  "Pool tokeni (Bearer)": "Pool tokeni (Bearer)",
+  "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.": "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.",
 }

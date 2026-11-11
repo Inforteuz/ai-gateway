@@ -34,8 +34,8 @@ function Row({ m, others, onSaved }) {
     <section className="panel" style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 14 }}>
         <h3>{tr(m.id)}</h3>
-        <span className={`tag ${m.provider === 'external' ? 'tag--warn' : m.provider === 'cluster' ? 'tag--ok' : ''}`}>
-          {tr(m.provider === 'external' ? tr("tashqi provayder") : m.provider === 'cluster' ? 'cluster' : 'mahalliy')}
+        <span className={`tag ${m.provider === 'external' || m.provider === 'pool' ? 'tag--warn' : m.provider === 'cluster' ? 'tag--ok' : ''}`}>
+          {tr(m.provider === 'external' ? tr("tashqi provayder") : m.provider === 'pool' ? tr('kalitlar puli') : m.provider === 'cluster' ? 'cluster' : 'mahalliy')}
         </span>
         {m.refine && <span className="tag tag--ok">{tr("tekshiruvli")}</span>}
         {m.provider === 'local' && !m.allow_thinking && <span className="tag">{tr("o'ylash o'chiq")}</span>}

@@ -541,7 +541,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         if model["provider"] != "cluster":
             raise ApiError(400, "unsupported_endpoint",
                            "Bu model rasm generatsiya qilmaydi.")
-    elif (model["provider"] in ("external", "cluster") or model["refine"]) and endpoint != "chat/completions":
+    elif (model["provider"] in ("external", "cluster", "pool") or model["refine"]) and endpoint != "chat/completions":
         raise ApiError(400, "unsupported_endpoint", "Bu model faqat /v1/chat/completions orqali ishlaydi.")
     if endpoint == "chat/completions" and not isinstance(body.get("messages"), list):
         raise ApiError(400, "invalid_messages", "'messages' ro'yxat bo'lishi kerak.")
@@ -603,6 +603,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
     if model["provider"] == "cluster" and not (settings.get("cluster_base_url") or "").strip():
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
+    if model["provider"] == "pool" and not ((settings.get("pool_base_url") or "").strip() and (settings.get("pool_api_key") or "").strip()):
+        raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
     # Daily token limit on free models (for accounts without a deposit). Over the limit: rejected, not rerouted to another model.
     billing_model = price_source or model
     if billing_model["id"] in billing.free_limit_models(settings) and not key["free"]:
@@ -630,8 +632,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             reasoning = r if isinstance(r, str) else ("think" if body.get("think") else "")
         else:
             level = key.get("reasoning_effort") or model["default_reasoning"] or settings.get("default_reasoning_effort", "")
-            if model["provider"] in ("external", "cluster"):
-                level = ""   # no default reasoning level for external and cluster providers
+            if model["provider"] in ("external", "cluster", "pool"):
+                level = ""   # no default reasoning level for external, cluster and pool providers
             if level and level != "model":
                 body = {**body, "reasoning_effort": level}
                 reasoning = level
@@ -729,6 +731,9 @@ def _target(state, model, settings: dict):
     if provider == "external":
         return (state.ext_http, (settings.get("external_base_url") or "").rstrip("/"),
                 {"Authorization": f"Bearer {settings.get('external_api_key', '')}", "User-Agent": refine.USER_AGENT}, state.ext_sem)
+    if provider == "pool":
+        return (state.ext_http, (settings.get("pool_base_url") or "").rstrip("/"),
+                {"Authorization": f"Bearer {settings.get('pool_api_key', '')}", "User-Agent": refine.USER_AGENT}, state.ext_sem)
     if provider == "cluster":
         base = (settings.get("cluster_base_url") or "").rstrip("/")
         headers = {"User-Agent": refine.USER_AGENT}
@@ -908,7 +913,8 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             return await _execute_refined(state, ticket, body, payload, model, max_out, stream, settings, (client, base, headers))
 
         wants_usage = bool((body.get("stream_options") or {}).get("include_usage")) if stream else False
-        if stream and model["provider"] == "local":
+        if stream and model["provider"] in ("local", "pool"):
+            # Exact token counts for billing; the usage chunk is hidden again unless the client asked for it
             payload["stream_options"] = {**(body.get("stream_options") or {}), "include_usage": True}
 
         resp = await _send(state, ticket, client, f"{base}/{endpoint}", headers, payload, stream, model)

@@ -40,7 +40,7 @@ import path from 'node:path'
 const NOT_TEXT = new Set([
   'active', 'cleanup', 'cluster', 'cost', 'dim small', 'down', 'external', 'hbar',
   'inherit', 'inline-block', 'inst-mem__bar', 'login', 'muted', 'num', 'pending',
-  'probe', 'quota', 'recover-memory', 'register', 'reload', 'sending', 'serif',
+  'pool', 'probe', 'quota', 'recover-memory', 'register', 'reload', 'sending', 'serif',
   'tag tag--bad', 'tokens', 'track',
 ])
 

@@ -1736,4 +1736,9 @@ export default {
   "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan": "The provider that actually served the request, after routing and fallback",
   "Mijoz dasturlari": "Client programs",
   "So'rov yuborgan dastur: opencode, curl va boshqalar": "The program that sent the request: opencode, curl and others",
+  "Kalitlar puli": "Key pool",
+  "kalitlar puli": "key pool",
+  "Pool manzili": "Pool URL",
+  "Pool tokeni (Bearer)": "Pool token (Bearer)",
+  "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.": "A service that puts several API keys behind one OpenAI-compatible URL. Models with the \"pool\" provider are sent here.",
 }

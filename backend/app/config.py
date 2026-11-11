@@ -97,6 +97,11 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "default_reasoning_effort": "low",   # when neither the request nor the key sets it: none|low|medium|high; "" = the model decides
     "external_base_url": "",  # external provider (OpenAI-compatible)
     "external_api_key": "",         # external provider key (write-only, never returned)
+    # Key pool (provider "pool"): an OpenAI-compatible service on the gateway's own
+    # Docker network that spreads requests over several upstream API keys. Separate
+    # from "external", which the answer verifier (refine) uses.
+    "pool_base_url": "http://gemini-pool:8088/v1",
+    "pool_api_key": "",             # bearer token the pool expects (write-only, never returned)
     "refiner_model": "",  # verifier model (name at the external provider)
     "refine_timeout": "15",         # max verification time (seconds); the draft is returned after that
     "free_mode": "0",               # 1 = free mode: nothing is charged, balance/pricing sections are hidden

@@ -263,7 +263,7 @@ class ModelIn(BaseModel):
     price_out_per_1m: int = Field(ge=0)
     context_window: int = Field(default=32768, ge=256)
     enabled: bool = True
-    provider: str = Field(default="local", pattern="^(local|external|cluster)$")
+    provider: str = Field(default="local", pattern="^(local|external|cluster|pool)$")
     refine: bool = False
     listed: bool = True
     default_reasoning: str | None = Field(default=None, pattern=LEVEL_PATTERN)
@@ -318,7 +318,7 @@ class ModelPatch(BaseModel):
     price_out_per_1m: int | None = Field(default=None, ge=0)
     context_window: int | None = Field(default=None, ge=256)
     enabled: bool | None = None
-    provider: str | None = Field(default=None, pattern="^(local|external|cluster)$")
+    provider: str | None = Field(default=None, pattern="^(local|external|cluster|pool)$")
     refine: bool | None = None
     listed: bool | None = None
     default_reasoning: str | None = Field(default=None, pattern=LEVEL_PATTERN)
@@ -584,6 +584,9 @@ class SettingsIn(BaseModel):
     cluster_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
     cluster_api_key: str | None = Field(default=None, max_length=300)
     clear_cluster_api_key: bool = False
+    pool_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
+    pool_api_key: str | None = Field(default=None, max_length=300)
+    clear_pool_api_key: bool = False
     # --- Sign-in via Google and Telegram ---
     site_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
     google_client_id: str | None = Field(default=None, max_length=300)
@@ -619,7 +622,7 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
     cfg = request.app.state.config
     text_keys = ("registration_open", "free_mode", "payment_info", "default_reasoning_effort", "alert_telegram_token", "alert_telegram_chat_id",
                  "last_daily_report", "external_base_url", "external_api_key", "refiner_model",
-                 "cluster_base_url", "cluster_api_key",
+                 "cluster_base_url", "cluster_api_key", "pool_base_url", "pool_api_key",
                  "site_base_url", "google_client_id", "google_client_secret",
                  "telegram_login_token", "telegram_login_bot", "telegram_login_enabled",
                  "telegram_login_enabled", "telegram_login_bot",
@@ -634,6 +637,8 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
             "external_api_key_set": bool(s.get("external_api_key")),         # nor is the key itself
             "cluster_base_url": s.get("cluster_base_url", ""),
             "cluster_api_key_set": bool(s.get("cluster_api_key")),
+            "pool_base_url": s.get("pool_base_url", ""),
+            "pool_api_key_set": bool(s.get("pool_api_key")),             # the token itself is never returned
             "maintenance_models": s.get("maintenance_models", ""),
             "site_base_url": s.get("site_base_url", ""),
             "google_client_id": s.get("google_client_id", ""),
@@ -684,6 +689,8 @@ def put_settings(body: SettingsIn, request: Request, db: Database = Depends(get_
         changes["external_api_key"] = ""
     if changes.pop("clear_cluster_api_key", False):
         changes["cluster_api_key"] = ""
+    if changes.pop("clear_pool_api_key", False):
+        changes["pool_api_key"] = ""
     if changes.pop("clear_google_client_secret", False):
         changes["google_client_secret"] = ""
     if changes.pop("clear_recaptcha_secret", False):

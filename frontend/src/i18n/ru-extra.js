@@ -1736,4 +1736,9 @@ export default {
   "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan": "Провайдер, который фактически выполнил запрос, с учётом маршрутизации и резерва",
   "Mijoz dasturlari": "Клиентские программы",
   "So'rov yuborgan dastur: opencode, curl va boshqalar": "Программа, отправившая запрос: opencode, curl и другие",
+  "Kalitlar puli": "Пул ключей",
+  "kalitlar puli": "пул ключей",
+  "Pool manzili": "Адрес пула",
+  "Pool tokeni (Bearer)": "Токен пула (Bearer)",
+  "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.": "Сервис, объединяющий несколько API-ключей за одним OpenAI-совместимым адресом. Модели с провайдером «pool» отправляются сюда.",
 }

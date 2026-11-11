@@ -7,7 +7,7 @@ REASONING_LEVELS = ["none", "low", "medium", "high"]
 
 
 def processing_class(model) -> str:
-    return "third_party" if model["provider"] in ("external", "cluster") or model["refine"] else "private"
+    return "third_party" if model["provider"] in ("external", "cluster", "pool") or model["refine"] else "private"
 
 
 def _cluster_caps(upstream: str) -> dict:
@@ -62,7 +62,7 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
     INTENTIONALLY separate: a model can be down without announced maintenance,
     and vice versa.
     """
-    third_party_provider = r["provider"] in ("external", "cluster")
+    third_party_provider = r["provider"] in ("external", "cluster", "pool")
     checked = bool(r["refine"])
     if r["provider"] == "cluster":
         extra = _cluster_caps(r["upstream_name"])
@@ -70,6 +70,10 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
         # Ollama models officially support OpenAI tools (verified with opencode/aider/Qwen Code).
         # Previously this field was missing entirely and local models looked unfit for agents
         # in the catalog/docs. No vision, file input or image generation.
+        extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": True}
+    elif r["provider"] == "pool":
+        # Gemini through Google's OpenAI-compatible endpoint: native tool calls,
+        # verified 2026-11-12. Attachments are not passed through the pool yet.
         extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": True}
     else:
         extra = {}
