@@ -1820,4 +1820,5 @@ export default {
   "qisman ball": "частичный балл",
   "sahifadagi sana: 2026-09-22": "дата на странице: 2026-09-22",
   "topshiriqqa ~40 daqiqa": "~40 минут на задачу",
+  "Bajarildi": "Готово",
 }

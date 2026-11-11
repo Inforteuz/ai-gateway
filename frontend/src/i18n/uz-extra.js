@@ -1820,4 +1820,5 @@ export default {
   "qisman ball": "qisman ball",
   "sahifadagi sana: 2026-09-22": "sahifadagi sana: 2026-09-22",
   "topshiriqqa ~40 daqiqa": "topshiriqqa ~40 daqiqa",
+  "Bajarildi": "Bajarildi",
 }
