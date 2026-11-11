@@ -163,7 +163,7 @@ function ExternalSource({ s }) {
         </div>
         <div>
           <dt>{tr("Sana")}</dt>
-          <dd>{tr(s.read_date)}{tr(s.date_note ? ` (${s.date_note})` : '')}</dd>
+          <dd>{tr(s.read_date)}{s.date_note ? <> ({tr(s.date_note)})</> : null}</dd>
         </div>
       </dl>
 

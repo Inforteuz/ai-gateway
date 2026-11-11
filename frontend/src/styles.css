@@ -3130,3 +3130,33 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   .pg-msg, .pg-receipt { animation: none; }
   .pg-caret, .pg-meter__dot { animation: none; }
 }
+
+/* ---------- top bar menu below 1180px (components/TopBar.jsx) ---------- */
+.nav-toggle {
+  display: none; align-items: center; justify-content: center; width: 38px; height: 38px;
+  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-elev); color: var(--fg); cursor: pointer;
+}
+.nav-toggle:hover { background: var(--bg-sunken); }
+.nav-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 1180px) {
+  .site-top-inner { position: relative; }
+  .nav-toggle { display: inline-flex; }
+  .site-top:not(.is-open) .site-nav { display: none; }
+  .site-top.is-open .site-nav {
+    display: grid; gap: 2px; position: absolute; z-index: 40; top: calc(100% + 8px); left: 0; right: 0;
+    padding: 8px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md); animation: pg-in 0.16s ease-out both;
+  }
+  .site-top.is-open .site-nav a:not(.btn) { display: block; padding: 11px 14px; font-size: 0.95rem; }
+}
+@media (max-width: 560px) {
+  .nav-toggle { width: 36px; height: 36px; order: -1; }
+}
+@media (prefers-reduced-motion: reduce) { .site-top.is-open .site-nav { animation: none; } }
+@media (max-width: 440px) {
+  /* Toggle, languages, theme and the account button share one row: keep it inside 358px */
+  .top-tools { gap: 6px; min-width: 0; }
+  .top-tools .btn { padding: 0 11px; min-width: 0; }
+  .top-tools .btn svg { display: none; }
+  .lang-switch button { padding-inline: 7px; }
+}
