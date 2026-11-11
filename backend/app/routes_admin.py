@@ -784,6 +784,15 @@ async def stats(request: Request, days: int = 30, db: Database = Depends(get_db)
     top = db.all("""SELECT u.id, u.email, u.name, COUNT(*) n, COALESCE(SUM(l.cost),0) cost
                     FROM usage_logs l JOIN users u ON u.id=l.user_id WHERE l.created_at>=?
                     GROUP BY u.id ORDER BY cost DESC, n DESC LIMIT 8""", (since,))
+
+    def share(expr: str, join: str = "") -> list[dict]:
+        """Requests, tokens and money per group, largest token share first."""
+        rows = db.all(f"""SELECT {expr} label, COUNT(*) n, COALESCE(SUM(l.prompt_tokens),0) pt,
+                                 COALESCE(SUM(l.completion_tokens),0) ct, COALESCE(SUM(l.cost),0) cost
+                          FROM usage_logs l {join} WHERE l.created_at>=? GROUP BY 1
+                          ORDER BY SUM(l.prompt_tokens) + SUM(l.completion_tokens) DESC, COUNT(*) DESC LIMIT 12""", (since,))
+        return [{"label": r["label"] or "", "requests": r["n"], "prompt_tokens": r["pt"],
+                 "completion_tokens": r["ct"], "cost": r["cost"]} for r in rows]
     return {
         "days": days,
         "totals": {"requests": total["n"], "cost": total["cost"], "prompt_tokens": total["pt"],
@@ -796,5 +805,15 @@ async def stats(request: Request, days: int = 30, db: Database = Depends(get_db)
         "pending_topups": db.scalar("SELECT COUNT(*) FROM topup_requests WHERE status='pending'"),
         "daily": daily_series(db, "1=1", [], days),
         "top_users": [{"id": r["id"], "email": r["email"], "name": r["name"], "requests": r["n"], "cost": r["cost"]} for r in top],
+        # The catalog model the client asked for; the upstream that actually answered
+        # (size routing and fallbacks hand requests to other models, so it is looked up
+        # through the model that served the request); and the client program. Not the
+        # endpoint: on this gateway nearly every request is chat/completions, so that
+        # chart would be one full ring.
+        "by_model": share("l.model"),
+        "by_upstream": share(
+            "COALESCE(m.upstream_name, l.model)",
+            "LEFT JOIN models m ON m.id = COALESCE(NULLIF(l.attribution::json->>'route_model', ''), l.model)"),
+        "by_client": share("COALESCE(NULLIF(l.attribution::json->>'client', ''), '')"),
         "model_online": await upstream_online(request),
     }

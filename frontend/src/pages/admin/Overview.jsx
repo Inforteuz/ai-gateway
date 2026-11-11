@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api.js'
 import BarChart from '../../components/BarChart.jsx'
+import DonutShare from '../../components/DonutShare.jsx'
+import TokenTrend from '../../components/TokenTrend.jsx'
 import { ErrorNote, Loading, Status, useLoad } from '../../components/ui.jsx'
 import { fmtInt, fmtSom } from '../../format.js'
 
@@ -41,12 +43,20 @@ export default function Overview() {
             <section className="panel">
               <div className="panel-head"><h2>{tr("Eng faol foydalanuvchilar")}</h2></div>
               {d.top_users.length === 0 ? <p className="muted">{tr("Bu davrda so'rov bo'lmagan.")}</p> : (
-                <table className="table"><tbody>
-                  {d.top_users.map((u) => <tr key={u.id}><td><b>{tr(u.name || u.email)}</b><div className="dim small">{tr(u.email)}</div></td><td className="num">{fmtInt(u.requests)} {tr("ta")}</td><td className="num"><b>{fmtSom(u.cost)}</b></td></tr>)}
+                <table className="table top-users"><tbody>
+                  {d.top_users.map((u) => <tr key={u.id}><td><b title={u.name || u.email}>{tr(u.name || u.email)}</b><div className="dim small" title={u.email}>{u.email}</div></td><td className="num">{fmtInt(u.requests)} {tr("ta")}</td><td className="num"><b>{fmtSom(u.cost)}</b></td></tr>)}
                 </tbody></table>
               )}
             </section>
           </div>
+          {d.by_model && (
+            <div className="share-grid block">
+              <DonutShare title={tr("Modellar bo'yicha")} hint={tr("Mijoz so'ragan model")} rows={d.by_model} />
+              <DonutShare title={tr('Javob bergan provayder')} hint={tr("So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan")} rows={d.by_upstream} />
+              <DonutShare title={tr('Mijoz dasturlari')} hint={tr("So'rov yuborgan dastur: opencode, curl va boshqalar")} rows={d.by_client} />
+              <TokenTrend items={d.daily} />
+            </div>
+          )}
           <div className="block panel">
             <div className="panel-head"><h2>{tr("Hisoblar")}</h2></div>
             <div className="metric-grid">

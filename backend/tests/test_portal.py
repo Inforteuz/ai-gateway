@@ -1,3 +1,4 @@
+import time
 from .conftest import CHAT, CSRF, SOM, add_key, add_user, bearer, wallet
 
 
@@ -184,3 +185,26 @@ def test_ledger_always_matches_wallet(env):
     assert total == wallet(env, uid)[0]
     assert env.db.scalar("SELECT SUM(cost) FROM usage_logs WHERE user_id=?", (uid,)) == -env.db.scalar(
         "SELECT SUM(amount) FROM ledger WHERE user_id=? AND kind='usage'", (uid,))
+
+
+def test_admin_stats_breaks_usage_down_by_model_upstream_and_client(env):
+    """The charts on the admin statistics page: a request routed to another model
+    (size routing, fallback) counts for the upstream that answered it."""
+    uid = add_user(env, "admin@test.uz", role="admin")
+    login(env.client, "admin@test.uz")
+    with env.db.tx() as c:
+        c.execute("INSERT INTO models (id, upstream_name, display_name, price_in_per_1m, price_out_per_1m, created_at, provider)"
+                  " VALUES ('agent', 'gemini', 'Agent', 1, 1, 0, 'cluster'), ('wide', 'qwen', 'Wide', 1, 1, 0, 'cluster')")
+        rows = [("r1", "agent", "chat/completions", 100, 10, 5, '{"client": "curl"}'),
+                ("r2", "agent", "chat/completions", 900, 90, 50, '{"route_model": "wide", "client": "opencode"}'),
+                ("r3", "wide", "messages", 50, 5, 3, "{}")]
+        for rid, model, endpoint, pt, ct, cost, attr in rows:
+            c.execute("INSERT INTO usage_logs (request_id, user_id, model, endpoint, prompt_tokens, completion_tokens,"
+                      " cost, status_code, created_at, attribution) VALUES (?, ?, ?, ?, ?, ?, ?, 200, ?, ?)",
+                      (rid, uid, model, endpoint, pt, ct, cost, int(time.time()), attr))
+    st = env.client.get("/portal/admin/stats?days=7").json()
+    by = lambda key: {r["label"]: (r["requests"], r["prompt_tokens"] + r["completion_tokens"], r["cost"]) for r in st[key]}
+    assert by("by_model") == {"agent": (2, 1100, 55), "wide": (1, 55, 3)}
+    assert by("by_upstream") == {"qwen": (2, 1045, 53), "gemini": (1, 110, 5)}
+    assert by("by_client") == {"opencode": (1, 990, 50), "curl": (1, 110, 5), "": (1, 55, 3)}
+    assert [r["label"] for r in st["by_upstream"]] == ["qwen", "gemini"]     # largest token share first

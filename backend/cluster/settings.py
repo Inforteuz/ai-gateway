@@ -43,6 +43,14 @@ REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_REQUEST_TIMEOUT", "60"))
 # balancer moves on to the next tab. A model that is thinking shows its stop
 # button, so long reasoning is not cut. 0 disables the check.
 ANSWER_START_TIMEOUT = float(os.getenv("SF_CLUSTER_ANSWER_START_TIMEOUT", "30"))
+
+# Pause videos on idle tabs every this many seconds (0 disables). Chrome has no GPU
+# here, so a page video is decoded and composited on the CPU at 60 fps. Measured
+# 2026-11-11: Venice's full-screen background video kept one core at ~98% around
+# the clock on an otherwise idle server (package 82 C); paused, 1.6% and the
+# renderer went from 20% to 2%. A launch flag does not help: --autoplay-policy
+# still lets MUTED videos autoplay, and background videos are muted.
+VIDEO_QUIET_INTERVAL = int(os.getenv("SF_CLUSTER_VIDEO_QUIET_INTERVAL", "120"))
 # A stale stop button is not useful progress. Only explicit fast-effort
 # requests get this first-text budget; high/default effort keeps its budget.
 ANSWER_FIRST_TEXT_TIMEOUT = float(os.getenv("SF_CLUSTER_FIRST_TEXT_TIMEOUT", "30"))

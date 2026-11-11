@@ -1726,5 +1726,14 @@ export default {
   "prompt berilmagan": "prompt not provided",
   "Generation stopped by loop protection": "Generation stopped by loop protection",
   "Generation time budget exceeded": "Generation time budget exceeded",
-  "Reasoning time budget exceeded": "Reasoning time budget exceeded"
+  "Reasoning time budget exceeded": "Reasoning time budget exceeded",
+  "Boshqalar": "Other",
+  "Guruh": "Group",
+  "Tokenlar trendi": "Token trend",
+  "Kunlik kirish va chiqish tokenlari": "Input and output tokens per day",
+  "Mijoz so'ragan model": "The model the client asked for",
+  "Javob bergan provayder": "Answering provider",
+  "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan": "The provider that actually served the request, after routing and fallback",
+  "Mijoz dasturlari": "Client programs",
+  "So'rov yuborgan dastur: opencode, curl va boshqalar": "The program that sent the request: opencode, curl and others",
 }

@@ -7,7 +7,7 @@ import { useT } from '../i18n/index.jsx'
 const pick = (d, metric) => (metric === 'tokens' ? (d.prompt_tokens || 0) + (d.completion_tokens || 0) : d[metric] || 0)
 
 /** A readable "round" upper bound and ~4 tick steps. */
-function scale(max) {
+export function scale(max) {
   if (max <= 0) return { top: 1, ticks: [0, 1] }
   const pow = 10 ** Math.floor(Math.log10(max))
   const step = [1, 2, 2.5, 5, 10].find((s) => s * pow >= max / 4) * pow

@@ -550,6 +550,8 @@ class WorkerTab:
                 await self._reset_phase()
                 async with await self.connect(open_timeout=5) as ws:
                     await self.adapter.wait_for_input(ws, timeout=15)
+                    # The reset reloaded the page, and with it any background video
+                    await self.adapter.quiet_page(ws)
                     if await self.adapter.is_fresh_chat(ws):
                         self.warm_since = time.time()
             except Exception as e:
@@ -1397,6 +1399,24 @@ class ClusterPool:
                 log.info("parallel tab opened model=%s port=%d tab=%s", model, port, tab_id[:8])
             except Exception as e:
                 log.warning("parallel tab not opened model=%s port=%d: %s", model, port, e)
+
+    async def quiet_idle(self) -> int:
+        """Pause videos on every idle browser tab; busy tabs are left alone.
+
+        Takes the tab lock like the session probe does, so it never shares a tab
+        with a live request. Returns how many videos the pages held.
+        """
+        found = 0
+        for w in list(self.workers):
+            if isinstance(w, DeepSeekDirectWorker) or w.lock.locked():
+                continue
+            try:
+                async with w.lock:
+                    async with await w.connect(open_timeout=5) as ws:
+                        found += await w.adapter.quiet_page(ws)
+            except Exception as e:
+                log.debug("quiet_idle skipped model=%s port=%d: %s", w.model_name, w.browser_port, e)
+        return found
 
     def workers_for_model(self, model_name: str) -> List[WorkerTab]:
         m = (model_name or "").lower()

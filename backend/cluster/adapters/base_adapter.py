@@ -822,6 +822,27 @@ class BaseAIAdapter(ABC):
             return true;
         })()""", timeout=5))
 
+    # Pauses every video now and any that starts later, until the page reloads.
+    # None of the providers' answers are videos; their decorations are.
+    QUIET_JS = """(() => {
+        const stop = (v) => { try { v.autoplay = false; v.removeAttribute('autoplay'); if (!v.paused) v.pause(); } catch (e) {} };
+        const videos = [...document.querySelectorAll('video')];
+        videos.forEach(stop);
+        if (!window.__sfQuiet) {
+            window.__sfQuiet = true;
+            document.addEventListener('play', (e) => { if (e.target && e.target.tagName === 'VIDEO') stop(e.target); }, true);
+        }
+        return videos.length;
+    })()"""
+
+    async def quiet_page(self, ws) -> int:
+        """Stop page videos from burning CPU (see cfg.VIDEO_QUIET_INTERVAL)."""
+        try:
+            return int(await cdp.evaluate(ws, self.QUIET_JS, timeout=5) or 0)
+        except Exception as e:
+            log.debug("%s: quiet_page failed: %s", self.name, e)
+            return 0
+
     async def poll_answer(self, ws, script: str, timeout: int = 45,
                           initial_delay: float = 1.0,
                           stable_needed: int = 2,

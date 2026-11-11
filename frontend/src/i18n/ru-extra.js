@@ -1726,5 +1726,14 @@ export default {
   "prompt berilmagan": "prompt не указан",
   "Generation stopped by loop protection": "Генерация остановлена защитой от зацикливания",
   "Generation time budget exceeded": "Превышен лимит времени генерации",
-  "Reasoning time budget exceeded": "Превышен лимит времени рассуждения"
+  "Reasoning time budget exceeded": "Превышен лимит времени рассуждения",
+  "Boshqalar": "Прочие",
+  "Guruh": "Группа",
+  "Tokenlar trendi": "Динамика токенов",
+  "Kunlik kirish va chiqish tokenlari": "Входные и выходные токены по дням",
+  "Mijoz so'ragan model": "Модель, запрошенная клиентом",
+  "Javob bergan provayder": "Ответивший провайдер",
+  "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan": "Провайдер, который фактически выполнил запрос, с учётом маршрутизации и резерва",
+  "Mijoz dasturlari": "Клиентские программы",
+  "So'rov yuborgan dastur: opencode, curl va boshqalar": "Программа, отправившая запрос: opencode, curl и другие",
 }

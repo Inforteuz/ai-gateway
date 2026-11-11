@@ -2942,3 +2942,61 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
+
+/* --- Admin statistics: share donuts and token trend --------------------
+   Colors are the fixed --viz order (validated for CVD in both themes); text
+   stays in text tokens, the colored swatch beside it carries identity. */
+.share-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(16px, 2.4vw, 28px); align-items: stretch;
+}
+@media (max-width: 1100px) { .share-grid { grid-template-columns: minmax(0, 1fr); } }
+.share-card { min-width: 0; }
+.share-card__body {
+  display: grid; grid-template-columns: 168px minmax(0, 1fr);
+  gap: 20px; align-items: center;
+}
+@media (max-width: 560px) {
+  .share-card__body { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+}
+.donut { width: 168px; height: 168px; display: block; }
+.donut__seg { cursor: pointer; transition: opacity 0.15s ease; }
+.donut__seg.is-dim { opacity: 0.35; }
+.donut__seg:focus { outline: none; }
+.donut__gap { stroke: var(--bg-elev); stroke-width: 2; pointer-events: none; }
+.donut__value {
+  fill: var(--fg); font-size: 17px; font-weight: 700; text-anchor: middle;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.donut__label { fill: var(--fg-muted); font-size: 9.5px; text-anchor: middle; }
+.share-table { width: 100%; table-layout: fixed; font-size: 0.86rem; }
+.share-table th { font-size: 0.72rem; color: var(--fg-muted); font-weight: 500; }
+.share-table th:first-child { width: 42%; }
+.share-table td.num, .share-table th.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.share-table tr.is-hot td { background: var(--bg-sunken); }
+.share-table__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.share-table__name i { flex: 0 0 10px; width: 10px; height: 10px; border-radius: 3px; }
+.share-table__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) {
+  /* Too narrow for four columns: the request count goes (the donut carries the
+     share), names take what is left and shorten with an ellipsis. */
+  .share-table { table-layout: auto; font-size: 0.8rem; }
+  .share-table th:first-child { width: auto; }
+  .share-table td:first-child { width: 100%; max-width: 0; }
+  .share-table th:nth-child(2), .share-table td:nth-child(2) { display: none; }
+}
+
+.trend-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.84rem; color: var(--fg-muted); }
+.trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.trend-legend i { width: 14px; height: 2px; border-radius: 2px; }
+.trend-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.trend-cross { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.trend-dot { stroke: var(--bg-elev); stroke-width: 2; }
+
+/* Long names and e-mails used to push the totals out of the card */
+.top-users { width: 100%; }
+.top-users td:first-child { width: 100%; max-width: 0; }
+.top-users td:first-child b, .top-users td:first-child .small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.top-users td.num { white-space: nowrap; }

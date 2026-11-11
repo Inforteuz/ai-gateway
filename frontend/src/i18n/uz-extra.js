@@ -1726,5 +1726,14 @@ export default {
   "prompt berilmagan": "prompt berilmagan",
   "Generation stopped by loop protection": "Takrorlanishdan himoya generatsiyani to'xtatdi",
   "Generation time budget exceeded": "Generatsiya vaqti chegarasi oshdi",
-  "Reasoning time budget exceeded": "Fikrlash vaqti chegarasi oshdi"
+  "Reasoning time budget exceeded": "Fikrlash vaqti chegarasi oshdi",
+  "Boshqalar": "Boshqalar",
+  "Guruh": "Guruh",
+  "Tokenlar trendi": "Tokenlar trendi",
+  "Kunlik kirish va chiqish tokenlari": "Kunlik kirish va chiqish tokenlari",
+  "Mijoz so'ragan model": "Mijoz so'ragan model",
+  "Javob bergan provayder": "Javob bergan provayder",
+  "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan": "So'rovni haqiqatda bajargan provayder, yo'naltirish va zaxira hisobga olingan",
+  "Mijoz dasturlari": "Mijoz dasturlari",
+  "So'rov yuborgan dastur: opencode, curl va boshqalar": "So'rov yuborgan dastur: opencode, curl va boshqalar",
 }

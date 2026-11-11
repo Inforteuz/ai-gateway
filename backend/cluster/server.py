@@ -314,6 +314,21 @@ async def memory_guard_watchdog(app: FastAPI, interval: float) -> None:
         await asyncio.sleep(interval)
 
 
+async def video_quiet_watchdog(app: FastAPI, interval: float) -> None:
+    """Keep page videos paused on idle tabs (see cfg.VIDEO_QUIET_INTERVAL)."""
+    await asyncio.sleep(60)  # after the scan and the startup prewarm
+    while True:
+        try:
+            n = await app.state.pool.quiet_idle()
+            if n:
+                log.debug("video quiet pass: %d video(s) on idle tabs", n)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error("video quiet watchdog error: %s", e)
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logs.configure()
@@ -334,6 +349,8 @@ async def lifespan(app: FastAPI):
     if cfg.MEM_GUARD_INTERVAL:
         tasks.append(asyncio.create_task(
             memory_guard_watchdog(app, cfg.MEM_GUARD_INTERVAL)))
+    if cfg.VIDEO_QUIET_INTERVAL:
+        tasks.append(asyncio.create_task(video_quiet_watchdog(app, cfg.VIDEO_QUIET_INTERVAL)))
     if cfg.PROXY_LIST_URL and cfg.PROXY_REFRESH_INTERVAL:
         tasks.append(asyncio.create_task(proxy_auto_refresh(cfg.PROXY_LIST_URL, cfg.PROXY_REFRESH_INTERVAL)))
     await app.state.pool.scan(force=True)
