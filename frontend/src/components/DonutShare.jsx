@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
-import { fmtInt, fmtSom } from '../format.js'
+import { fmtInt, fmtNumber, fmtSom } from '../format.js'
 
 /**
  * Share of usage per group (model, upstream, client) as a donut with a legend table.
@@ -17,6 +17,9 @@ const R = 64
 const WIDTH = 22
 
 const tokens = (r) => (r.prompt_tokens || 0) + (r.completion_tokens || 0)
+// Token counts run to seven digits; in full they crowded the cost column out of
+// the card (2 290 958 next to 31 035 сум). The table shows 2.29M, the title the exact count.
+const compact = (n) => (n >= 1e6 ? `${fmtNumber(n / 1e6, 2)}M` : n >= 1e4 ? `${fmtNumber(n / 1e3, 0)}K` : fmtInt(n))
 
 function arc(cx, cy, r, a0, a1) {
   const p = (a) => [cx + r * Math.sin(a), cy - r * Math.cos(a)]
@@ -90,7 +93,7 @@ export default function DonutShare({ title, hint, rows }) {
                 <tr key={g.key} className={hot === g.key ? 'is-hot' : ''} onMouseEnter={() => setHot(g.key)} onMouseLeave={() => setHot(null)}>
                   <td><span className="share-table__name"><i style={{ background: g.color }} aria-hidden="true" /><span title={g.name}>{g.name}</span></span></td>
                   <td className="num">{fmtInt(g.requests)}</td>
-                  <td className="num">{fmtInt(tokens(g))}</td>
+                  <td className="num" title={fmtInt(tokens(g))}>{compact(tokens(g))}</td>
                   <td className="num">{fmtSom(g.cost)}</td>
                 </tr>
               ))}

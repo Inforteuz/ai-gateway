@@ -2951,17 +2951,19 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   gap: clamp(16px, 2.4vw, 28px); align-items: stretch;
 }
 @media (max-width: 1100px) { .share-grid { grid-template-columns: minmax(0, 1fr); } }
-.share-card { min-width: 0; }
+.share-card { min-width: 0; container-type: inline-size; }
 .share-card__body {
-  display: grid; grid-template-columns: 168px minmax(0, 1fr);
-  gap: 20px; align-items: center;
+  display: grid; grid-template-columns: 152px minmax(0, 1fr);
+  gap: 22px; align-items: center;
 }
-@media (max-width: 560px) {
+/* A narrow card (two-column grid on a laptop, or a phone) puts the donut above
+   the table instead of squeezing the numbers. */
+@container (max-width: 600px) {
   .share-card__body { grid-template-columns: minmax(0, 1fr); justify-items: center; }
 }
-.donut { width: 168px; height: 168px; display: block; }
+.donut { width: 152px; height: 152px; display: block; }
 .donut__seg { cursor: pointer; transition: opacity 0.15s ease; }
-.donut__seg.is-dim { opacity: 0.35; }
+.donut__seg.is-dim { opacity: 0.4; }
 .donut__seg:focus { outline: none; }
 .donut__gap { stroke: var(--bg-elev); stroke-width: 2; pointer-events: none; }
 .donut__value {
@@ -2969,20 +2971,19 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
 }
 .donut__label { fill: var(--fg-muted); font-size: 9.5px; text-anchor: middle; }
-.share-table { width: 100%; table-layout: fixed; font-size: 0.86rem; }
-.share-table th { font-size: 0.72rem; color: var(--fg-muted); font-weight: 500; }
-.share-table th:first-child { width: 42%; }
-.share-table td.num, .share-table th.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Auto layout: numbers keep their full width and never wrap; only the name
+   column gives way, shortening with an ellipsis. */
+.share-table { width: 100%; font-size: 0.86rem; }
+.share-table th { font-size: 0.7rem; color: var(--fg-muted); font-weight: 500; white-space: nowrap; }
+.share-table td { padding-top: 11px; padding-bottom: 11px; }
+.share-table td:first-child { width: 100%; max-width: 0; }
+.share-table td.num, .share-table th.num { white-space: nowrap; font-variant-numeric: tabular-nums; padding-left: 16px; }
 .share-table tr.is-hot td { background: var(--bg-sunken); }
 .share-table__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .share-table__name i { flex: 0 0 10px; width: 10px; height: 10px; border-radius: 3px; }
 .share-table__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 560px) {
-  /* Too narrow for four columns: the request count goes (the donut carries the
-     share), names take what is left and shorten with an ellipsis. */
-  .share-table { table-layout: auto; font-size: 0.8rem; }
-  .share-table th:first-child { width: auto; }
-  .share-table td:first-child { width: 100%; max-width: 0; }
+@container (max-width: 380px) {
+  /* Phone: the request count goes (the donut carries the share) */
   .share-table th:nth-child(2), .share-table td:nth-child(2) { display: none; }
 }
 
