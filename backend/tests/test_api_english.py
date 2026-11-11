@@ -22,7 +22,7 @@ from app.common import API_ERRORS_EN
 APP = Path(__file__).resolve().parent.parent / "app"
 # Modules that raise on the /v1 path
 API_MODULES = ["gateway.py", "abuse.py", "billing.py", "admission.py", "local_guard.py", "loops.py",
-               "refine.py", "routing.py", "security.py", "fastpath.py"]
+               "refine.py", "routing.py", "security.py", "fastpath.py", "videos.py"]
 # Raised only by panel routes (registration, sessions), never on /v1
 PANEL_ONLY = {"too_many_accounts", "email_taken", "csrf"}
 # Raised in English on purpose: agent CLIs read the context window out of it

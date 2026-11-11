@@ -50,6 +50,11 @@ DROPPABLE_ON_EXPORT = {("usage_logs", "attribution"),("users", "ref_code"), ("us
                        ("api_keys", "secret_enc"), ("models", "fallback_to"),
                        ("models", "description_ru"), ("models", "description_en"),
                        ("api_keys", "kind")}
+# Whole tables dropped in an export when the old schema lacks them.
+# Video jobs and clips (v12): what a finished clip cost is already in usage_logs and the
+# ledger, and the clips themselves expire in a day. A job still queued loses its hold:
+# the old code recomputes `held` from reservations only, so the client is not charged.
+DROPPABLE_TABLES_ON_EXPORT = {"video_jobs", "video_files"}
 
 
 class Abort(Exception):
@@ -345,7 +350,7 @@ def cmd_export(args) -> int:
                   for t in pg_tables(conn)}
         # Check every table first: no half-written export.
         for table, n_pg in counts.items():
-            if table not in lite_tables and n_pg:
+            if table not in lite_tables and n_pg and table not in DROPPABLE_TABLES_ON_EXPORT:
                 raise Abort(f"{table}: missing from the old SQLite schema, but PG has {n_pg} rows")
         lite.execute("BEGIN")
         plans = []

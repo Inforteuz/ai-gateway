@@ -5,7 +5,7 @@ request has one reservation row):
 
   balance_vs_ledger    wallets.balance == SUM(ledger.amount) per user
   last_balance_after   the newest ledger row's balance_after == wallets.balance
-  held_vs_reservations wallets.held == SUM(reservations.amount) per user
+  held_vs_reservations wallets.held == SUM(reservations.amount) + SUM(video_jobs.hold) per user
   usage_vs_ledger      every usage ledger row equals -cost of its usage_logs row, and every
                        charged usage_logs row has exactly one ledger row
   settled_reservation  no reservation exists for a request that is already in usage_logs
@@ -34,7 +34,9 @@ CHECKS: dict[str, str] = {
         WHERE last.balance_after <> w.balance""",
     "held_vs_reservations": """
         SELECT w.user_id, w.held, COALESCE(r.total, 0) AS reserved
-        FROM wallets w LEFT JOIN (SELECT user_id, SUM(amount) AS total FROM reservations GROUP BY user_id) r
+        FROM wallets w LEFT JOIN (SELECT user_id, SUM(total) AS total FROM (
+                 SELECT user_id, amount AS total FROM reservations
+                 UNION ALL SELECT user_id, hold FROM video_jobs WHERE hold <> 0) h GROUP BY user_id) r
              ON r.user_id = w.user_id
         WHERE w.held <> COALESCE(r.total, 0)""",
     "usage_vs_ledger": """

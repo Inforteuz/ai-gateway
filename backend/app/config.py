@@ -112,6 +112,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "last_daily_report": "",        # date of the last daily report (YYYY-MM-DD)
     "cluster_base_url": "http://127.0.0.1:8800/v1",  # AI cluster gateway (browser-based providers)
     "cluster_api_key": "",          # Bearer token for the cluster (write-only, never returned)
+    # Video clips generated at once across the gateway (/v1/videos, app/videos.py). A clip keeps
+    # a cluster browser busy for minutes; the rest wait in the queue. 0 = queue only, none start.
+    "video_max_concurrent": "2",
     # --- Google and Telegram login ---
     # Public site URL: the redirect_uri sent to Google is built from it, so it
     # must match the URL in the Google console exactly. When empty it is taken

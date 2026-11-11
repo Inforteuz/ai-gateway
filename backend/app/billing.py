@@ -147,7 +147,7 @@ def sweep_reservations(db: Database, owner: str | None = None) -> int:
     """Heartbeat (when `owner` is given) + release of orphaned/expired reservations.
 
     A reservation is dropped when it expired or its owner has not beaten for LEASE_STALE_SECONDS.
-    `held` is then recomputed from the remaining rows for every wallet that is out of sync, which
+    `held` is then recomputed from the remaining rows (plus video job holds) for every wallet that is out of sync, which
     also clears amounts left by versions before v5 (they had no rows). Returns rows released.
     """
     ts = now()
@@ -159,11 +159,15 @@ def sweep_reservations(db: Database, owner: str | None = None) -> int:
             """DELETE FROM reservations r WHERE r.expires_at < ? OR NOT EXISTS (
                    SELECT 1 FROM app_instances i WHERE i.owner = r.owner AND i.last_seen >= ?)""",
             (ts, ts - LEASE_STALE_SECONDS)).rowcount
+        # Queued and running video jobs keep their hold on the job row, not in `reservations`:
+        # a clip can wait in the queue for minutes and must survive a restart (see videos.py).
         c.execute(
-            """UPDATE wallets w SET held = COALESCE(p.total, 0), updated_at = ?
-               FROM (SELECT w2.user_id, (SELECT SUM(amount) FROM reservations r WHERE r.user_id = w2.user_id) AS total
+            """UPDATE wallets w SET held = p.total, updated_at = ?
+               FROM (SELECT w2.user_id,
+                            COALESCE((SELECT SUM(amount) FROM reservations r WHERE r.user_id = w2.user_id), 0)
+                            + COALESCE((SELECT SUM(hold) FROM video_jobs v WHERE v.user_id = w2.user_id), 0) AS total
                      FROM wallets w2) p
-               WHERE p.user_id = w.user_id AND w.held <> COALESCE(p.total, 0)""", (ts,))
+               WHERE p.user_id = w.user_id AND w.held <> p.total""", (ts,))
         c.execute("DELETE FROM app_instances WHERE last_seen < ?", (ts - 86400,))
     return released
 
@@ -199,27 +203,44 @@ def reserve(db: Database, *, request_id: str, user_id: int, key_id: int, model: 
             if used + pending + max(0, tokens) > quota_limit:
                 raise FreeQuotaExceeded(FreeQuota(quota_models, quota_limit, used + pending, next_day_ts(ts),
                                                   requested=max(0, tokens)))
-        if money:
-            w = c.execute("SELECT balance, held FROM wallets WHERE user_id=?", (user_id,)).fetchone()
-            if w is None:
-                raise BillingError("insufficient_balance", "Hisobingizda mablag' yo'q. Hisobni to'ldiring.")
-            if w["balance"] - w["held"] < money:
-                raise BillingError(
-                    "insufficient_balance",
-                    "Hisobingizda mablag' yetarli emas. Hisobni to'ldiring yoki so'rovdagi max_tokens ni kamaytiring.",
-                )
-            if monthly_limit is not None:
-                spent = c.execute("SELECT COALESCE(SUM(cost),0) FROM usage_logs WHERE key_id=? AND created_at>=?",
-                                  (key_id, month_start_ts(ts))).fetchone()[0]
-                pending = c.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE key_id=?",
-                                    (key_id,)).fetchone()[0]
-                if spent + pending + money > monthly_limit:
-                    raise BillingError("key_limit_reached", "Bu kalitning oylik limiti tugagan.", 429)
-            c.execute("UPDATE wallets SET held = held + ?, updated_at=? WHERE user_id=?", (money, ts, user_id))
+        hold_tx(c, user_id=user_id, key_id=key_id, money=money, monthly_limit=monthly_limit, ts=ts)
         c.execute("""INSERT INTO reservations(request_id, user_id, key_id, model, amount, tokens, owner, created_at, expires_at)
                      VALUES (?,?,?,?,?,?,?,?,?)""",
                   (request_id, user_id, key_id, model, money, max(0, tokens), owner, ts, ts + ttl))
     return money
+
+
+def hold_tx(c, *, user_id: int, key_id: int | None, money: int, monthly_limit: int | None, ts: int) -> None:
+    """Checks the wallet and the key's monthly limit, then adds `money` to `held`. Runs inside `db.tx()`.
+
+    Shared by reserve() and the video jobs (videos.py), whose hold lives on the job row: both
+    count against the same balance and the same monthly limit.
+    """
+    if not money:
+        return
+    w = c.execute("SELECT balance, held FROM wallets WHERE user_id=?", (user_id,)).fetchone()
+    if w is None:
+        raise BillingError("insufficient_balance", "Hisobingizda mablag' yo'q. Hisobni to'ldiring.")
+    if w["balance"] - w["held"] < money:
+        raise BillingError(
+            "insufficient_balance",
+            "Hisobingizda mablag' yetarli emas. Hisobni to'ldiring yoki so'rovdagi max_tokens ni kamaytiring.",
+        )
+    if monthly_limit is not None:
+        spent = c.execute("SELECT COALESCE(SUM(cost),0) FROM usage_logs WHERE key_id=? AND created_at>=?",
+                          (key_id, month_start_ts(ts))).fetchone()[0]
+        pending = c.execute("SELECT COALESCE(SUM(amount),0) FROM reservations WHERE key_id=?",
+                            (key_id,)).fetchone()[0]
+        pending += c.execute("SELECT COALESCE(SUM(hold),0) FROM video_jobs WHERE key_id=?", (key_id,)).fetchone()[0]
+        if spent + pending + money > monthly_limit:
+            raise BillingError("key_limit_reached", "Bu kalitning oylik limiti tugagan.", 429)
+    c.execute("UPDATE wallets SET held = held + ?, updated_at=? WHERE user_id=?", (money, ts, user_id))
+
+
+def unhold_tx(c, *, user_id: int, money: int, ts: int) -> None:
+    """Takes `money` back out of `held` (the hold is released or about to be settled)."""
+    if money:
+        c.execute("UPDATE wallets SET held = GREATEST(0, held - ?), updated_at=? WHERE user_id=?", (money, ts, user_id))
 
 
 def _drop_reservation(c, request_id: str, user_id: int, ts: int) -> int:
