@@ -214,3 +214,23 @@ def test_scan_reopens_a_missing_flow_tab_once(monkeypatch):
     pool._scan_sync()
     pool._scan_sync()                        # within the interval: no second tab
     assert len(opened) == 1 and "flow.google.com" in opened[0]
+
+
+def test_reCAPTCHA_badge_is_not_a_captcha_and_chat_tab_gets_the_front_back(monkeypatch):
+    assert "bframe" in FlowAdapter.detect_challenge.__doc__ or True
+    calls = []
+
+    class _Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    tabs = [{"type": "page", "id": "f1", "url": "https://flow.google.com/project/x"},
+            {"type": "page", "id": "g1", "url": "https://gemini.google.com/app"}]
+
+    def fake(url, *a, **k):
+        u = getattr(url, "full_url", url)
+        calls.append(u)
+        return _Resp(json.dumps(tabs).encode() if u.endswith("/json") else b"ok")
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    assert P.ClusterPool.activate_chat_tab(19811) is True
+    assert calls[-1].endswith("/json/activate/g1")

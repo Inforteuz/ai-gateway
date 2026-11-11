@@ -127,6 +127,18 @@ class FlowAdapter(BaseAIAdapter):
         # The home page and a tile editor have no composer; both are fine between jobs.
         return True, "ok"
 
+    async def detect_challenge(self, ws):
+        """Only a real reCAPTCHA challenge (the image-grid "bframe" popup) counts.
+
+        Flow always shows the small reCAPTCHA badge (an `anchor` iframe); the base check
+        matched it as `iframe[src*="captcha"]` and reported every Flow tab as captcha.
+        """
+        try:
+            return await self._js(ws, """(() => { const f = Array.from(document.querySelectorAll('iframe[src*="recaptcha"][src*="bframe"]'))
+                .find(e => e.offsetWidth > 50 && e.offsetHeight > 50); return f ? 'recaptcha-challenge' : null; })()""", timeout=8)
+        except Exception:
+            return None
+
     async def wait_for_input(self, ws, timeout: float = 10.0, *args, **kwargs) -> bool:
         return await self.wait_until(ws, "document.readyState === 'complete'", timeout)
 
@@ -285,7 +297,7 @@ class FlowAdapter(BaseAIAdapter):
 
     async def generate_video(self, ws, prompt: str, *, image_path: Optional[str] = None,
                              model_label: str = "Veo 3.1 Lite", aspect: str = "16:9",
-                             timeout: float = 300.0) -> tuple[bytes, dict]:
+                             timeout: float = 300.0, after_start=None) -> tuple[bytes, dict]:
         """One clip for `prompt` (optionally starting from `image_path`). Returns (mp4 bytes, meta)."""
         t0 = time.monotonic()
         await self.ensure_project(ws)
@@ -320,6 +332,12 @@ class FlowAdapter(BaseAIAdapter):
             await asyncio.sleep(1.0)
         else:
             raise FlowError("generation_not_started", "Flow did not start a generation")
+        if after_start:
+            # Rendering happens on Google's side: the chat tab of this browser may have the front back
+            try:
+                await after_start()
+            except Exception:
+                pass
         # Wait for the newest tile to finish rendering
         while time.monotonic() - t0 < timeout:
             now = await self.tiles(ws)
@@ -344,6 +362,10 @@ class FlowAdapter(BaseAIAdapter):
         would: download menu -> "720p" with Chrome's download folder pointed at a temporary
         directory of ours (same container as Chrome).
         """
+        try:
+            await cdp.call(ws, "Page.bringToFront", timeout=5)
+        except Exception:
+            pass
         await self._js(ws, "performance.clearResourceTimings(); 1")
         opened = await self._js(ws, """(() => { const t = document.querySelector('flow-grid-tile-container');
             const target = t && (t.querySelector('img') || t); if (!target) return false;

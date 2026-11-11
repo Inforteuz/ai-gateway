@@ -1655,10 +1655,14 @@ async def videos_generations(req: VideoRequest, request: Request):
             async with worker.lock:
                 worker.last_used = time.time()
                 try:
+                    async def give_back(port=worker.browser_port):
+                        activate = getattr(type(pool), "activate_chat_tab", None)
+                        if activate and port > 0:
+                            await asyncio.get_event_loop().run_in_executor(None, activate, port)
                     async with await worker.connect() as ws:
                         data, meta = await worker.adapter.generate_video(
                             ws, prompt, image_path=image_path, aspect="9:16" if portrait else "16:9",
-                            timeout=cfg.VIDEO_REQUEST_TIMEOUT)
+                            timeout=cfg.VIDEO_REQUEST_TIMEOUT, after_start=give_back)
                 except FlowError as e:
                     worker.failed_requests += 1
                     if e.code == "quota_exceeded":
@@ -1677,6 +1681,11 @@ async def videos_generations(req: VideoRequest, request: Request):
                     worker.failed_requests += 1
                     log.exception("video crashed port=%d", worker.browser_port)
                     raise ClusterError(502, "generation_failed", "The video could not be generated. Try again.") from e
+                finally:
+                    # The adapter brings Flow to the front to send; the chat tab of the same browser must get it back
+                    activate = getattr(type(pool), "activate_chat_tab", None)
+                    if activate and worker.browser_port > 0:
+                        await asyncio.get_event_loop().run_in_executor(None, activate, worker.browser_port)
                 worker.total_requests += 1
                 worker.last_finished = time.time()
 

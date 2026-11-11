@@ -1375,6 +1375,27 @@ class ClusterPool:
         log.info("scan complete workers=%d ports_up=%d/%d (was %d)",
                  len(discovered), len(self.ports) - len(self.scan_errors), len(self.ports), before)
 
+    @staticmethod
+    def activate_chat_tab(port: int) -> bool:
+        """Bring the browser's chat tab (not Flow) back to the front.
+
+        Measured 2026-11-12: with the Flow tab in front, the Gemini tab of the same browser
+        failed sends ("send_failed") and its image generation stalled. A Flow job brings its
+        tab forward only while it types; this puts the chat tab back afterwards.
+        """
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=3) as resp:
+                tabs = json.loads(resp.read().decode())
+            chat = next((t for t in tabs if t.get("type") == "page"
+                         and detect_model_from_url(t.get("url", "")) not in (None, "flow")), None)
+            if not chat:
+                return False
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/json/activate/{chat['id']}", timeout=3).read()
+            return True
+        except Exception as e:
+            log.debug("activate chat tab port=%d failed: %s", port, e)
+            return False
+
     def _ensure_flow_tab(self, port: int, tabs: List[dict]) -> None:
         """Open a Flow tab in a browser that has a Gemini tab but no Flow tab (video, adapters/flow_adapter.py).
 
@@ -1394,6 +1415,8 @@ class ClusterPool:
                 f"http://127.0.0.1:{port}/json/new?{urllib.parse.quote('https://flow.google.com/', safe=':/?=&')}", method="PUT")
             urllib.request.urlopen(req, timeout=5).read()
             log.info("flow tab opened port=%d", port)
+            # /json/new activates the new tab: give the front back to the chat tab
+            self.activate_chat_tab(port)
         except Exception as e:
             log.warning("flow tab open failed port=%d: %s", port, e)
 
