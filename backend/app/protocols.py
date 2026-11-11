@@ -64,14 +64,21 @@ def anthropic_to_chat(body: dict) -> dict:
     if not isinstance(msgs, list) or not msgs:
         raise BadRequest("`messages` must be a non-empty list.")
     out: list[dict] = []
-    system = body.get("system")
-    if system:
-        text = _text_of(system)
-        if text:
-            out.append({"role": "system", "content": text})
+    # Claude Code 2.1+ also puts {"role": "system"} entries (environment notes, reminders) inside
+    # `messages`. They join the top-level system prompt: several upstream chat templates accept a
+    # system message only at the start, and the text is still an instruction, not a user turn.
+    system_parts = [_text_of(body.get("system"))] if body.get("system") else []
     for m in msgs:
+        if isinstance(m, dict) and m.get("role") == "system":
+            system_parts.append(_text_of(m.get("content")))
+    system_text = "\n\n".join(p for p in system_parts if p)
+    if system_text:
+        out.append({"role": "system", "content": system_text})
+    for m in msgs:
+        if isinstance(m, dict) and m.get("role") == "system":
+            continue
         if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
-            raise BadRequest("Each message needs role 'user' or 'assistant'.")
+            raise BadRequest("Each message needs role 'user', 'assistant' or 'system'.")
         role, content = m["role"], m.get("content")
         if isinstance(content, str):
             out.append({"role": role, "content": content})
@@ -142,11 +149,17 @@ def anthropic_to_chat(body: dict) -> dict:
         elif kind == "none":
             chat["tool_choice"] = "none"
     thinking = body.get("thinking")
+    effort = (body.get("output_config") or {}).get("effort") if isinstance(body.get("output_config"), dict) else None
     if isinstance(thinking, dict):
         if thinking.get("type") == "enabled":
             chat["reasoning_effort"] = _effort_from_budget(thinking.get("budget_tokens"))
         elif thinking.get("type") == "disabled":
             chat["reasoning_effort"] = "none"
+        elif thinking.get("type") == "adaptive":
+            # Adaptive thinking (Claude Code 2.1+): the depth comes from output_config.effort
+            level = {"xhigh": "high", "max": "high"}.get(str(effort), str(effort))
+            if level in ("low", "medium", "high"):
+                chat["reasoning_effort"] = level
     if chat["stream"]:
         chat["stream_options"] = {"include_usage": True}
     return chat

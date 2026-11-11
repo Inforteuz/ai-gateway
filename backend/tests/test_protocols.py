@@ -233,3 +233,42 @@ def test_mid_stream_error_becomes_response_failed(env):
     ev = _events(r.text)
     assert ev[-1][0] == "response.failed" and ev[-1][1]["response"]["error"]["code"] == "stream_interrupted"
     assert "response.completed" not in [e[0] for e in ev]
+
+
+# --- found by the Terminal-Bench pilot (2026-11-12) ----------------------------------------------------------------
+def test_claude_code_system_role_messages_join_the_system_prompt():
+    # Claude Code 2.1+ sends its environment block as {"role": "system"} inside `messages`;
+    # it used to be refused with 400 "Each message needs role 'user' or 'assistant'".
+    body = {**CLAUDE_BODY, "thinking": {"type": "adaptive"}, "output_config": {"effort": "xhigh"},
+            "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "fix the repo"}]},
+                         {"role": "system", "content": [{"type": "text", "text": "# Environment\ncwd: /app",
+                                                         "cache_control": {"type": "ephemeral"}}]}]}
+    chat = protocols.anthropic_to_chat(body)
+    assert [m["role"] for m in chat["messages"]] == ["system", "user"]
+    assert chat["messages"][0]["content"] == "You are Claude Code.\n\n# Environment\ncwd: /app"
+    assert chat["reasoning_effort"] == "high"
+    # adaptive thinking without a usable effort leaves the model default
+    assert "reasoning_effort" not in protocols.anthropic_to_chat({**body, "output_config": {}})
+
+
+def test_messages_endpoint_accepts_system_role_messages(env):
+    seen, key = _upstream(env, reply=TOOL_REPLY)
+    body = {**CLAUDE_BODY, "messages": [*CLAUDE_BODY["messages"], {"role": "system", "content": "be brief"}]}
+    r = env.client.post("/v1/messages", headers={"x-api-key": key}, json=body)
+    assert r.status_code == 200, r.text
+    assert [m["role"] for m in seen[0]["messages"]].count("system") == 1
+    assert seen[0]["messages"][0]["content"].endswith("You are Claude Code.\n\nbe brief")
+
+
+def test_responses_websocket_handshake_gets_426(env):
+    # Codex tries WebSocket first and switches to HTTP only on 426 Upgrade Required;
+    # a 404 made it retry the handshake 5 times per session.
+    r = env.client.get("/v1/responses")
+    assert r.status_code == 426 and r.json()["error"]["code"] == "websocket_not_supported"
+    from starlette.testclient import WebSocketDenialResponse
+    try:
+        with env.client.websocket_connect("/v1/responses"):
+            raise AssertionError("handshake must be refused")
+    except WebSocketDenialResponse as denied:
+        assert denied.status_code == 426

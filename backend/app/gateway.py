@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 import anyio
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -1428,6 +1428,24 @@ async def openai_responses(request: Request):
         lambda data, model, custom: protocols.chat_to_responses(data, model, custom),
         lambda model, custom: protocols.ResponsesStream(model, custom),
         lambda status, message, code: protocols.responses_error(status, message, code))
+
+
+# Codex first tries the Responses API over a WebSocket (GET /v1/responses + Upgrade). There is no
+# WebSocket transport here; 426 is the status Codex reads as "use HTTP" and it switches at once.
+# Any other status (the old 404) made it retry the handshake 5 times on every session.
+_NO_WEBSOCKET = ("The Responses API is served over HTTP only: POST /v1/responses "
+                 "(WebSocket transport is not supported).")
+
+
+@router.get("/responses")
+async def openai_responses_get(request: Request):
+    return JSONResponse(protocols.responses_error(426, _NO_WEBSOCKET, "websocket_not_supported"), status_code=426)
+
+
+@router.websocket("/responses")
+async def openai_responses_websocket(websocket: WebSocket):
+    await websocket.send_denial_response(
+        JSONResponse(protocols.responses_error(426, _NO_WEBSOCKET, "websocket_not_supported"), status_code=426))
 
 
 @router.post("/completions")
