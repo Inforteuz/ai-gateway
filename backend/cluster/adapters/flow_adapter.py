@@ -45,6 +45,8 @@ log = logging.getLogger("cluster.flow")
 COMPOSER = ('[contenteditable="true"][aria-label*="создать"], [contenteditable="true"][aria-label*="create"], '
             '[contenteditable="true"]')
 APPROVE = ["Одобрить", "Approve"]
+# Preferred: approves this one and every later generation in the project (no confirmation round trip)
+APPROVE_ALWAYS = ["Всегда одобрять в проекте", "Always approve in project", "Always approve in this project"]
 NO_CREDITS = ["недостаточно бонус", "not enough credit", "out of credits", "сменить тарифный план", "upgrade your plan"]
 UPLOAD = ["Загрузить", "Upload"]
 ADD_TO_PROMPT = ["Добавить в запрос", "Add to prompt"]
@@ -157,6 +159,32 @@ class FlowAdapter(BaseAIAdapter):
     async def tiles(self, ws) -> list[dict]:
         return await self._js(ws, self.TILES_JS) or []
 
+    APPROVALS_JS = """(() => {
+        const want = %s;
+        const els = Array.from(document.querySelectorAll('[role=radio], [role=option], [role=menuitemradio], button, label'));
+        return els.filter(e => { const t = (e.innerText || '').replace(/^(check|close)\\s*/, '').trim();
+                                 const r = e.getBoundingClientRect(); return want.includes(t) && r.width > 2; }).length;
+    })()"""
+
+    async def _approvals(self, ws) -> int:
+        """How many "approve" choices the chat shows (old prompts keep theirs; only a new one may be clicked)."""
+        return int(await self._js(ws, self.APPROVALS_JS % json.dumps(APPROVE)) or 0)
+
+    async def _click_newest_approval(self, ws) -> bool:
+        for texts in (APPROVE_ALWAYS, APPROVE):
+            pos = await self._js(ws, """(() => {
+                const want = %s;
+                const els = Array.from(document.querySelectorAll('[role=radio], [role=option], [role=menuitemradio], button, label'))
+                  .filter(e => { const t = (e.innerText || '').replace(/^(check|close)\\s*/, '').trim();
+                                 const r = e.getBoundingClientRect(); return want.includes(t) && r.width > 2; });
+                const el = els[els.length - 1]; if (!el) return null;
+                el.scrollIntoView({block: 'center'}); const r = el.getBoundingClientRect();
+                return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()""" % json.dumps(texts))
+            if pos:
+                await cdp.click_at(ws, pos["x"], pos["y"])
+                return True
+        return False
+
     async def _agent_errors(self, ws) -> int:
         """How many agent failure replies the chat shows (compared before/after a send)."""
         return int(await self._js(ws, f"""(() => {{ const t = document.body.innerText.toLowerCase();
@@ -227,6 +255,12 @@ class FlowAdapter(BaseAIAdapter):
         Enter does not send in Flow — so wait for it to enable, click it, and confirm
         the composer emptied (a real mouse click as a fallback).
         """
+        # Measured: in a background tab (the Gemini tab of the same browser in front) the prompt is
+        # typed but "Start generation" ignores the click. Bring the Flow tab to the front first.
+        try:
+            await cdp.call(ws, "Page.bringToFront", timeout=5)
+        except Exception:
+            pass
         ok = await self._js(ws, f"""(() => {{ const c = document.querySelector({json.dumps(COMPOSER)});
             if (!c) return false; c.focus(); return true; }})()""")
         if not ok:
@@ -256,16 +290,18 @@ class FlowAdapter(BaseAIAdapter):
         t0 = time.monotonic()
         await self.ensure_project(ws)
         before = await self.tiles(ws)
+        # Counted BEFORE sending: an approval or error left over from an earlier prompt must never be acted on
+        errors_before = await self._agent_errors(ws)
+        approvals_before = await self._approvals(ws)
         if image_path:
             await self.attach_image(ws, image_path)
         # Explicit and short: the agent otherwise brainstorms variations (slower, more credits)
         await self._send(ws, f"Generate exactly 1 video with {model_label}, aspect ratio {aspect}. "
                              f"Do not ask questions and do not make variations. Video description: {prompt}")
-        # Approval (skipped when the project is set to never confirm) or a new rendering tile
+        # Approval (skipped once "always approve" was chosen in the project) or a new rendering tile
         approved = False
         retried = False
-        errors_before = await self._agent_errors(ws)
-        end = time.monotonic() + 60
+        end = time.monotonic() + 120
         while time.monotonic() < end:
             body = (await self._js(ws, "document.body.innerText.toLowerCase()") or "")
             if any(n in body for n in NO_CREDITS):
@@ -275,12 +311,12 @@ class FlowAdapter(BaseAIAdapter):
                     raise FlowError("account_error", "Flow agent answered with an error on this account")
                 retried = True
                 errors_before += 1
-                end = time.monotonic() + 60
+                end = time.monotonic() + 120
             now = await self.tiles(ws)
             if len(now) > len(before):
                 break
-            if not approved and await cdp.click_text(ws, APPROVE, timeout=3):
-                approved = True
+            if not approved and await self._approvals(ws) > approvals_before:
+                approved = await self._click_newest_approval(ws)
             await asyncio.sleep(1.0)
         else:
             raise FlowError("generation_not_started", "Flow did not start a generation")
