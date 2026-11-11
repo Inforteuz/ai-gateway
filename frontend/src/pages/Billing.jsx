@@ -8,7 +8,7 @@ import { Empty, ErrorNote, Loading, PageHead, Pager, useLoad, useToast } from '.
 import {
   IconArrowRight, IconChart, IconClock, IconHeadset, IconSend, IconShield, IconWallet, IconZap,
 } from '../components/icons.jsx'
-import { fmtDateTime, fmtNumber, fmtSom, somToMicro } from '../format.js'
+import { fmtDateTime, fmtNumber, fmtSom, somToMicro, ledgerNote } from '../format.js'
 
 const KIND = { topup: 'To\'ldirish', usage: 'So\'rov', adjustment: 'Tuzatish', refund: 'Qaytarish', bonus: 'Sovg\'a', referral: 'Taklif mukofoti' }
 const STATUS = { pending: ['Kutilmoqda', 'tag--warn'], approved: ['Tasdiqlandi', 'tag--ok'], rejected: ['Rad etildi', 'tag--bad'] }
@@ -208,7 +208,7 @@ export default function Billing() {
                   <tr key={l.id}>
                     <td className="muted nowrap">{fmtDateTime(l.created_at)}</td>
                     <td><span className="tag">{tr(KIND[l.kind] || l.kind)}</span></td>
-                    <td className="muted">{tr(l.note)}</td>
+                    <td className="muted">{ledgerNote(l.note)}</td>
                     <td className="num"><b>{fmtSom(l.amount, { sign: true })}</b></td>
                     <td className="num muted">{fmtSom(l.balance_after)}</td>
                   </tr>

@@ -211,7 +211,8 @@ def test_responses_stream_text_and_custom_tool(env):
     completed = ev[-1][1]["response"]
     assert completed["status"] == "completed" and len(completed["output"]) == 3
     assert completed["usage"]["input_tokens"] == 120 and completed["usage"]["output_tokens"] == 30
-    assert seen[0]["stream"] is True and seen[0]["messages"][0] == {"role": "system", "content": "You are Codex."}
+    assert seen[0]["stream"] is True and seen[0]["messages"][0]["role"] == "system"
+    assert seen[0]["messages"][0]["content"].endswith("\n\nYou are Codex.")    # the brand line goes in front
 
 
 def test_responses_non_stream(env):

@@ -4,7 +4,7 @@ import { api, qs } from '../../api.js'
 import { useAuth } from '../../auth.js'
 import Tape from '../../components/Tape.jsx'
 import { CopyButton, Empty, ErrorNote, Loading, Modal, useLoad, useToast } from '../../components/ui.jsx'
-import { fmtAgo, fmtDateTime, fmtSom, somToMicro } from '../../format.js'
+import { fmtAgo, fmtDateTime, fmtSom, somToMicro, ledgerNote } from '../../format.js'
 import { LevelSelect } from '../../reasoning.jsx'
 
 const KINDS = [['topup', 'To\'ldirish (+)'], ['bonus', 'Sovg\'a (+)'], ['refund', 'Qaytarish (+)'], ['adjustment', 'Tuzatish (+ yoki -)']]
@@ -134,7 +134,7 @@ function Detail({ id, onClose, onChanged, onSecret }) {
             <h3 style={{ marginBottom: 8 }}>{tr("Hisob tarixi")}</h3>
             <div className="table-wrap"><table className="table"><tbody>
               {data.ledger.map((l) => (
-                <tr key={l.id}><td className="muted nowrap">{fmtDateTime(l.created_at)}</td><td>{tr(LEDGER_KIND[l.kind])}</td><td className="muted">{tr(l.note)}</td><td className="num"><b>{fmtSom(l.amount, { sign: true })}</b></td><td className="num muted">{fmtSom(l.balance_after)}</td></tr>
+                <tr key={l.id}><td className="muted nowrap">{fmtDateTime(l.created_at)}</td><td>{tr(LEDGER_KIND[l.kind])}</td><td className="muted">{ledgerNote(l.note)}</td><td className="num"><b>{fmtSom(l.amount, { sign: true })}</b></td><td className="num muted">{fmtSom(l.balance_after)}</td></tr>
               ))}
             </tbody></table></div>
           </div>

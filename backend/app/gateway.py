@@ -916,6 +916,8 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
         ticket.attribution.update(provider=model["provider"], route_model=model["id"])
 
         payload = fastpath.payload(body, model["upstream_name"], max_out) if fast else dict(body)
+        if not fast and endpoint == "chat/completions" and model["provider"] in ("local", "pool"):
+            payload["messages"] = branding.with_identity(payload.get("messages"))
         payload["model"] = model["upstream_name"]
         payload["max_tokens"] = min(max_out, payload.get("max_tokens") or max_out)
         payload.pop("max_completion_tokens", None)

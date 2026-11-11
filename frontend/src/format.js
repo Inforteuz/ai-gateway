@@ -1,6 +1,6 @@
 // Money is stored on the server as integer "micro-som" (1 som = 1 000 000).
 // Formatters read the current UI language, so callers need no extra argument.
-import { getLang, translate, localeOf } from './i18n/index.jsx'
+import { getLang, translate, translateText, localeOf } from './i18n/index.jsx'
 
 export const MICRO = 1_000_000
 
@@ -105,3 +105,13 @@ export function fmtDuration(seconds) {
 }
 
 export const fmtPct = (v) => (v == null ? translate('common.noData') : `${fmtNumber(v, v >= 99.995 || v === 0 ? 0 : 2)}%`)
+
+// Ledger notes for charges are stored as Uzbek text by the backend (billing.py:
+// "<model>: <n> kirish + <m> chiqish"), old rows included. Render them in the
+// viewer's language; any other note (admin text, top-ups) passes through tr().
+const CHARGE_NOTE = /^(.+?): (\d+) kirish \+ (\d+) chiqish$/
+export function ledgerNote(note) {
+  const m = CHARGE_NOTE.exec(note || '')
+  if (!m) return translateText(note)
+  return `${m[1]}: ${translate('req.tokensInOut', { in: fmtInt(Number(m[2])), out: fmtInt(Number(m[3])) })}`
+}
