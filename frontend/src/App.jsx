@@ -29,6 +29,7 @@ const AdminReferrals = lazy(() => import('./pages/admin/Referrals.jsx'))
 const AdminInstances = lazy(() => import('./pages/admin/Instances.jsx'))
 const AdminVnc = lazy(() => import('./pages/admin/Vnc.jsx'))
 const Referral = lazy(() => import('./pages/Referral.jsx'))
+const Playground = lazy(() => import('./pages/Playground.jsx'))
 const Status = lazy(() => import('./pages/Status.jsx'))
 const Samples = lazy(() => import('./pages/Samples.jsx'))
 const Compare = lazy(() => import('./pages/Compare.jsx'))
@@ -106,6 +107,7 @@ export default function App() {
             <Route element={<Shell />}>
               <Route index element={<Dashboard />} />
               <Route path="keys" element={<Keys />} />
+              <Route path="playground" element={<Playground />} />
               <Route path="catalog" element={<Catalog />} />
               <Route path="catalog/:id" element={<ModelDetail />} />
               <Route path="usage" element={<Usage />} />

@@ -34,7 +34,19 @@ def fmt_money(micro: int) -> str:
 
 
 # --- key lookup ----------------------------------------------------------------------------------------------------
+_KEY_SQL = """SELECT k.id, k.user_id, k.name, k.status, k.rpm_limit, k.monthly_limit, k.free, k.reasoning_effort,
+                  u.status AS user_status, w.balance, w.held
+           FROM api_keys k JOIN users u ON u.id = k.user_id LEFT JOIN wallets w ON w.user_id = k.user_id"""
+
+
 def lookup_key(db: Database, request: Request) -> dict:
+    # Set only by routes_playground after the portal session and CSRF checks; never from a header
+    playground_key = getattr(request.state, "playground_key_id", None)
+    if playground_key is not None:
+        row = db.one(_KEY_SQL + " WHERE k.id = ? AND k.kind = 'playground'", (playground_key,))
+        if row is None:
+            raise ApiError(401, "invalid_api_key", "API kalit noto'g'ri.", "authentication_error")
+        return _check_key(row)
     auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("bearer ") and request.headers.get("x-api-key"):
         # Anthropic clients (Claude Code, Claude Desktop) send the key in x-api-key
@@ -43,15 +55,13 @@ def lookup_key(db: Database, request: Request) -> dict:
         raise ApiError(401, "invalid_api_key",
                        "API kalit berilmagan. 'Authorization: Bearer <kalit>' sarlavhasini yuboring.",
                        "authentication_error")
-    row = db.one(
-        """SELECT k.id, k.user_id, k.name, k.status, k.rpm_limit, k.monthly_limit, k.free, k.reasoning_effort,
-                  u.status AS user_status, w.balance, w.held
-           FROM api_keys k JOIN users u ON u.id = k.user_id LEFT JOIN wallets w ON w.user_id = k.user_id
-           WHERE k.key_hash = ?""",
-        (security.sha256_hex(auth[7:].strip()),),
-    )
+    row = db.one(_KEY_SQL + " WHERE k.key_hash = ? AND k.kind = 'api'", (security.sha256_hex(auth[7:].strip()),))
     if row is None:
         raise ApiError(401, "invalid_api_key", "API kalit noto'g'ri.", "authentication_error")
+    return _check_key(row)
+
+
+def _check_key(row) -> dict:
     if row["status"] != "active":
         raise ApiError(401, "revoked_api_key", "Bu API kalit bekor qilingan.", "authentication_error")
     if row["user_status"] != "active":

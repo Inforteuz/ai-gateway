@@ -90,6 +90,7 @@ export default {
   'shell.keys': 'API kalitlar',
   'shell.catalog': 'Modellar va narx',
   'shell.usage': 'Sarf va cheklar',
+  'shell.playground': 'Playground',
   'shell.billing': 'Hisob',
   'shell.referral': "Do'stlarni taklif qilish",
   'shell.docs': 'Hujjatlar',

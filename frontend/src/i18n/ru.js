@@ -90,6 +90,7 @@ export default {
   'shell.keys': 'API-ключи',
   'shell.catalog': 'Модели и цены',
   'shell.usage': 'Расходы и чеки',
+  'shell.playground': 'Песочница API',
   'shell.billing': 'Баланс',
   'shell.referral': 'Пригласить друзей',
   'shell.docs': 'Документация',

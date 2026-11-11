@@ -222,7 +222,7 @@ def summary(user=Depends(require_user), db: Database = Depends(get_db)):
         "held": w["held"] if w else 0,
         "month": {"requests": month["n"], "cost": month["cost"], "tokens": month["tokens"]},
         "today": {"requests": today["n"], "cost": today["cost"]},
-        "active_keys": db.scalar("SELECT COUNT(*) FROM api_keys WHERE user_id=? AND status='active'", (user["id"],)),
+        "active_keys": db.scalar("SELECT COUNT(*) FROM api_keys WHERE user_id=? AND status='active' AND kind='api'", (user["id"],)),
         "pending_topups": db.scalar("SELECT COUNT(*) FROM topup_requests WHERE user_id=? AND status='pending'", (user["id"],)),
         "payment_info": settings.get("payment_info", ""),
         "min_topup": db.setting_int("min_topup_micro"),
@@ -273,12 +273,12 @@ def keys_with_spend(db: Database, where: str, args: tuple) -> list[dict]:
 
 @router.get("/keys")
 def list_keys(user=Depends(require_user), db: Database = Depends(get_db)):
-    return {"items": keys_with_spend(db, "user_id=?", (user["id"],))}
+    return {"items": keys_with_spend(db, "user_id=? AND kind='api'", (user["id"],))}
 
 
 @router.post("/keys")
 def create_key(body: KeyIn, user=Depends(require_user), db: Database = Depends(get_db)):
-    if db.scalar("SELECT COUNT(*) FROM api_keys WHERE user_id=? AND status='active'", (user["id"],)) >= MAX_ACTIVE_KEYS:
+    if db.scalar("SELECT COUNT(*) FROM api_keys WHERE user_id=? AND status='active' AND kind='api'", (user["id"],)) >= MAX_ACTIVE_KEYS:
         raise ApiError(400, "too_many_keys", f"Faol kalitlar soni {MAX_ACTIVE_KEYS} tadan oshmasligi kerak.")
     raw, prefix, last4, digest = security.new_api_key()
     with db.tx() as c:
@@ -294,7 +294,7 @@ def create_key(body: KeyIn, user=Depends(require_user), db: Database = Depends(g
 
 
 def _own_key(db: Database, key_id: int, user_id: int):
-    row = db.one("SELECT * FROM api_keys WHERE id=? AND user_id=?", (key_id, user_id))
+    row = db.one("SELECT * FROM api_keys WHERE id=? AND user_id=? AND kind='api'", (key_id, user_id))
     if row is None:
         raise ApiError(404, "key_not_found", "Kalit topilmadi.")
     return row

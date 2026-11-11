@@ -48,7 +48,8 @@ SKIP_PG = {"schema_meta"}
 DROPPABLE_ON_EXPORT = {("usage_logs", "attribution"),("users", "ref_code"), ("users", "signup_device"), ("users", "referral_paused"),
                        ("topup_requests", "tg_chat_id"), ("topup_requests", "tg_message_id"),
                        ("api_keys", "secret_enc"), ("models", "fallback_to"),
-                       ("models", "description_ru"), ("models", "description_en")}
+                       ("models", "description_ru"), ("models", "description_en"),
+                       ("api_keys", "kind")}
 
 
 class Abort(Exception):

@@ -8,7 +8,7 @@ import TopBar from '../components/TopBar.jsx'
 import RouteOutlet from '../components/RouteOutlet.jsx'
 import {
   IconActivity, IconArrowRight, IconBook, IconCard, IconChart, IconCoins,
-  IconDoc, IconHome, IconKey, IconLayers, IconLogout, IconSettings, IconSparkles, IconUsers,
+  IconDoc, IconHome, IconKey, IconLayers, IconLogout, IconSettings, IconSparkles, IconUsers, IconZap,
 } from '../components/icons.jsx'
 
 function RailLink({ to, end, children, badge, icon }) {
@@ -49,6 +49,7 @@ export default function Shell() {
           <nav className="rail-nav" aria-label={t('shell.navLabel')}>
             <RailLink to="/app" end icon={<IconHome />}>{t('shell.overview')}</RailLink>
             <RailLink to="/app/keys" icon={<IconKey />}>{t('shell.keys')}</RailLink>
+            <RailLink to="/app/playground" icon={<IconZap />}>{t('shell.playground')}</RailLink>
             <RailLink to="/app/catalog" icon={<IconLayers />}>{t('shell.catalog')}</RailLink>
             <RailLink to="/app/usage" icon={<IconChart />}>{t('shell.usage')}</RailLink>
             {!freeMode && <RailLink to="/app/billing" icon={<IconCard />}>{t('shell.billing')}</RailLink>}

@@ -90,6 +90,7 @@ export default {
   'shell.keys': 'API keys',
   'shell.catalog': 'Models and pricing',
   'shell.usage': 'Usage and receipts',
+  'shell.playground': 'Playground',
   'shell.billing': 'Balance',
   'shell.referral': 'Invite friends',
   'shell.docs': 'Docs',

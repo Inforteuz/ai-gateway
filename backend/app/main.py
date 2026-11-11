@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import billing, branding
-from . import gateway, monitor, routes_account, routes_admin, routes_auth, routes_instances, routes_monitor, routes_referral
+from . import gateway, monitor, routes_account, routes_admin, routes_auth, routes_instances, routes_monitor, routes_playground, routes_referral
 from . import topup_telegram
 from .vnc import TicketStore
 from . import cluster_watch
@@ -161,6 +161,7 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
     app.include_router(routes_monitor.admin_router)
     app.include_router(routes_monitor.public_router)
     app.include_router(routes_instances.router)
+    app.include_router(routes_playground.router)
     app.include_router(routes_instances.ws_router)
     app.include_router(topup_telegram.router)
     app.include_router(topup_telegram.admin_router)

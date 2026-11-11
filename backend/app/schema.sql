@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS api_keys (
   monthly_limit BIGINT,                    -- NULL = unlimited (micro-UZS)
   free          BIGINT NOT NULL DEFAULT 0, -- 1 = nothing is charged (only logged)
   reasoning_effort TEXT,                   -- NULL = global setting; none|low|medium|high|model
+  -- 'playground' = the hidden key the in-panel playground bills through; its secret is
+  -- thrown away at creation, so it only works from the portal session (routes_playground.py)
+  kind          TEXT NOT NULL DEFAULT 'api' CHECK (kind IN ('api','playground')),
   created_at    BIGINT NOT NULL,
   last_used_at  BIGINT,
   revoked_at    BIGINT

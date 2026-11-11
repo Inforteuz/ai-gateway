@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -116,6 +116,13 @@ MIGRATIONS: dict[int, list[str]] = {
     # v10: model descriptions in Russian and English (the Uzbek one stays in `description`)
     10: ["ALTER TABLE models ADD COLUMN IF NOT EXISTS description_ru TEXT NOT NULL DEFAULT ''",
          "ALTER TABLE models ADD COLUMN IF NOT EXISTS description_en TEXT NOT NULL DEFAULT ''"],
+    # v11: the playground's own hidden key per user (billing and limits as for any key)
+    11: ["ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'api'",
+         """DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'api_keys_kind_check') THEN
+                ALTER TABLE api_keys ADD CONSTRAINT api_keys_kind_check CHECK (kind IN ('api','playground'));
+            END IF;
+        END $$"""],
 }
 
 # Advisory lock key for the write queue ("SFDB"). Other processes on the same
