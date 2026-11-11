@@ -272,3 +272,19 @@ def test_responses_websocket_handshake_gets_426(env):
             raise AssertionError("handshake must be refused")
     except WebSocketDenialResponse as denied:
         assert denied.status_code == 426
+
+
+def test_context_overflow_uses_anthropic_wording_for_claude_code(env):
+    # Claude Code compacts and retries only on "prompt is too long: N tokens > M maximum".
+    uid = add_user(env, balance_som=1000)
+    key, _ = add_key(env, uid)
+    body = {**CLAUDE_BODY, "model": "model-1.0",
+            "messages": [{"role": "user", "content": "salom dunyo " * 7000}]}
+    r = env.client.post("/v1/messages", headers={"x-api-key": key}, json=body)
+    assert r.status_code == 400 and r.json()["error"]["type"] == "invalid_request_error"
+    import re
+    assert re.fullmatch(r"prompt is too long: \d+ tokens > 16384 maximum", r.json()["error"]["message"]), r.text
+    # Codex reads the code instead, which stays as it was
+    r = env.client.post("/v1/responses", headers={"Authorization": f"Bearer {key}"},
+                        json={"model": "model-1.0", "input": "salom dunyo " * 7000})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "context_length_exceeded"

@@ -17,6 +17,7 @@ model's. Long silences become `ping` events instead.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from typing import Any, AsyncIterator
@@ -273,7 +274,14 @@ class AnthropicStream:
         return out
 
 
-def anthropic_error(status: int, message: str) -> dict:
+_CONTEXT_NUMBERS = re.compile(r"maximum context length is (\d+) tokens, but the request needs about (\d+) tokens")
+
+
+def anthropic_error(status: int, message: str, code: str | None = None) -> dict:
+    if code == "context_length_exceeded" and (m := _CONTEXT_NUMBERS.search(message)):
+        # Claude Code recognises an over-long prompt only by Anthropic's own wording and then
+        # compacts the conversation and retries; any other text just ends the session.
+        message = f"prompt is too long: {m.group(2)} tokens > {m.group(1)} maximum"
     kind = {400: "invalid_request_error", 401: "authentication_error", 402: "billing_error", 403: "permission_error",
             404: "not_found_error", 413: "request_too_large", 429: "rate_limit_error", 529: "overloaded_error"}.get(
         status, "api_error" if status >= 500 else "invalid_request_error")

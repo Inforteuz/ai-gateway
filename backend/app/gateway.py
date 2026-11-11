@@ -1407,7 +1407,7 @@ async def anthropic_messages(request: Request):
         request, lambda b: (protocols.anthropic_to_chat(b), None),
         lambda data, model, _: protocols.chat_to_anthropic(data, model),
         lambda model, _: protocols.AnthropicStream(model),
-        lambda status, message, code: protocols.anthropic_error(status, message))
+        lambda status, message, code: protocols.anthropic_error(status, message, code))
 
 
 @router.post("/messages/count_tokens")
