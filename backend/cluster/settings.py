@@ -369,6 +369,11 @@ VIDEO_REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_VIDEO_TIMEOUT", "300"))
 VIDEO_QUEUE_WAIT = int(os.getenv("SF_CLUSTER_VIDEO_QUEUE_WAIT", "120"))
 # An account whose daily Flow credits ran out rests this long (they refresh once a day).
 VIDEO_QUOTA_COOLDOWN = int(os.getenv("SF_CLUSTER_VIDEO_QUOTA_COOLDOWN", str(6 * 3600)))
+# "flow-pro": clips are motion-interpolated to this frame rate (cluster/video_post.py)
+VIDEO_PRO_FPS = int(os.getenv("SF_CLUSTER_VIDEO_PRO_FPS", "48"))
+VIDEO_POST_THREADS = int(os.getenv("SF_CLUSTER_VIDEO_POST_THREADS", "4"))
+VIDEO_POST_TIMEOUT = int(os.getenv("SF_CLUSTER_VIDEO_POST_TIMEOUT", "240"))
+FFMPEG_BIN = os.getenv("SF_CLUSTER_FFMPEG", "/opt/ffmpeg/ffmpeg")
 IMAGE_POLL_INTERVAL = float(os.getenv("SF_CLUSTER_IMAGE_POLL", "0.5"))
 
 

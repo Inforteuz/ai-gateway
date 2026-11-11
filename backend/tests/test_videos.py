@@ -294,3 +294,40 @@ def test_list_is_newest_first_and_clips_expire(env, cluster):
     assert videos.purge_files(env.db) == 1
     assert env.db.scalar("SELECT COUNT(*) FROM video_files") == 2
     assert env.client.get(f"/v1/videos/{ids[1]}/content", headers=bearer(key)).content == MP4
+
+
+# --- pro model: prompt enhancement before the cluster (owner's call 2026-11-12) ----------------------------
+def _pro(env):
+    add_model(env, "veo-pro", upstream="flow-pro", provider="cluster", price_in=0, price_out=2 * PRICE)
+
+
+def test_pro_model_sends_the_enhanced_prompt(env, cluster):
+    _pro(env)
+    env.up["draft"] = "Close-up of a ginger cat surfing a turquoise wave at golden hour, slow tracking shot, warm light."
+    uid = add_user(env, balance_som=100_000)
+    key, _ = add_key(env, uid)
+    vid = env.client.post("/v1/videos", headers=bearer(key), json={"model": "veo-pro", "prompt": "mushuk to'lqinda"}).json()["id"]
+    assert wait_done(env, vid, key)["status"] == "completed"
+    sent = cluster["calls"][-1]["body"]
+    assert sent["model"] == "flow-pro" and sent["prompt"].startswith("Close-up of a ginger cat")
+    assert env.up["last"]["messages"][-1]["content"] == "mushuk to'lqinda"
+    assert wallet(env, uid)[0] == 100_000 * SOM - 2 * PRICE
+
+
+def test_pro_falls_back_to_the_original_prompt(env, cluster):
+    _pro(env)
+    env.up["mode"] = "500"
+    uid = add_user(env, balance_som=100_000)
+    key, _ = add_key(env, uid)
+    vid = env.client.post("/v1/videos", headers=bearer(key), json={"model": "veo-pro", "prompt": "A cat surfing at sunset"}).json()["id"]
+    assert wait_done(env, vid, key)["status"] == "completed"
+    assert cluster["calls"][-1]["body"]["prompt"] == "A cat surfing at sunset"
+
+
+def test_cheap_model_keeps_the_prompt_as_written(env, cluster):
+    uid = add_user(env, balance_som=100_000)
+    key, _ = add_key(env, uid)
+    env.up["draft"] = "SHOULD NOT BE USED"
+    vid = env.client.post("/v1/videos", headers=bearer(key), json=BODY).json()["id"]
+    assert wait_done(env, vid, key)["status"] == "completed"
+    assert cluster["calls"][-1]["body"]["prompt"] == BODY["prompt"] and env.up.get("calls", 0) == 0

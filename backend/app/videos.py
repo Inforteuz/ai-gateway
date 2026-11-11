@@ -40,7 +40,16 @@ router = APIRouter(prefix="/v1", tags=["videos"])
 log = logging.getLogger("videos")
 
 # Cluster models (models.upstream_name) that render video. Only these take /v1/videos.
-VIDEO_UPSTREAMS = frozenset({"flow"})
+VIDEO_UPSTREAMS = frozenset({"flow", "flow-pro"})
+# "flow-pro" (owner's call 2026-11-12): the prompt is first rewritten by a local model into a
+# detailed text-to-video prompt, and the cluster raises the clip's frame rate (cluster/video_post.py).
+PRO_UPSTREAM = "flow-pro"
+ENHANCE_TIMEOUT = 30.0
+ENHANCE_SYSTEM = (
+    "You rewrite a user's video idea into ONE prompt for a text-to-video model. Write in English, under 120 "
+    "words: the subject and its action, the setting, camera movement and framing, lighting, lens and colour, "
+    "mood and style. Keep every concrete detail the user gave (names, objects, text, numbers, language of any "
+    "spoken words) and do not add new subjects. Output only the prompt, no quotes or explanations.")
 # One clip is billed as this many output tokens, so its price is the model's price_out_per_1m.
 CLIP_TOKENS = 1_000_000
 UPSTREAM_TIMEOUT = 420.0      # the cluster renders a clip in a few minutes; past this it is not coming
@@ -318,6 +327,26 @@ def _failure(status_code: int, code: str, message: str, label: str | None = None
     return {"status_code": status_code, "error": {"code": code, "message": message}, "label": label or code}
 
 
+async def enhance_prompt(state, settings: dict, prompt: str) -> str:
+    """The pro model's richer prompt, from the local GPU model; the original prompt on any failure."""
+    upstream = settings.get("video_prompt_upstream") or "qwen3:14b"
+    client, base, headers, _sem = gateway._target(state, {"provider": "local"}, settings)
+    body = {"model": upstream, "stream": False, "max_tokens": 400, "temperature": 0.4, "reasoning_effort": "none",
+            "messages": [{"role": "system", "content": ENHANCE_SYSTEM}, {"role": "user", "content": prompt[:4000]}]}
+    try:
+        resp = await client.post(f"{base}/chat/completions", json=body, headers=headers,
+                                 timeout=httpx.Timeout(ENHANCE_TIMEOUT, connect=5.0))
+        text = (resp.json()["choices"][0]["message"].get("content") or "").strip() if resp.status_code == 200 else ""
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        text = ""
+    # Qwen may still wrap its thinking in <think>...</think>; keep only the answer
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip().strip('"')
+    if not (20 <= len(text) <= 2000):
+        log.info("video prompt enhancement skipped (%d chars)", len(text))
+        return prompt
+    return text
+
+
 async def _render(state, job: dict) -> dict:
     """Asks the cluster for the clip. Returns finish_job() arguments for success or failure."""
     settings = await run_in_threadpool(state.db.get_settings)
@@ -326,7 +355,10 @@ async def _render(state, job: dict) -> dict:
     client, base, headers, _sem = gateway._target(state, {"provider": "cluster"}, settings)
     if not base:
         return _failure(503, "model_unavailable", "The video model is unavailable right now. You were not charged.")
-    payload = {"model": job["upstream"], "prompt": job["prompt"], "image": job["input_image"],
+    prompt = job["prompt"]
+    if job["upstream"] == PRO_UPSTREAM:
+        prompt = await enhance_prompt(state, settings, prompt)
+    payload = {"model": job["upstream"], "prompt": prompt, "image": job["input_image"],
                "seconds": int(job["seconds"]), "size": job["size"]}
     try:
         resp = await client.post(f"{base}/videos/generations", json=payload, headers=headers,

@@ -142,3 +142,53 @@ def test_quota_rests_the_account_and_returns_503():
 
 def test_no_flow_tab_is_503():
     assert _post([], {"prompt": "x"}).status_code == 503
+
+
+# --- pro model: frame-rate post-processing ---------------------------------------------------------------
+def test_pro_without_ffmpeg_fails_before_spending_credits(monkeypatch):
+    from cluster import video_post
+    monkeypatch.setattr(video_post, "ffmpeg_path", lambda: None)
+    fake = _FakeFlow(result=MP4)
+    w = _Worker(19806, "flow-d", "flow", "ws://unused", fake)
+    r = _post([w], {"prompt": "x", "model": "flow-pro"})
+    assert r.status_code == 503 and fake.calls == []
+
+
+def test_pro_returns_the_interpolated_clip(monkeypatch):
+    from cluster import video_post
+    monkeypatch.setattr(video_post, "ffmpeg_path", lambda: "/usr/bin/true")
+
+    async def faster(clip, fps=None):
+        return clip + b"48fps"
+    monkeypatch.setattr(video_post, "raise_fps", faster)
+    w = _Worker(19807, "flow-e", "flow", "ws://unused", _FakeFlow(result=MP4))
+    body = _post([w], {"prompt": "x", "model": "flow-pro"}).json()
+    item = body["data"][0]
+    assert base64.b64decode(item["b64_mp4"]).endswith(b"48fps") and item["fps"] == cfg.VIDEO_PRO_FPS
+    assert body["model"] == "flow-pro"
+
+
+def _ffmpeg_works() -> bool:
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        return False
+    try:
+        return subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _ffmpeg_works(), reason="no working ffmpeg on this machine")
+def test_raise_fps_really_interpolates(monkeypatch, tmp_path):
+    import subprocess
+    from cluster import video_post
+    src = tmp_path / "src.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc=size=320x180:rate=24:duration=1", "-pix_fmt", "yuv420p", str(src)], check=True)
+    monkeypatch.setattr(cfg, "FFMPEG_BIN", "")
+    out = asyncio.run(video_post.raise_fps(src.read_bytes(), fps=48))
+    probe = tmp_path / "out.mp4"
+    probe.write_bytes(out)
+    rate = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                           "-of", "csv=p=0", str(probe)], capture_output=True, text=True).stdout.strip()
+    assert rate == "48/1"

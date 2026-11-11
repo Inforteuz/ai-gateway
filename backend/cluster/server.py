@@ -1600,6 +1600,11 @@ async def videos_generations(req: VideoRequest, request: Request):
     VIDEO_QUEUE_WAIT. See adapters/flow_adapter.py for the measured page behaviour.
     """
     from .adapters.flow_adapter import FlowError
+    from . import video_post
+    pro = (req.model or "flow").lower() == "flow-pro"
+    if pro and not video_post.ffmpeg_path():
+        # Checked before any credit is spent: pro without its post-processing is not pro
+        raise ClusterError(503, "model_unavailable", "The pro video model is unavailable right now.", 300)
     prompt = (req.prompt or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="`prompt` must not be empty")
@@ -1662,13 +1667,21 @@ async def videos_generations(req: VideoRequest, request: Request):
             worker.total_requests += 1
             worker.last_finished = time.time()
 
+    fps = 24
+    if pro:
+        try:
+            data = await video_post.raise_fps(data)
+            fps = cfg.VIDEO_PRO_FPS
+        except video_post.PostError as e:
+            log.warning("video post-processing failed: %s", e)
+            raise ClusterError(502, "generation_failed", "The video could not be finished. Try again.")
     import base64 as _b64
-    log.info("video port=%d bytes=%d time=%.1fs", worker.browser_port, len(data), time.monotonic() - t_start)
+    log.info("video port=%d pro=%s bytes=%d time=%.1fs", worker.browser_port, pro, len(data), time.monotonic() - t_start)
     prompt_tokens = max(1, int(len(prompt) / cfg.CHARS_PER_TOKEN))
     return {
-        "created": int(time.time()), "model": "flow",
+        "created": int(time.time()), "model": "flow-pro" if pro else "flow",
         "data": [{"b64_mp4": _b64.b64encode(data).decode(), "mime_type": "video/mp4",
-                  "seconds": meta.get("seconds", 8), "size": "720x1280" if portrait else "1280x720"}],
+                  "seconds": meta.get("seconds", 8), "size": "720x1280" if portrait else "1280x720", "fps": fps}],
         # 1 clip = 1,000,000 output tokens: the gateway prices a clip at the model's output price
         "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": 1_000_000,
                   "total_tokens": prompt_tokens + 1_000_000},
