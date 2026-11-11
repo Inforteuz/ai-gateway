@@ -94,10 +94,10 @@ export default function Docs({ inApp }) {
       {/* Whole sentences per language: fragments glued around <code> read badly in Russian */}
       <p>{tr("{v0} OpenAI formatida ishlaydi.", { v0: tr(site.brand_name) })} {tr("Mavjud kutubxonangizda ikkita sozlamani almashtiring:")} <code>base_url</code>, <code>api_key</code>.</p>
       <div className="docs-highlights">
-        <div className="mini-card"><span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconZap /></span> {tr("OpenAI bilan 1:1 mos")}</span><span className="dim small">{tr("Mavjud SDK, prompt va kodlaringiz ishlaydi")}</span></div>
-        <div className="mini-card"><span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconLayers /></span> {tr("Bir nechta model")}</span><span className="dim small">{tr(site.assistant_name)} {tr("modellari va kelajakda yangi imkoniyatlar")}</span></div>
-        <div className="mini-card"><span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconShield /></span> {tr("Tez va ishonchli")}</span><span className="dim small">{tr("Barqaror infratuzilma va yuqori ishlash")}</span></div>
-        <div className="mini-card"><span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconCode /></span> {tr("Oddiy integratsiya")}</span><span className="dim small">{tr("Bir necha daqiqada ishga tushiring")}</span></div>
+        <div className="mini-card"><span className="mini-card__head">{tr("OpenAI bilan 1:1 mos")}</span><span className="dim small">{tr("Mavjud SDK, prompt va kodlaringiz ishlaydi")}</span></div>
+        <div className="mini-card"><span className="mini-card__head">{tr("Bir nechta model")}</span><span className="dim small">{tr(site.assistant_name)} {tr("modellari va kelajakda yangi imkoniyatlar")}</span></div>
+        <div className="mini-card"><span className="mini-card__head">{tr("Tez va ishonchli")}</span><span className="dim small">{tr("Barqaror infratuzilma va yuqori ishlash")}</span></div>
+        <div className="mini-card"><span className="mini-card__head">{tr("Oddiy integratsiya")}</span><span className="dim small">{tr("Bir necha daqiqada ishga tushiring")}</span></div>
       </div>
 
       <h2 id="boshlash">{tr("Boshlash")}</h2>

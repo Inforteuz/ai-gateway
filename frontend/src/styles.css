@@ -3481,3 +3481,34 @@ button.key-analytics-row:hover { background: var(--bg-sunken); }
   .mm .mm-top { white-space: normal; line-height: 1.25; }
   .price-row--link { padding: 18px 16px; }
 }
+
+/* ---------- Docs: highlights as an editorial list; copy button readable on light code ---------- */
+.docs-highlights { gap: 22px 28px; margin-block: 8px 12px; }
+.docs-highlights .mini-card {
+  background: none; border: 0; border-top: 1px solid var(--border-strong); border-radius: 0; padding: 14px 0 0;
+}
+.docs-highlights .mini-card__head { font-family: var(--font-display); font-size: 0.98rem; font-weight: 650; }
+.quick-row > .ico-chip { display: none; }
+.quick-row { padding: 9px 0; border-top: 1px solid var(--border); }
+.docs-toc__box h4 { color: var(--fg-muted); letter-spacing: 0; }
+.docs-toc__box h4 + .quick-row { border-top: 0; }
+.code { border-color: var(--border); }
+.code .copy .btn { background: var(--bg-elev); color: var(--fg-muted); border-color: var(--border-strong); }
+.code .copy .btn:hover { background: var(--bg-sunken); color: var(--fg); }
+
+/* ---------- Public pages: no tracked ALL-CAPS labels, notes without a side stripe ---------- */
+.foot-col h4 { text-transform: none; letter-spacing: 0; font-size: 0.88rem; color: var(--fg); font-family: var(--font-display); font-weight: 650; }
+html .cmp-hero .eyebrow { text-transform: none; letter-spacing: 0; font-size: 0.92rem; font-weight: 600; }
+html .cmp-meta dt { text-transform: none; letter-spacing: 0; font-size: 0.8rem; font-weight: 500; }
+html .cmp-warn { border-left-width: 1px; border-color: var(--border); background: var(--bg-elev); }
+html .cmp-warn > :first-child { font-family: var(--font-display); }
+
+/* ---------- Sign-in pages: a receipt printing out of the panel's bottom edge ----------
+   Anchored from the top so it grows downward while it prints; the panel clips the rest. */
+.auth-side { position: relative; overflow: hidden; }
+.auth-art { position: absolute; right: clamp(28px, 4vw, 56px); top: calc(100% - 350px); min-height: 0; margin: 0; }
+.auth-receipt { width: 272px; }
+.auth-receipt .receipt { transform: rotate(2deg); transform-origin: top center; box-shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.7); }
+@media (max-width: 1100px), (max-height: 860px) { .auth-art { display: none; } }
+/* Phones: keep the form title clear of the language switch pinned to the corner */
+@media (max-width: 560px) { .auth-form { padding-top: 72px; } }
