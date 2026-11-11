@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS models (
   upstream_name      TEXT NOT NULL,        -- name in Ollama
   display_name       TEXT NOT NULL,
   description        TEXT NOT NULL DEFAULT '',
+  description_ru     TEXT NOT NULL DEFAULT '',
+  description_en     TEXT NOT NULL DEFAULT '',
   price_in_per_1m    BIGINT NOT NULL,      -- price per 1M input tokens (micro-UZS)
   price_out_per_1m   BIGINT NOT NULL,      -- price per 1M output tokens (micro-UZS)
   context_window     BIGINT NOT NULL DEFAULT 32768,

@@ -6,6 +6,14 @@ from . import billing
 REASONING_LEVELS = ["none", "low", "medium", "high"]
 
 
+def _get(r, key: str) -> str:
+    """A column that older rows or test fixtures may not have yet."""
+    try:
+        return r[key] or ""
+    except (KeyError, IndexError):
+        return ""
+
+
 def processing_class(model) -> str:
     return "third_party" if model["provider"] in ("external", "cluster", "pool") or model["refine"] else "private"
 
@@ -83,6 +91,8 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
         "maintenance": r["id"] in maintenance,
         "health": (health or {}).get(r["id"], "unknown"),
         "id": r["id"], "display_name": r["display_name"], "description": r["description"],
+        # Per-language descriptions; the frontend falls back to the Uzbek one
+        "description_ru": _get(r, "description_ru"), "description_en": _get(r, "description_en"),
         "context_window": r["context_window"], "max_output_tokens": hard_max,
         "capabilities": {
             "streaming": True,

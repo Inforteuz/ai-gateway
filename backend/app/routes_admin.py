@@ -259,6 +259,8 @@ class ModelIn(BaseModel):
     upstream_name: str = Field(min_length=1, max_length=120)
     display_name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=300)
+    description_ru: str = Field(default="", max_length=300)
+    description_en: str = Field(default="", max_length=300)
     price_in_per_1m: int = Field(ge=0)
     price_out_per_1m: int = Field(ge=0)
     context_window: int = Field(default=32768, ge=256)
@@ -295,11 +297,13 @@ def add_model(body: ModelIn, db: Database = Depends(get_db)):
     _check_model_rules(db, body.provider, body.refine, body.fallback_price_from, body.id, body.upstream_name,
                        body.fallback_to)
     with db.tx() as c:
-        c.execute("""INSERT INTO models(id, upstream_name, display_name, description, price_in_per_1m, price_out_per_1m,
+        c.execute("""INSERT INTO models(id, upstream_name, display_name, description, description_ru, description_en,
+                         price_in_per_1m, price_out_per_1m,
                          context_window, enabled, created_at, provider, refine, listed, default_reasoning, fallback_price_from,
                          fallback_to, allow_thinking)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                  (body.id, body.upstream_name, body.display_name, body.description, body.price_in_per_1m,
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (body.id, body.upstream_name, body.display_name, body.description, body.description_ru,
+                   body.description_en, body.price_in_per_1m,
                    body.price_out_per_1m, body.context_window, int(body.enabled), now(), body.provider, int(body.refine),
                    int(body.listed), body.default_reasoning, body.fallback_price_from, body.fallback_to,
                    int(body.allow_thinking)))
@@ -314,6 +318,8 @@ class ModelPatch(BaseModel):
     upstream_name: str | None = Field(default=None, min_length=1, max_length=120)
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
     description: str | None = Field(default=None, max_length=300)
+    description_ru: str | None = Field(default=None, max_length=300)
+    description_en: str | None = Field(default=None, max_length=300)
     price_in_per_1m: int | None = Field(default=None, ge=0)
     price_out_per_1m: int | None = Field(default=None, ge=0)
     context_window: int | None = Field(default=None, ge=256)
@@ -341,11 +347,13 @@ def patch_model(model_id: str, body: ModelPatch, db: Database = Depends(get_db))
     _check_model_rules(db, new["provider"], bool(new["refine"]), new["fallback_price_from"], model_id,
                        new["upstream_name"], new["fallback_to"])
     with db.tx() as c:
-        c.execute("""UPDATE models SET upstream_name=?, display_name=?, description=?, price_in_per_1m=?, price_out_per_1m=?,
+        c.execute("""UPDATE models SET upstream_name=?, display_name=?, description=?, description_ru=?, description_en=?,
+                         price_in_per_1m=?, price_out_per_1m=?,
                          context_window=?, enabled=?, provider=?, refine=?, listed=?, default_reasoning=?, fallback_price_from=?,
                          fallback_to=?, allow_thinking=?
                      WHERE id=?""",
-                  (new["upstream_name"], new["display_name"], new["description"], new["price_in_per_1m"], new["price_out_per_1m"],
+                  (new["upstream_name"], new["display_name"], new["description"], new.get("description_ru") or "",
+                   new.get("description_en") or "", new["price_in_per_1m"], new["price_out_per_1m"],
                    new["context_window"], new["enabled"], new["provider"], new["refine"], new["listed"],
                    new["default_reasoning"], new["fallback_price_from"], new["fallback_to"],
                    new["allow_thinking"], model_id))

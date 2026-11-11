@@ -1,4 +1,4 @@
-import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
+import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth, useSite } from '../auth.js'
@@ -32,7 +32,7 @@ function Icon({ name }) {
     case 'stack': return <svg {...p}><path d="M12 3l9 5-9 5-9-5 9-5z" /><path d="M3 13l9 5 9-5M3 18l9 5 9-5" /></svg>
     case 'globe': return <svg {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" /></svg>
     case 'gift': return <svg {...p}><path d="M3 11h18v10H3zM3 7h18v4H3z" /><path d="M12 7v14" /><path d="M12 7S10.5 3 8.5 3a2 2 0 000 4zM12 7s1.5-4 3.5-4a2 2 0 010 4z" /></svg>
-    case tr("code"): return <svg {...p}><path d="M9 18l-6-6 6-6M15 6l6 6-6 6" /></svg>
+    case 'code': return <svg {...p}><path d="M9 18l-6-6 6-6M15 6l6 6-6 6" /></svg>
     case 'rocket': return <svg {...p}><path d="M5 15c-1.5 2-1.5 5-1.5 5s3 0 5-1.5" /><path d="M9 15l-3-3c0-6 4-10 11-10 0 7-4 11-10 11l-1 2z" /><circle cx="14.5" cy="9.5" r="1.5" /></svg>
     case 'terminal': return <svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9l3 3-3 3M13 15h4" /></svg>
     case 'arrow': return <svg {...p} width="14" height="14"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
@@ -176,15 +176,15 @@ export default function Landing() {
                 <div className="hero-mock-body">
                   <div className="hero-mock-code">
                     <div><span className="c"># {t('landing.mockComment')}</span></div>
-                    <div><span className="k">{tr("from")}</span> {tr("openai")} <span className="k">{tr("import")}</span> OpenAI</div>
-                    <div><span className="p">{tr("client")}</span> = OpenAI(</div>
-                    <div>&nbsp;&nbsp;base_url=<span className="s">"{tr(origin)}/v1"</span>,</div>
+                    <div><span className="k">from</span> openai <span className="k">import</span> OpenAI</div>
+                    <div><span className="p">client</span> = OpenAI(</div>
+                    <div>&nbsp;&nbsp;base_url=<span className="s">"{origin}/v1"</span>,</div>
                     <div>&nbsp;&nbsp;api_key=<span className="s">"sk-sf-…"</span></div>
                     <div>)</div>
-                    <div style={{ marginTop: 6 }}><span className="p">{tr("res")}</span> = client.chat.completions.create(</div>
-                    <div>&nbsp;&nbsp;model=<span className="s">"{tr(main.id)}"</span>,</div>
-                    <div>&nbsp;&nbsp;messages=[…],</div>
-                    <div>&nbsp;&nbsp;stream=<span className="k">{tr("True")}</span>,</div>
+                    <div style={{ marginTop: 6 }}><span className="p">res</span> = client.chat.completions.create(</div>
+                    <div>&nbsp;&nbsp;model=<span className="s">"{main.id}"</span>,</div>
+                    <div>&nbsp;&nbsp;messages=[{'{'}"role": "user", "content": "Hello!"{'}'}],</div>
+                    <div>&nbsp;&nbsp;stream=<span className="k">True</span>,</div>
                     <div>)</div>
                   </div>
                   <div className="hero-mock-stats">
@@ -364,7 +364,7 @@ export default function Landing() {
                       {m.capabilities?.tool_calling && <span className="tag tag--new">{t('landing.tagTools')}</span>}
                       {m.data_processing === 'third_party' && <span className="tag tag--warn">{t('landing.tagThirdParty')}</span>}
                     </div>
-                    {m.description && <p className="muted small" style={{ marginTop: 10, maxWidth: '32rem' }}>{tr(m.description)}</p>}
+                    {m.description && <p className="muted small" style={{ marginTop: 10, maxWidth: '32rem' }}>{modelDescription(m)}</p>}
                   </div>
                   {freeMode
                     ? <div className="price-figs"><div><b>{t('common.free')}</b><span>{t('landing.forPartners')}</span></div></div>

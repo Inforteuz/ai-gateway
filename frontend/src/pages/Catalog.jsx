@@ -1,9 +1,10 @@
-import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
+import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { ErrorNote, Loading, PageHead, useLoad } from '../components/ui.jsx'
+import SpeedFigure from '../components/SpeedFigure.jsx'
 import {
   IconBox, IconChart, IconCode, IconDoc, IconLayers, IconSearch,
   IconShield, IconSparkles, IconZap,
@@ -58,7 +59,8 @@ const SORTS = [
 export default function Catalog() {
   useLocaleRefresh()
   const { freeMode } = useAuth()
-  const { data, error, loading, reload } = useLoad(() => api.get('/portal/models'), [])
+  // Speeds are live (median of recent requests); refresh so a slowdown shows up
+  const { data, error, loading, reload } = useLoad(() => api.get('/portal/models'), [], { refreshMs: 60_000 })
   const bench = useLoad(() => api.get('/portal/benchmark'), [])
   const all = data?.items || []
   const limits = data?.limits
@@ -74,7 +76,7 @@ export default function Catalog() {
       const h = hintOf(m)
       if (tag && h.tag !== tag) return false
       if (!needle) return true
-      return [m.display_name, m.id, m.description, h.hint].filter(Boolean).some((t) => t.toLowerCase().includes(needle))
+      return [m.display_name, m.id, m.description, m.description_ru, m.description_en, h.hint].filter(Boolean).some((t) => t.toLowerCase().includes(needle))
     })
     if (sort === 'cheap') out = [...out].sort((a, b) => (a.price_in_per_1m + a.price_out_per_1m) - (b.price_in_per_1m + b.price_out_per_1m))
     if (sort === 'fast') out = [...out].sort((a, b) => (a.measured?.typical_latency_ms ?? 1e9) - (b.measured?.typical_latency_ms ?? 1e9))
@@ -138,7 +140,7 @@ export default function Catalog() {
                     {m.maintenance && <span className="tag tag--warn">{tr("Texnik ishlar")}</span>}
                   </div>
                   <code>{m.id}</code>
-                  <p className="muted small" style={{ marginTop: 7, maxWidth: '30rem' }}>{tr(h.hint || m.description)}</p>
+                  <p className="muted small" style={{ marginTop: 7, maxWidth: '30rem' }}>{h.hint === m.description ? modelDescription(m) : tr(h.hint)}</p>
                   <div className="hstack" style={{ gap: 7, marginTop: 9 }}>
                     {CAP_TAGS.filter(([k]) => m.capabilities?.[k]).map(([k, label]) => <span className="tag" key={k}>{tr(label)}</span>)}
                     {m.capabilities?.reasoning_levels?.length > 0 && <span className="tag">{tr("Fikrlash:")} {m.capabilities.reasoning_levels.join(', ')}</span>}
@@ -151,7 +153,7 @@ export default function Catalog() {
                   </div>
                   <div className="mm">
                     <span className="mm-top"><span className="ico-chip ico-chip--sm"><IconZap /></span> {tr("Tezlik")}</span>
-                    <b>{tr(m.measured ? `${(m.measured.typical_latency_ms / 1000).toFixed(1)} s` : '—')}</b><span className="sub">{tr("(o'rtacha)")}</span>
+                    <SpeedFigure measured={m.measured} />
                   </div>
                   <div className="mm">
                     <span className="mm-top"><span className="ico-chip ico-chip--sm"><IconChart /></span> {tr("Sinov natijasi")}</span>
@@ -165,11 +167,11 @@ export default function Catalog() {
                       <span className="price-figs__cap">{tr("Narx (1M token uchun)")}</span>
                       <div>
                         <span className="ico-chip ico-chip--sm"><IconBox /></span>
-                        <div><b>{fmtNumber(m.price_in_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("Kirish")}</span></div>
+                        <div><b>{fmtNumber(m.price_in_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("Kiruvchi tokenlar")}</span></div>
                       </div>
                       <div>
                         <span className="ico-chip ico-chip--sm ico-chip--rose"><IconBox /></span>
-                        <div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("Chiqish")}</span></div>
+                        <div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("Chiquvchi tokenlar")}</span></div>
                       </div>
                     </div>
                   )}

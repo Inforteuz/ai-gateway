@@ -120,3 +120,13 @@ export function translateText(value, vars) {
   if (!Object.hasOwn(DICTS[FALLBACK_LANG], key)) return value
   return translate(key, vars)
 }
+
+
+/** A model's description in the current language. Russian and English come from
+ *  the admin (models.description_ru / _en); without one, the Uzbek text goes
+ *  through the dictionary as before. */
+export function modelDescription(m, lang = current) {
+  if (!m) return ''
+  const own = lang === 'ru' ? m.description_ru : lang === 'en' ? m.description_en : ''
+  return own || translateText(m.description || '')
+}

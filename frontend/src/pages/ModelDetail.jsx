@@ -1,10 +1,11 @@
-import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
+import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { CategoryChart, OverallChart } from '../components/BenchmarkChart.jsx'
 import { ErrorNote, Loading, useLoad } from '../components/ui.jsx'
 import { MICRO, fmtNumber } from '../format.js'
+import SpeedFigure from '../components/SpeedFigure.jsx'
 
 // Model capabilities, in the user's language, without internal jargon
 const CAPS = [
@@ -89,7 +90,7 @@ export default function ModelDetail() {
         <div>
           <Link to="/app/catalog" className="dim small">{tr("← Modellar")}</Link>
           <h1 style={{ marginTop: 6 }}>{tr(m.display_name)}</h1>
-          <p><code>{m.id}</code> &middot; {tr(m.description)}</p>
+          <p><code>{m.id}</code> &middot; {modelDescription(m)}</p>
         </div>
       </div>
 
@@ -119,7 +120,7 @@ export default function ModelDetail() {
         {measured && (
           <div className="metric">
             <span className="label">{tr("Odatdagi javob vaqti")}</span>
-            <b>{(measured.typical_latency_ms / 1000).toFixed(1)} {tr("s")}</b>
+            <SpeedFigure measured={measured} />
             <span className="trend">{tr("so'nggi")} {tr(measured.samples)} {tr("ta so'rov medianasi")}</span>
           </div>
         )}

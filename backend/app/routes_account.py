@@ -38,6 +38,13 @@ SPEED_SAMPLE_SIZE = 20
 # With fewer measurements than this no number is shown: a figure derived
 # from 1-2 requests is misleading.
 MIN_SPEED_SAMPLES = 5
+SPEED_TREND = 0.15
+
+
+def _median(values: list) -> float:
+    times = sorted(values)
+    mid = len(times) // 2
+    return times[mid] if len(times) % 2 else (times[mid - 1] + times[mid]) / 2
 
 
 def _real_speed(db: Database) -> dict[str, dict]:
@@ -62,17 +69,25 @@ def _real_speed(db: Database) -> dict[str, dict]:
         rows = db.all(
             f"SELECT status_code, latency_ms FROM usage_logs"
             f" WHERE model IN ({placeholders}) AND latency_ms IS NOT NULL"
-            f" ORDER BY id DESC LIMIT ?", (*names, SPEED_SAMPLE_SIZE * 3))
-        recent = list(rows)[: SPEED_SAMPLE_SIZE * 3]
-        ok_latencies = [r["latency_ms"] for r in recent if r["status_code"] == 200][:SPEED_SAMPLE_SIZE]
+            f" ORDER BY id DESC LIMIT ?", (*names, SPEED_SAMPLE_SIZE * 6))
+        recent = list(rows)
+        ok_all = [r["latency_ms"] for r in recent if r["status_code"] == 200]
+        ok_latencies = ok_all[:SPEED_SAMPLE_SIZE]
         if len(ok_latencies) < MIN_SPEED_SAMPLES:
             continue
-        times = sorted(ok_latencies)
-        mid = len(times) // 2
-        median = times[mid] if len(times) % 2 else (times[mid - 1] + times[mid]) / 2
+        median = _median(ok_latencies)
         total = len(recent[:SPEED_SAMPLE_SIZE])
+        # Trend: the latest window against the one before it. Within +-15% it is
+        # "steady" (request sizes vary, so smaller swings are noise).
+        previous = ok_all[SPEED_SAMPLE_SIZE:SPEED_SAMPLE_SIZE * 2]
+        before = _median(previous) if len(previous) >= MIN_SPEED_SAMPLES else None
+        trend = None
+        if before:
+            trend = "slower" if median > before * (1 + SPEED_TREND) else "faster" if median < before * (1 - SPEED_TREND) else "steady"
         out[new] = {
             "typical_latency_ms": round(median),
+            "previous_latency_ms": round(before) if before else None,
+            "trend": trend,
             "success_rate": round(len(ok_latencies) / total, 3) if total else None,
             "samples": len(ok_latencies),
         }

@@ -1743,4 +1743,11 @@ export default {
   "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.": "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.",
   "Yuklama zaxirasi (pool modeli)": "Yuklama zaxirasi (pool modeli)",
   "Brauzer modelida bo'sh tab qolmasa, so'rov navbatda kutmasdan shu modelga ketadi. Narx so'ralgan modelniki. Bo'sh qoldirilsa o'chadi.": "Brauzer modelida bo'sh tab qolmasa, so'rov navbatda kutmasdan shu modelga ketadi. Narx so'ralgan modelniki. Bo'sh qoldirilsa o'chadi.",
+  "Kiruvchi tokenlar": "Kiruvchi tokenlar",
+  "Chiquvchi tokenlar": "Chiquvchi tokenlar",
+  "sekinlashdi": "sekinlashdi",
+  "tezlashdi": "tezlashdi",
+  "Oldin": "Oldin",
+  "Tavsif (ruscha)": "Tavsif (ruscha)",
+  "Tavsif (inglizcha)": "Tavsif (inglizcha)",
 }

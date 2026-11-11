@@ -44,9 +44,11 @@ SKIP_PG = {"schema_meta"}
 # `key_hash` still authenticates every key, so nothing stops working after a rollback.
 # Stand-in model (v8): losing it means a failing model stops falling back to another,
 # which is how the old code behaved anyway.
+# Russian and English model descriptions (v10): the old code shows the Uzbek one only.
 DROPPABLE_ON_EXPORT = {("usage_logs", "attribution"),("users", "ref_code"), ("users", "signup_device"), ("users", "referral_paused"),
                        ("topup_requests", "tg_chat_id"), ("topup_requests", "tg_message_id"),
-                       ("api_keys", "secret_enc"), ("models", "fallback_to")}
+                       ("api_keys", "secret_enc"), ("models", "fallback_to"),
+                       ("models", "description_ru"), ("models", "description_en")}
 
 
 class Abort(Exception):

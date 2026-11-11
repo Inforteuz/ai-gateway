@@ -11,7 +11,7 @@ function Row({ m, others, onSaved }) {
   useLocaleRefresh()
   const toast = useToast()
   const initial = {
-    display_name: m.display_name, description: m.description || '', price_in: String(microToSom(m.price_in_per_1m)), price_out: String(microToSom(m.price_out_per_1m)),
+    display_name: m.display_name, description: m.description || '', description_ru: m.description_ru || '', description_en: m.description_en || '', price_in: String(microToSom(m.price_in_per_1m)), price_out: String(microToSom(m.price_out_per_1m)),
     context_window: String(m.context_window), enabled: m.enabled, listed: m.listed, refine: m.refine,
     default_reasoning: m.default_reasoning || '', fallback_price_from: m.fallback_price_from || '', allow_thinking: m.allow_thinking,
   }
@@ -23,7 +23,7 @@ function Row({ m, others, onSaved }) {
     setBusy(true)
     try {
       await api.patch(`/portal/admin/models/${encodeURIComponent(m.id)}`, {
-        display_name: f.display_name, description: f.description, price_in_per_1m: somToMicro(f.price_in), price_out_per_1m: somToMicro(f.price_out),
+        display_name: f.display_name, description: f.description, description_ru: f.description_ru, description_en: f.description_en, price_in_per_1m: somToMicro(f.price_in), price_out_per_1m: somToMicro(f.price_out),
         context_window: Number(f.context_window), enabled: f.enabled, listed: f.listed, refine: f.refine,
         default_reasoning: f.default_reasoning || null, fallback_price_from: f.fallback_price_from || null, allow_thinking: f.allow_thinking,
       })
@@ -51,6 +51,8 @@ function Row({ m, others, onSaved }) {
       </div>
       <div className="form form--row" style={{ marginTop: 14, alignItems: 'end' }}>
         <label className="field">{tr("Tavsif")}<input className="input" value={f.description} onChange={set('description')} maxLength={300} /></label>
+        <label className="field">{tr('Tavsif (ruscha)')}<input className="input" lang="ru" value={f.description_ru} onChange={set('description_ru')} maxLength={300} /></label>
+        <label className="field">{tr('Tavsif (inglizcha)')}<input className="input" lang="en" value={f.description_en} onChange={set('description_en')} maxLength={300} /></label>
         {m.provider === 'local' && f.allow_thinking && (
           <label className="field">{tr("Standart fikrlash")} <select className="input" value={f.default_reasoning} onChange={set('default_reasoning')}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{tr(l)}</option>)}</select>
           </label>

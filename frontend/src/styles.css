@@ -3001,3 +3001,9 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .top-users td.num { white-space: nowrap; }
+
+/* Live model speed: red when it slowed down, green when it sped up (with a mark
+   and a word, so color is not the only signal). */
+.speed--slower { color: var(--danger); }
+.speed--faster { color: var(--ok); }
+.speed__mark { font-size: 0.7em; vertical-align: 0.15em; }
