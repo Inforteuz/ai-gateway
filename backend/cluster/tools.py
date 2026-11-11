@@ -39,8 +39,10 @@ log = logs.get("tools")
 # The model can answer the YAML protocol with JSON or native OpenAI-shaped
 # function objects. Both are data, and both must keep the same allowlist.
 _FENCE = re.compile(r"```(?:ya?ml|json)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
-# A bare "tool_calls:" block start (for the unfenced case)
-_BARE = re.compile(r"(?:^|\n)((?:actions|tool_calls|calls):\s*\n(?:[ \t]+.*\n?)+)",
+# A bare "tool_calls:" block start (for the unfenced case). Blank lines belong to the block:
+# a multi-line `cmd: |` value (heredoc, file text) has them, and stopping at the first one
+# cut the command silently (Terminal-Bench pilot, 2026-11-12: `cat > f << 'EOF'` lost its body).
+_BARE = re.compile(r"(?:^|\n)((?:actions|tool_calls|calls):[ \t]*\n(?:[ \t]+[^\n]*\n?|[ \t]*\n)+)",
                    re.MULTILINE)
 
 _MAX_TOOL_CALLS = 8
@@ -459,9 +461,14 @@ def _call_target(call):
 def _successful_tool_result(content: Any) -> bool:
     """Conservatively recognize a completed tool result without storing it."""
     text = str(content or "")
+    # Erring towards "failed" only lets the agent retry; erring towards "succeeded" ends its
+    # turn with the loop notice. Codex reports "Process exited with code 1" and refusals
+    # ("approval policy is Never; reject command"), which the old list did not catch.
     return not re.search(
         r"error|failed|failure|not found|no such file|denied|permission denied|"
-        r"non.?zero|exit code:\s*[1-9]",
+        r"non.?zero|exit code:?\s*[1-9]|exited with code\s*[1-9]|exit status\s*[1-9]|"
+        r"reject|refus|not allowed|not permitted|cannot|can't|unable to|invalid|"
+        r"warning:|traceback|exception|timed out|aborted|requires an explicit|missing required|is required",
         text,
         re.I,
     )
