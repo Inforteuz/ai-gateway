@@ -587,6 +587,7 @@ class SettingsIn(BaseModel):
     pool_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
     pool_api_key: str | None = Field(default=None, max_length=300)
     clear_pool_api_key: bool = False
+    pool_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
     # --- Sign-in via Google and Telegram ---
     site_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
     google_client_id: str | None = Field(default=None, max_length=300)

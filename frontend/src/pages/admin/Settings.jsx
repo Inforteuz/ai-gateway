@@ -45,7 +45,7 @@ export default function Settings() {
       refModel: data.refiner_model || '', refTimeout: String(data.refine_timeout ?? 25),
       clBase: data.cluster_base_url || '', clKey: '', clSet: data.cluster_api_key_set,
       clFallback: !!data.cluster_fallback_enabled,
-      poolBase: data.pool_base_url || '', poolKey: '', poolSet: data.pool_api_key_set,
+      poolBase: data.pool_base_url || '', poolKey: '', poolSet: data.pool_api_key_set, poolSpill: data.pool_spill_model ?? '',
       fastOn: data.fastpath_enabled !== false, fastModel: data.fastpath_model || tr("qwen3:14b"),
       siteBase: data.site_base_url || '', gId: data.google_client_id || '', gSecret: '',
       gSet: data.google_client_secret_set, tgLogin: !!data.telegram_login_enabled,
@@ -73,7 +73,7 @@ export default function Settings() {
         external_base_url: f.extBase, refiner_model: f.refModel, refine_timeout: Number(f.refTimeout) || 25,
         ...(f.extKey ? { external_api_key: f.extKey } : {}),
         cluster_base_url: f.clBase, ...(f.clKey ? { cluster_api_key: f.clKey } : {}),
-        pool_base_url: f.poolBase, ...(f.poolKey ? { pool_api_key: f.poolKey } : {}),
+        pool_base_url: f.poolBase, ...(f.poolKey ? { pool_api_key: f.poolKey } : {}), pool_spill_model: f.poolSpill,
         cluster_fallback_enabled: f.clFallback, status_public_since: f.statusSince,
         fastpath_enabled: f.fastOn, fastpath_model: f.fastModel,
         site_base_url: f.siteBase, google_client_id: f.gId, telegram_login_enabled: f.tgLogin,
@@ -235,6 +235,9 @@ export default function Settings() {
             <p className="muted small" style={{ marginBottom: 10 }}>{tr("Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.")}</p>
             <label className="field">{tr('Pool manzili')}<input className="input" value={f.poolBase} onChange={set('poolBase')} placeholder="http://gemini-pool:8088/v1" /></label>
             <label className="field" style={{ marginTop: 12 }}>{tr('Pool tokeni (Bearer)')} <PasswordInput autoComplete="off" value={f.poolKey} onChange={set('poolKey')} placeholder={f.poolSet ? tr("Saqlangan (o'zgartirish uchun yangisini kiriting)") : 'pool-token'} /></label>
+            <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr('Yuklama zaxirasi (pool modeli)')} <input className="input" value={f.poolSpill} onChange={set('poolSpill')} placeholder="gemini-zaxira" />
+              <span className="hint">{tr("Brauzer modelida bo'sh tab qolmasa, so'rov navbatda kutmasdan shu modelga ketadi. Narx so'ralgan modelniki. Bo'sh qoldirilsa o'chadi.")}</span>
+            </label>
             {f.poolSet && <div style={{ marginTop: 12 }}><button type="button" className="btn btn--small btn--danger" onClick={clearPoolKey}>{tr("Kalitni o'chirish")}</button></div>}
           </div>
 

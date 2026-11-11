@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import admission, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted, routing
+from . import admission, capacity, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted, routing
 from .common import ApiError, FALLBACK_SUFFIX, client_ip
 from .db import Database, now
 
@@ -579,6 +579,23 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             model = {**model, "public_id": public_id}
             log.info("%s route: %s -> %s chars=%d (%s)", route_meta.get("route_reason", "size"),
                      price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
+    # Load spill (app/capacity.py): the browser model about to take this request has
+    # no free tab, so the key pool answers now instead of the request queueing.
+    # Attachments and web search stay on the cluster: the pool passes neither.
+    if (endpoint == "chat/completions" and not force_model and model["provider"] == "cluster"
+            and not count_attachments(body) and body.get("web_search") is None):
+        spill = await capacity.pool_spill_target(state, db, settings, model)
+        if spill:
+            source = price_source or model
+            log.info("capacity route: %s (%s busy) -> %s (%s)", source["id"], model["upstream_name"], spill["id"], request_id)
+            price_source = source
+            # If the pool fails before answering, the request goes back to the
+            # browser model it came from and waits for a tab after all.
+            # Priced as the requested model: price_ceiling takes the lower of the two,
+            # and the pool row's own price must not decide what the client pays.
+            model = {**spill, "public_id": public_id, "fallback_to": source["id"],
+                     "price_in_per_1m": source["price_in_per_1m"], "price_out_per_1m": source["price_out_per_1m"]}
+            route_meta = {**route_meta, "route_reason": "capacity", "source_model": source["id"]}
     # Sable 3.0 uses the larger coder model.  Tiny text-only turns do not need
     # it and are noticeably faster on Sable 2.0; keep code, tool, attachment,
     # and explicit reasoning turns on the requested model.

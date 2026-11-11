@@ -1741,4 +1741,6 @@ export default {
   "Pool manzili": "Адрес пула",
   "Pool tokeni (Bearer)": "Токен пула (Bearer)",
   "Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.": "Сервис, объединяющий несколько API-ключей за одним OpenAI-совместимым адресом. Модели с провайдером «pool» отправляются сюда.",
+  "Yuklama zaxirasi (pool modeli)": "Резерв при нагрузке (модель пула)",
+  "Brauzer modelida bo'sh tab qolmasa, so'rov navbatda kutmasdan shu modelga ketadi. Narx so'ralgan modelniki. Bo'sh qoldirilsa o'chadi.": "Если у браузерной модели нет свободной вкладки, запрос сразу уходит на эту модель, не дожидаясь очереди. Цена — как у запрошенной модели. Пустое поле — выключено.",
 }

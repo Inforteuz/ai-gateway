@@ -102,6 +102,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # from "external", which the answer verifier (refine) uses.
     "pool_base_url": "http://gemini-pool:8088/v1",
     "pool_api_key": "",             # bearer token the pool expects (write-only, never returned)
+    "pool_spill_model": "gemini-zaxira",   # pool model that takes requests when the browser model has no free tab; "" = off
     "refiner_model": "",  # verifier model (name at the external provider)
     "refine_timeout": "15",         # max verification time (seconds); the draft is returned after that
     "free_mode": "0",               # 1 = free mode: nothing is charged, balance/pricing sections are hidden
