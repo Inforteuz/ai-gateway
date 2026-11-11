@@ -3518,3 +3518,64 @@ html .cmp-warn > :first-child { font-family: var(--font-display); }
 @media (max-width: 1300px) { .main .docs-layout { grid-template-columns: minmax(0, 1fr); } }
 /* Admin figures that are words ("no data") instead of numbers stay one size smaller */
 .metric b { overflow-wrap: anywhere; }
+
+/* ---------- Playground: text / video switch and the video studio (components/VideoStudio.jsx) ---------- */
+.pg-modes {
+  display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 16px;
+  border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--bg-elev);
+}
+.pg-modes button {
+  border: 0; background: none; padding: 7px 18px; border-radius: var(--radius-pill);
+  font: 600 0.9rem var(--font-sans); color: var(--fg-muted); cursor: pointer;
+}
+.pg-modes button.is-on { background: var(--ink); color: var(--on-ink); }
+.pg-modes button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.vs { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+.vs-form {
+  position: sticky; top: 16px; display: grid; gap: 14px; padding: 16px;
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elev);
+}
+.vs-form textarea { resize: vertical; min-height: 110px; }
+.vs-hint { color: var(--fg-subtle); font-size: 0.8rem; line-height: 1.45; font-weight: 400; }
+.vs-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; width: max-content; }
+.vs-seg button { border: 0; background: var(--bg-elev); padding: 8px 16px; font: 600 0.86rem var(--font-mono); color: var(--fg-muted); cursor: pointer; }
+.vs-seg button.is-on { background: var(--primary-wash); color: var(--primary); }
+.vs-thumb { display: flex; align-items: center; gap: 10px; }
+.vs-thumb img { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--border); }
+
+.vs-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.vs-card {
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elev); overflow: hidden;
+  animation: pg-in 0.24s ease-out both;
+}
+.vs-video { display: block; width: 100%; background: #000; aspect-ratio: 16 / 9; }
+.vs-stage { aspect-ratio: 16 / 9; display: grid; place-items: center; background: var(--bg-sunken); padding: 16px; }
+.vs-stage.is-portrait { aspect-ratio: 9 / 16; max-height: 360px; margin: 0 auto; width: 100%; }
+.vs-rendering { display: grid; gap: 8px; justify-items: center; text-align: center; color: var(--fg-muted); font-size: 0.88rem; width: 100%; }
+.vs-rendering b { font: 600 0.88rem var(--font-mono); color: var(--fg); margin-left: 4px; }
+.vs-rendering small { color: var(--fg-subtle); }
+.vs-bar { width: 70%; height: 4px; border-radius: 2px; background: var(--border); position: relative; overflow: hidden; }
+.vs-bar::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: 2px; background: var(--primary);
+  animation: vs-slide 1.4s ease-in-out infinite;
+}
+@keyframes vs-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.vs-error { color: var(--danger); font-size: 0.88rem; text-align: center; margin: 0; }
+.vs-meta { padding: 12px 14px; display: grid; gap: 6px; }
+.vs-prompt { margin: 0; font-size: 0.9rem; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.vs-row { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: var(--fg-subtle); }
+.vs-row a { color: var(--primary); font-weight: 600; }
+.vs-empty {
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); padding: 48px 20px;
+  text-align: center; color: var(--fg-muted);
+}
+@media (max-width: 900px) {
+  .vs { grid-template-columns: 1fr; }
+  .vs-form { position: static; }
+}
+@media (prefers-reduced-motion: reduce) { .vs-bar::after, .vs-card { animation: none; } }
+
+.vs-card img.is-image { display: block; width: 100%; height: auto; background: var(--bg-sunken); }
+.vs-stage.is-square { aspect-ratio: 1 / 1; }
+.vs-list > .vs-empty { grid-column: 1 / -1; }

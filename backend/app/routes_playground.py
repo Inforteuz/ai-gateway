@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import directions, gateway, security
+from . import directions, gateway, security, videos
 from .common import FALLBACK_SUFFIX, ApiError, csrf_guard, require_user
 from .db import Database, now
 
@@ -110,3 +110,48 @@ def receipt(request_id: str, request: Request, user=Depends(require_user)):
         "cost": sum(r["cost"] for r in rows), "latency_ms": last["latency_ms"], "ttfb_ms": last["ttfb_ms"],
         "balance": wallet["balance"] if wallet else 0,
     }
+
+
+# --- video (2026-11-12): the same /v1/videos jobs, through the session and the hidden playground key ----------
+async def _as_playground(request: Request, user: dict) -> None:
+    request.state.playground_key_id = await run_in_threadpool(playground_key, request.app.state.db, user["id"])
+
+
+@router.post("/videos")
+async def create_video(request: Request, user=Depends(require_user)):
+    """Queues a clip paid from the user's balance (body as for POST /v1/videos: model, prompt, size,
+    optional input_reference data URI). The job is the same row the public API uses."""
+    await _as_playground(request, user)
+    return await videos.create_video(request)
+
+
+@router.get("/videos/{video_id}")
+async def video_status(video_id: str, request: Request, user=Depends(require_user)):
+    await _as_playground(request, user)
+    return await videos.retrieve_video(video_id, request)
+
+
+@router.get("/videos/{video_id}/content")
+async def video_file(video_id: str, request: Request, user=Depends(require_user)):
+    await _as_playground(request, user)
+    return await videos.video_content(video_id, request)
+
+
+# --- images (2026-11-12): /v1/images/generations through the session, same billing as the API ----------------
+class ImageIn(BaseModel):
+    model: str = Field(min_length=1, max_length=80)
+    prompt: str = Field(min_length=1, max_length=4000)
+    size: Literal["1024x1024", "1024x1536", "1536x1024"] | None = None
+
+
+@router.post("/images")
+async def create_image(body: ImageIn, request: Request, user=Depends(require_user)):
+    db: Database = request.app.state.db
+    if not await run_in_threadpool(_listed, db, body.model):
+        raise ApiError(404, "model_not_found", "Model topilmadi.")
+    request.state.playground_key_id = await run_in_threadpool(playground_key, db, user["id"])
+    payload = {"model": body.model, "prompt": body.prompt.strip(), "n": 1}
+    if body.size:
+        payload["size"] = body.size
+    request.state.translated_body = json.dumps(payload, ensure_ascii=False).encode()
+    return await gateway.proxy(request, "images/generations")

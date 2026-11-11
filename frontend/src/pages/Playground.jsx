@@ -7,6 +7,8 @@ import { apiOrigin } from '../site.js'
 import { CodeTabs, ErrorNote, Loading, Modal, PageHead, useLoad } from '../components/ui.jsx'
 import { IconCode, IconPlus, IconSend } from '../components/icons.jsx'
 import { Markdown } from '../components/Markdown.jsx'
+import VideoStudio from '../components/VideoStudio.jsx'
+import ImageStudio from '../components/ImageStudio.jsx'
 import { fmtInt, fmtSom } from '../format.js'
 
 /**
@@ -179,7 +181,12 @@ export default function Playground() {
   const [balance, setBalance] = useState(null)
   const shownBalance = useTicker(balance)
 
-  const items = (models.data?.items || []).filter((m) => !m.maintenance)
+  const all = (models.data?.items || []).filter((m) => !m.maintenance)
+  // Video models take a description, not a chat: they live in the Video tab
+  const items = all.filter((m) => !m.capabilities?.video_generation)
+  const videoItems = all.filter((m) => m.capabilities?.video_generation)
+  const imageItems = items.filter((m) => m.capabilities?.image_generation)
+  const [mode, setMode] = useState('text')
   useEffect(() => { if (summary.data) setBalance(summary.data.balance) }, [summary.data])
   useEffect(() => {
     if (items.length && !items.some((m) => m.id === s.model)) setS((v) => ({ ...v, model: items[0].id }))
@@ -300,7 +307,21 @@ export default function Playground() {
           <span>{tr('Hisob')}</span><b>{shownBalance == null ? '—' : fmtSom(shownBalance)}</b>
         </div>}
       />
-      {models.error ? <ErrorNote error={models.error} retry={models.reload} /> : !models.data ? <Loading rows={4} /> : (
+      {models.data && (videoItems.length > 0 || imageItems.length > 0) && (
+        <div className="pg-modes" role="tablist" aria-label={tr('Playground turi')}>
+          {[['text', 'Matn'], ...(imageItems.length ? [['image', 'Rasm']] : []), ...(videoItems.length ? [['video', 'Video']] : [])].map(([v, label]) => (
+            <button key={v} type="button" role="tab" aria-selected={mode === v} className={mode === v ? 'is-on' : ''}
+              onClick={() => setMode(v)}>{tr(label)}</button>
+          ))}
+        </div>
+      )}
+      {models.error ? <ErrorNote error={models.error} retry={models.reload} /> : !models.data ? <Loading rows={4} /> : mode === 'video' ? (
+        <VideoStudio models={videoItems} userId={user?.id}
+          onCharged={() => api.get('/portal/account/summary').then((r) => setBalance(r.balance)).catch(() => {})} />
+      ) : mode === 'image' ? (
+        <ImageStudio models={imageItems}
+          onCharged={() => api.get('/portal/account/summary').then((r) => setBalance(r.balance)).catch(() => {})} />
+      ) : (
         <div className="pg-grid">
           <aside className="pg-bench">
             <details className="pg-bench__fold" open={wide}>

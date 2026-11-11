@@ -124,3 +124,66 @@ def test_receipt_only_reads_own_rows(env):
     _login(env, "other@test.uz")
     assert env.client.get(f"/portal/playground/receipt/{rid}").json() == {"ready": False}
     assert env.client.get("/portal/playground/receipt/not-an-id").status_code == 400
+
+
+# --- video tab ---------------------------------------------------------------------------------------------
+def test_playground_video_job_uses_the_session_and_the_users_balance(env):
+    import base64
+    from fastapi import FastAPI
+    from app import catalog, videos
+    assert catalog.VIDEO_UPSTREAMS == videos.VIDEO_UPSTREAMS
+    clip = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 32
+    cl = FastAPI()
+
+    @cl.post("/v1/videos/generations")
+    async def gen():
+        return {"model": "flow", "data": [{"b64_mp4": base64.b64encode(clip).decode(), "mime_type": "video/mp4",
+                                           "seconds": 8, "size": "1280x720"}]}
+    env.app.state.cluster_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=cl), base_url="http://cluster")
+    env.db.set_setting("cluster_base_url", "http://cluster/v1")
+    add_model(env, "vid-1", upstream="flow", provider="cluster", price_in=0, price_out=5_000 * 1_000_000)
+    uid = _login(env, balance_som=20_000)
+    item = next(m for m in env.client.get("/portal/models").json()["items"] if m["id"] == "vid-1")
+    assert item["capabilities"]["video_generation"] is True
+    assert env.client.post("/portal/playground/videos", json={"model": "vid-1", "prompt": "x"}).status_code == 403   # CSRF
+    r = env.client.post("/portal/playground/videos", headers=CSRF, json={"model": "vid-1", "prompt": "a kitten"})
+    assert r.status_code == 200, r.text
+    vid = r.json()["id"]
+    import time
+    for _ in range(100):
+        st = env.client.get(f"/portal/playground/videos/{vid}").json()["status"]
+        if st in ("completed", "failed"):
+            break
+        time.sleep(0.05)
+    assert st == "completed"
+    assert env.client.get(f"/portal/playground/videos/{vid}/content").content == clip
+    row = env.db.one("SELECT k.kind FROM video_jobs j JOIN api_keys k ON k.id=j.key_id WHERE j.id=?", (vid,))
+    assert row["kind"] == "playground"
+    assert wallet(env, uid)[0] == (20_000 - 5_000) * 1_000_000
+
+
+def test_playground_image_is_paid_from_the_balance(env):
+    import base64
+    from fastapi import FastAPI
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    cl = FastAPI()
+
+    @cl.post("/v1/images/generations")
+    async def gen(request: Request):
+        body = await request.json()
+        assert body["n"] == 1 and body["prompt"] == "a red fox"
+        return {"created": 1, "data": [{"b64_json": base64.b64encode(png).decode(), "mime_type": "image/png"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 1000}}
+    env.app.state.cluster_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=cl), base_url="http://cluster")
+    env.db.set_setting("cluster_base_url", "http://cluster/v1")
+    env.db.set_setting("fastpath_enabled", "0")
+    add_model(env, "img-1", upstream="gemini", provider="cluster")
+    uid = _login(env)
+    before = wallet(env, uid)[0]
+    r = env.client.post("/portal/playground/images", headers=CSRF, json={"model": "img-1", "prompt": "a red fox"})
+    assert r.status_code == 200, r.text
+    assert base64.b64decode(r.json()["data"][0]["b64_json"]) == png
+    rid = r.headers["x-request-id"]
+    rec = env.client.get(f"/portal/playground/receipt/{rid}").json()
+    assert rec["ready"] and rec["cost"] > 0 and wallet(env, uid)[0] == before - rec["cost"]
+    assert env.client.post("/portal/playground/images", headers=CSRF, json={"model": "nope", "prompt": "x"}).status_code == 404

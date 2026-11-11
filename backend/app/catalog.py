@@ -61,6 +61,10 @@ VERIFICATION_POLICY = {
 }
 
 
+# Same set as app/videos.VIDEO_UPSTREAMS (kept here to avoid an import cycle; a test checks they match)
+VIDEO_UPSTREAMS = frozenset({"flow", "flow-pro"})
+
+
 def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
                  health: dict | None = None) -> dict:
     """Public description. The internal name (upstream_name), provider and parameter count are NOT included.
@@ -72,7 +76,11 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
     """
     third_party_provider = r["provider"] in ("external", "cluster", "pool")
     checked = bool(r["refine"])
-    if r["provider"] == "cluster":
+    if r["provider"] == "cluster" and r["upstream_name"] in VIDEO_UPSTREAMS:
+        # Video models (Google Flow via the cluster, app/videos.py): one clip per request, priced per clip
+        extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": False,
+                 "video_generation": True}
+    elif r["provider"] == "cluster":
         extra = _cluster_caps(r["upstream_name"])
     elif r["provider"] == "local":
         # Ollama models officially support OpenAI tools (verified with opencode/aider/Qwen Code).
