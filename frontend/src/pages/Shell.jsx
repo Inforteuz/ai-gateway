@@ -1,6 +1,6 @@
 import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
-import { useEffect, useState } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { useT } from '../i18n/index.jsx'
@@ -29,6 +29,16 @@ export default function Shell() {
   const t = useT()
   const [pending, setPending] = useState(0)
   const isAdmin = user.role === 'admin'
+  const navRef = useRef(null)
+  const { pathname } = useLocation()
+
+  // On phones the menu is one scrolling row: bring the current page's link into view.
+  useEffect(() => {
+    const el = navRef.current
+    const on = el?.querySelector('.rail-link.is-active')
+    if (!el || !on || el.scrollWidth <= el.clientWidth) return
+    el.scrollLeft = on.offsetLeft - el.offsetLeft - 12
+  }, [pathname])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -46,7 +56,7 @@ export default function Shell() {
       <TopBar />
       <div className="shell">
         <aside className="rail">
-          <nav className="rail-nav" aria-label={t('shell.navLabel')}>
+          <nav className="rail-nav" ref={navRef} aria-label={t('shell.navLabel')}>
             <RailLink to="/app" end icon={<IconHome />}>{t('shell.overview')}</RailLink>
             <RailLink to="/app/keys" icon={<IconKey />}>{t('shell.keys')}</RailLink>
             <RailLink to="/app/playground" icon={<IconZap />}>{t('shell.playground')}</RailLink>

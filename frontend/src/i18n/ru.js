@@ -400,6 +400,9 @@ export default {
   'dash.recentLead': 'Последние запросы к API',
   'dash.all': 'Все',
   'dash.recentEmpty': 'Запросов пока нет. После первого запроса он появится здесь.',
+  'dash.stubTitle': 'Счёт за месяц',
+  'dash.stubToday': 'Сегодня',
+  'dash.stubTodaySpent': 'потрачено сегодня',
 
   'chart.aria': 'Диаграмма дневных показателей',
   'chart.tokens': 'токенов: {n}',

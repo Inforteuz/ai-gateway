@@ -6,7 +6,7 @@ import FreeQuota from '../components/FreeQuota.jsx'
 import { useAuth } from '../auth.js'
 import { Empty, ErrorNote, Loading, PageHead, Pager, useLoad, useToast } from '../components/ui.jsx'
 import {
-  IconArrowRight, IconChart, IconClock, IconHeadset, IconSend, IconShield, IconWallet, IconZap,
+  IconArrowRight, IconPlus, IconSend,
 } from '../components/icons.jsx'
 import { fmtDateTime, fmtNumber, fmtSom, somToMicro, ledgerNote } from '../format.js'
 
@@ -64,21 +64,19 @@ export default function Billing() {
           {s && (
             <div className="balance-card">
               <div className="hstack" style={{ gap: 18, flexWrap: 'nowrap' }}>
-                <span className="ico-chip ico-chip--lg"><IconWallet /></span>
                 <div className="balance-big">
                   <span className="label">{tr("Joriy balansingiz")}</span>
                   <span className="figure">{fmtSom(s.balance, { unit: false })}<small>{tr("so'm")}</small></span>
                   {s.held > 0 && <span className="note">{tr("Shundan")} {fmtSom(s.held)} {tr("hozir bajarilayotgan so'rovlar uchun band.")}</span>}
                 </div>
               </div>
-              <a className="btn btn--brand btn--large" href="#toldirish"><IconZap /> {tr("Hisobni to'ldirish")}</a>
+              <a className="btn btn--large" href="#toldirish"><IconPlus /> {tr("Hisobni to'ldirish")}</a>
             </div>
           )}
           <FreeQuota quota={s?.free_daily} />
 
           <section className="panel" id="toldirish">
             <div className="panel-head">
-              <span className="ico-chip"><IconWallet /></span>
               <div className="panel-head__t" style={{ flex: 1 }}>
                 <h2>{tr("Hisobni to'ldirish")}</h2>
                 <p>{tr("Quyidagi ma'lumotlar asosida to'lov qilib, balansingizni to'ldiring.")}</p>
@@ -133,10 +131,9 @@ export default function Billing() {
           </section>
         </div>
 
-        <div className="vstack">
-          <section className="panel">
+        <aside className="panel aside-stack">
+          <section className="aside-sec">
             <div className="panel-head">
-              <span className="ico-chip"><IconChart /></span>
               <div className="panel-head__t" style={{ flex: 1 }}>
                 <h2>{tr("Doimiy online")}</h2>
                 <p>{tr("Balansingiz yetarli bo'lsa, API so'rovlaringiz uzluksiz ishlaydi.")}</p>
@@ -144,9 +141,8 @@ export default function Billing() {
             </div>
           </section>
 
-          <section className="panel">
+          <section className="aside-sec">
             <div className="panel-head">
-              <span className="ico-chip"><IconClock /></span>
               <div className="panel-head__t" style={{ flex: 1 }}><h2>{tr("So'nggi so'rov")}</h2></div>
             </div>
             {!last && <p className="muted small">{tr("Hali to'ldirish so'rovi yubormagansiz.")}</p>}
@@ -162,12 +158,11 @@ export default function Billing() {
             )}
           </section>
 
-          <section className="panel">
+          <section className="aside-sec">
             <div className="panel-head">
-              <span className="ico-chip"><IconShield /></span>
               <div className="panel-head__t" style={{ flex: 1 }}><h2>{tr("Muhim ma'lumotlar")}</h2></div>
             </div>
-            <div className="steps-card steps-card--mint">
+            <div className="steps-list">
               <div className="step-row">
                 <span className="step-no step-no--ok">1</span>
                 <div><b>{tr("To'lovni faqat yuqoridagi ma'lumotlar bo'yicha qiling.")}</b><p>{tr("Boshqa rekvizitlarga qilingan to'lovlar hisobga olinmaydi.")}</p></div>
@@ -183,13 +178,12 @@ export default function Billing() {
             </div>
           </section>
 
-          <section className="help-card">
-            <span className="ico-chip ico-chip--sky"><IconHeadset /></span>
+          <section className="aside-sec aside-sec--help">
             <b>{tr("Savollaringiz bormi?")}</b>
             <p>{tr("To'lov bilan bog'liq savollar uchun administrator bilan bog'laning.")}</p>
             <Link to="/app/docs" className="btn btn--small"><IconSend /> {tr("Hujjatlarni ochish")}</Link>
           </section>
-        </div>
+        </aside>
       </div>
 
       {/* div, not section: `.block:first-of-type` zeroes the top margin, and as a section it would be the first section on the page */}

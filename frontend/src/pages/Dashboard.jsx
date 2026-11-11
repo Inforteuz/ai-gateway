@@ -7,10 +7,9 @@ import BarChart from '../components/BarChart.jsx'
 import ModelBreakdown from '../components/ModelBreakdown.jsx'
 import RequestList from '../components/RequestList.jsx'
 import { useT } from '../i18n/index.jsx'
-import { ErrorNote, Loading, PageHead, StatCard, useLoad } from '../components/ui.jsx'
+import { ErrorNote, Loading, PageHead, useLoad } from '../components/ui.jsx'
 import {
-  IconArrowRight, IconCalendar, IconCard, IconCoins, IconKey, IconPlus,
-  IconTrendDown, IconTrendUp, IconZap,
+  IconArrowRight, IconCalendar, IconKey, IconPlus,
 } from '../components/icons.jsx'
 import { fmtDateLong, fmtInt, fmtSom, MICRO } from '../format.js'
 
@@ -49,42 +48,45 @@ export default function Dashboard() {
       />
 
       {model.data?.items?.some((item) => item.state === 'down') && (
-        <div className="alert alert--warn" style={{ marginBottom: 20 }}>{t('dash.someModelsOffline')} <Link to="/status">{t('dash.statusPage')}</Link></div>
+        <div className="alert alert--warn" style={{ marginBottom: 20 }}><span>{t('dash.someModelsOffline')} <Link to="/status">{t('dash.statusPage')}</Link></span></div>
       )}
       <ErrorNote error={sum.error} retry={sum.reload} />
       {!s && !sum.error && <Loading />}
       {s && (
         <>
-          <div className="balance-card">
-            <div className="balance-big">
-              {freeMode
-                ? (<><span className="label">{t('dash.usageLabel')}</span><span className="figure">{t('common.free')}</span><span className="note">{t('dash.freeNote')}</span></>)
-                : (<>
-                    <span className="label">{t('dash.balance')}</span>
-                    <span className="figure">{fmtSom(s.balance, { unit: false })}<small>{t('common.som')}</small></span>
-                    <span className="note">{t('dash.balanceNote')}</span>
-                  </>)}
+          <div className="dash-top">
+            <div className="balance-card">
+              <div className="balance-big">
+                {freeMode
+                  ? (<><span className="label">{t('dash.usageLabel')}</span><span className="figure">{t('common.free')}</span><span className="note">{t('dash.freeNote')}</span></>)
+                  : (<>
+                      <span className="label">{t('dash.balance')}</span>
+                      <span className="figure">{fmtSom(s.balance, { unit: false })}<small>{t('common.som')}</small></span>
+                      <span className="note">{t('dash.balanceNote')}</span>
+                    </>)}
+              </div>
+              <div className="balance-actions">
+                {!freeMode && <Link className="btn btn--primary btn--large" to="/app/billing"><IconPlus /> {t('dash.topUp')}</Link>}
+                <Link className="btn btn--large" to="/app/keys"><IconKey /> {t('dash.activeKeys')}: {fmtInt(s.active_keys)}</Link>
+              </div>
             </div>
-            {!freeMode && <Link className="btn btn--primary btn--large" to="/app/billing"><IconPlus /> {t('dash.topUp')} <IconArrowRight /></Link>}
-          </div>
 
-          <div className="metric-grid" style={{ marginTop: 18 }}>
-            {!freeMode && (
-              <StatCard icon={<IconCoins />} label={t('dash.spentMonth')}
-                        value={fmtSom(s.month.cost, { unit: false })} unit={t('common.som')}
-                        note={t('dash.currentMonth')} />
-            )}
-            <StatCard icon={<IconZap />} label={t('dash.requests')} value={fmtInt(s.month.requests)} unit={t('dash.thisMonth')}
-                      trend={<><IconTrendUp /> {fmtInt(s.today.requests)}</>} trendDir="up" note={t('dash.today')} />
-            <StatCard icon={<IconCard />} label={t('dash.tokens')} value={fmtInt(s.month.tokens)} note={t('dash.monthTotal')} />
-            <StatCard icon={<IconKey />} label={t('dash.activeKeys')} value={fmtInt(s.active_keys)} unit={t('dash.active')}
-                      note={<Link to="/app/keys" className="small">{t('dash.manage')}</Link>} />
-            {!freeMode && s.held > 0 && (
-              <StatCard icon={<IconCoins />} label={t('dash.held')} value={fmtSom(s.held, { unit: false })} unit={t('common.som')}
-                        trend={<><IconTrendDown /> {t('dash.heldShort')}</>} note={t('dash.heldNote')} />
-            )}
+            {/* The month as a printed receipt: the product's own object, not a row of icon cards */}
+            <div className="receipt dash-stub" aria-label={t('dash.stubTitle')}>
+              <div className="receipt-head"><b>{t('dash.stubTitle')}</b><span>{fmtDateLong()}</span></div>
+              <div className="rline"><span>{t('dash.requests')}</span><span>{fmtInt(s.month.requests)}</span></div>
+              <div className="rline"><span>{t('dash.tokens')}</span><span>{fmtInt(s.month.tokens)}</span></div>
+              <div className="rline"><span>{t('dash.stubToday')}</span><span>{t('chart.requests', { n: fmtInt(s.today.requests) })}</span></div>
+              {!freeMode && s.today.cost > 0 && <div className="rline rcalc"><span>{t('dash.stubTodaySpent')}</span><span>{fmtSom(s.today.cost)}</span></div>}
+              {!freeMode && s.held > 0 && <div className="rline"><span>{t('dash.held')}</span><span>{fmtSom(s.held)}</span></div>}
+              <hr className="rsep" />
+              <div className="rtotal">
+                <span>{freeMode ? t('receipt.payment') : t('dash.spentMonth')}</span>
+                <b>{freeMode ? t('receipt.free') : fmtSom(s.month.cost)}</b>
+              </div>
+            </div>
           </div>
-          {low && !freeMode && <div className="alert alert--warn" style={{ marginTop: 18 }}>{t('dash.lowBalance', { link: <Link to="/app/billing">{t('dash.lowBalanceLink')}</Link> })}</div>}
+          {low && !freeMode && <div className="alert alert--warn" style={{ marginTop: 18 }}><span>{t('dash.lowBalance', { link: <Link to="/app/billing">{t('dash.lowBalanceLink')}</Link> })}</span></div>}
         </>
       )}
 
