@@ -374,6 +374,10 @@ VIDEO_PRO_FPS = int(os.getenv("SF_CLUSTER_VIDEO_PRO_FPS", "48"))
 VIDEO_POST_THREADS = int(os.getenv("SF_CLUSTER_VIDEO_POST_THREADS", "4"))
 VIDEO_POST_TIMEOUT = int(os.getenv("SF_CLUSTER_VIDEO_POST_TIMEOUT", "240"))
 FFMPEG_BIN = os.getenv("SF_CLUSTER_FFMPEG", "/opt/ffmpeg/ffmpeg")
+# Every browser holding a Gemini tab also keeps one Flow tab (video). Chrome does not restore tabs
+# opened over CDP after a restart, so the scan reopens it (at most once per FLOW_TAB_OPEN_INTERVAL).
+FLOW_TABS_ENABLED = os.getenv("SF_CLUSTER_FLOW_TABS", "1") == "1"
+FLOW_TAB_OPEN_INTERVAL = int(os.getenv("SF_CLUSTER_FLOW_TAB_INTERVAL", "300"))
 IMAGE_POLL_INTERVAL = float(os.getenv("SF_CLUSTER_IMAGE_POLL", "0.5"))
 
 

@@ -88,7 +88,12 @@ class FlowAdapter(BaseAIAdapter):
             if not (here or "").startswith("https://flow.google.com"):
                 await self.goto(ws, "https://flow.google.com/")
             await self.wait_until(ws, "document.readyState === 'complete'", 15)
-            if not await cdp.click_text(ws, NEW_PROJECT, timeout=10):
+            if await self._js(ws, "location.pathname.startsWith('/age-restricted')"):
+                raise FlowError("flow_unavailable", "Flow is not available for this account")
+            # Reuse the newest existing project (a fresh one after every restart would pile up)
+            opened = await self._js(ws, """(() => { const a = Array.from(document.querySelectorAll('a[href*="/project/"]'))[0];
+                if (a) { a.click(); return true; } return false; })()""")
+            if not opened and not await cdp.click_text(ws, NEW_PROJECT, timeout=10):
                 raise FlowError("flow_unavailable", "Flow home page has no new-project button")
             await self.wait_until(ws, "/\\/project\\//.test(location.pathname)", 20)
             url = await self._project_url(ws)
@@ -113,6 +118,8 @@ class FlowAdapter(BaseAIAdapter):
             return False, "login"
         if val.get("host") != "flow.google.com":
             return False, "wrong_page"
+        if str(val.get("path") or "").startswith("/age-restricted"):
+            return False, "flow_restricted"
         if await self.detect_challenge(ws):
             return False, "captcha"
         # The home page and a tile editor have no composer; both are fine between jobs.

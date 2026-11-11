@@ -192,3 +192,25 @@ def test_raise_fps_really_interpolates(monkeypatch, tmp_path):
     rate = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
                            "-of", "csv=p=0", str(probe)], capture_output=True, text=True).stdout.strip()
     assert rate == "48/1"
+
+
+def test_scan_reopens_a_missing_flow_tab_once(monkeypatch):
+    opened = []
+    tabs = [{"type": "page", "id": "g1", "url": "https://gemini.google.com/app", "webSocketDebuggerUrl": "ws://g1"}]
+
+    class _Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(r, *a, **k):
+        if getattr(r, "method", None) == "PUT":
+            opened.append(r.full_url)
+            return _Resp(b"{}")
+        return _Resp(json.dumps(tabs).encode())
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    P._FLOW_OPENED_AT.clear()
+    pool = P.ClusterPool(ports=[19810])
+    monkeypatch.setattr(pool, "_ensure_parallel_tabs", lambda port, tabs: None)
+    pool._scan_sync()
+    pool._scan_sync()                        # within the interval: no second tab
+    assert len(opened) == 1 and "flow.google.com" in opened[0]

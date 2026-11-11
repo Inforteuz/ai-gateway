@@ -55,6 +55,7 @@ _ACCOUNT_INFLIGHT: Dict[tuple, set] = {}
 _ACCOUNT_LAST_SEND: Dict[tuple, float] = {}
 _ACCOUNT_SERIAL_UNTIL: Dict[tuple, float] = {}
 _TAB_OPENED_AT: Dict[int, float] = {}
+_FLOW_OPENED_AT: Dict[int, float] = {}   # port -> when a Flow tab was last opened there
 
 
 def parallel_allowed(account_key: tuple) -> bool:
@@ -1332,6 +1333,7 @@ class ClusterPool:
                 continue
 
             self._ensure_parallel_tabs(port, tabs)
+            self._ensure_flow_tab(port, tabs)
 
             for tab in tabs:
                 if tab.get("type") != "page":
@@ -1372,6 +1374,28 @@ class ClusterPool:
         before, self.workers = len(self.workers), discovered
         log.info("scan complete workers=%d ports_up=%d/%d (was %d)",
                  len(discovered), len(self.ports) - len(self.scan_errors), len(self.ports), before)
+
+    def _ensure_flow_tab(self, port: int, tabs: List[dict]) -> None:
+        """Open a Flow tab in a browser that has a Gemini tab but no Flow tab (video, adapters/flow_adapter.py).
+
+        An account Flow refuses (e.g. its /age-restricted page) keeps that tab, so it is not reopened in a
+        loop; the tab's health probe marks it unusable instead.
+        """
+        if not cfg.FLOW_TABS_ENABLED:
+            return
+        hosts = [detect_model_from_url(t.get("url", "")) for t in tabs if t.get("type") == "page"]
+        if "gemini" not in hosts and cfg.PORT_MODEL_OVERRIDE.get(port) != "gemini":
+            return
+        if "flow" in hosts or time.time() - _FLOW_OPENED_AT.get(port, 0.0) < cfg.FLOW_TAB_OPEN_INTERVAL:
+            return
+        _FLOW_OPENED_AT[port] = time.time()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/json/new?{urllib.parse.quote('https://flow.google.com/', safe=':/?=&')}", method="PUT")
+            urllib.request.urlopen(req, timeout=5).read()
+            log.info("flow tab opened port=%d", port)
+        except Exception as e:
+            log.warning("flow tab open failed port=%d: %s", port, e)
 
     def _ensure_parallel_tabs(self, port: int, tabs: List[dict]) -> None:
         """Open the missing tab of a parallel-tab account (cfg.PARALLEL_TAB_MODELS).
