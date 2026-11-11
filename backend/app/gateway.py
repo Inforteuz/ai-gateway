@@ -240,6 +240,22 @@ def _sniff_image(data: bytes, declared: str) -> str:
     return ""
 
 
+def multipart_parts(raw: bytes, content_type: str) -> list[tuple[str, bytes, object]]:
+    """multipart/form-data body -> [(field name, decoded bytes, email part)]. ApiError if unreadable."""
+    from email.parser import BytesParser
+    from email.policy import HTTP
+    try:
+        msg = BytesParser(policy=HTTP).parsebytes(
+            b"Content-Type: " + content_type.encode("latin-1") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw)
+        parts = list(msg.iter_parts()) if msg.is_multipart() else []
+    except Exception:
+        parts = []
+    if not parts:
+        raise ApiError(400, "invalid_body", "multipart/form-data tanasini o'qib bo'lmadi.")
+    return [(part.get_param("name", header="content-disposition") or "", part.get_payload(decode=True) or b"", part)
+            for part in parts]
+
+
 def parse_image_edit(raw: bytes, content_type: str) -> dict:
     """Normalises a `/v1/images/edits` body to JSON.
 
@@ -260,20 +276,8 @@ def parse_image_edit(raw: bytes, content_type: str) -> dict:
         body["image"] = [x for x in (img if isinstance(img, list) else [img]) if isinstance(x, str) and x]
         return body
 
-    from email.parser import BytesParser
-    from email.policy import HTTP
-    try:
-        msg = BytesParser(policy=HTTP).parsebytes(
-            b"Content-Type: " + content_type.encode("latin-1") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw)
-        parts = list(msg.iter_parts()) if msg.is_multipart() else []
-    except Exception:
-        parts = []
-    if not parts:
-        raise ApiError(400, "invalid_body", "multipart/form-data tanasini o'qib bo'lmadi.")
     body: dict = {"image": []}
-    for part in parts:
-        name = part.get_param("name", header="content-disposition") or ""
-        data = part.get_payload(decode=True) or b""
+    for name, data, part in multipart_parts(raw, content_type):
         if name in ("image", "image[]"):
             mime = _sniff_image(data, part.get_content_type() if part.get_filename() else "")
             if not mime:
@@ -1512,5 +1516,11 @@ async def janitor(app) -> None:
             state.rpm.prune()
             state.auth_limiter.prune()
             state.signup_limiter.prune()
+            state.video_poll.prune()
         except Exception:
             pass
+        try:
+            from . import videos   # videos imports this module; imported here to avoid the cycle
+            await run_in_threadpool(videos.purge_files, state.db)
+        except Exception as e:
+            log.warning("video purge failed: %s", type(e).__name__)

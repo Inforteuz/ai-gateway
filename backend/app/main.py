@@ -18,6 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import billing, branding
 from . import gateway, monitor, routes_account, routes_admin, routes_auth, routes_instances, routes_monitor, routes_playground, routes_referral
+from . import videos
 from . import topup_telegram
 from .vnc import TicketStore
 from . import cluster_watch
@@ -52,7 +53,9 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        tasks = [asyncio.create_task(gateway.janitor(app)), asyncio.create_task(_lease_loop(app))]
+        tasks = [asyncio.create_task(gateway.janitor(app)), asyncio.create_task(_lease_loop(app)),
+                 # /v1/videos queue; its first pass also fails jobs a previous process left running
+                 asyncio.create_task(videos.worker(app))]
         if config.monitor_enabled:
             tasks.append(asyncio.create_task(monitor.loop(app)))
             # Cluster providers can fail independently — monitor them
@@ -98,6 +101,8 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
     # Separate per-IP rate limit: prevents multiplying throughput by spreading
     # one key across many machines.
     s.ip_rpm = SlidingWindow(60)
+    # /v1/videos status and download reads, apart from the request limit (videos._reader)
+    s.video_poll = SlidingWindow(60)
     # Which IPs use each key — to detect shared keys
     s.sharing = abuse.SharingTracker(window=3600)
     s.status_cache = (0.0, False)
@@ -153,6 +158,7 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
                             status_code=exc.status_code, headers=getattr(exc, "headers", None))
 
     app.include_router(gateway.router)
+    app.include_router(videos.router)
     app.include_router(routes_auth.router)
     app.include_router(routes_account.router)
     app.include_router(routes_admin.router)
