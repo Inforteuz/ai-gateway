@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import admission, capacity, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, refine, security, untrusted, routing
+from . import admission, capacity, upstream_errors, local_guard, attribution, abuse, billing, branding, catalog, directions, fastpath, loops, protocols, refine, security, untrusted, routing
 from .common import ApiError, FALLBACK_SUFFIX, client_ip
 from .db import Database, now
 
@@ -36,6 +36,9 @@ def fmt_money(micro: int) -> str:
 # --- key lookup ----------------------------------------------------------------------------------------------------
 def lookup_key(db: Database, request: Request) -> dict:
     auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer ") and request.headers.get("x-api-key"):
+        # Anthropic clients (Claude Code, Claude Desktop) send the key in x-api-key
+        auth = "Bearer " + request.headers["x-api-key"]
     if not auth.lower().startswith("bearer ") or len(auth) < 15:
         raise ApiError(401, "invalid_api_key",
                        "API kalit berilmagan. 'Authorization: Bearer <kalit>' sarlavhasini yuboring.",
@@ -504,7 +507,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > hard_limit:
         raise ApiError(413, "request_too_large", "So'rov hajmi juda katta.")
-    raw = await request.body()
+    # /v1/messages and /v1/responses hand over their body already translated to chat completions
+    raw = getattr(request.state, "translated_body", None) or await request.body()
     if len(raw) > hard_limit:
         raise ApiError(413, "request_too_large", "So'rov hajmi juda katta.")
     if endpoint == "images/edits":
@@ -1315,6 +1319,103 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
 @router.post("/chat/completions")
 async def chat_completions(request: Request):
     return await proxy(request, "chat/completions")
+
+
+# --- Anthropic Messages and OpenAI Responses (Claude apps, Codex) ------------------------------------------------
+# Translated to chat completions at the edge (app/protocols.py) so keys, billing, routing and fallbacks stay one path.
+PING_EVERY = 5.0          # seconds between keep-alives while the model thinks or waits for a tab
+_PASS_HEADERS = ("x-request-id", "x-sf-cost", "x-sf-balance", "x-sf-cache", "x-sf-fallback-model", "x-fallback-model",
+                 "x-sf-routed-model", "x-sf-route-reason", "deprecation", "sunset", "link")
+
+
+def _client_body(raw: bytes) -> dict:
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise protocols.BadRequest("The request body must be a JSON object.")
+    return body
+
+
+def _kept_headers(response) -> dict[str, str]:
+    return {k: v for k, v in response.headers.items() if k.lower() in _PASS_HEADERS}
+
+
+async def _translated(request: Request, to_chat, from_chat, make_stream, error_body):
+    """Runs a foreign-protocol request through proxy() and converts the answer back."""
+    try:
+        body = _client_body(await request.body())
+        chat, extra = to_chat(body)
+    except protocols.BadRequest as exc:
+        return JSONResponse(error_body(400, str(exc), "invalid_request"), status_code=400)
+    model = chat.get("model") if isinstance(chat.get("model"), str) else ""
+    request.state.translated_body = json.dumps(chat, ensure_ascii=False).encode()
+    try:
+        response = await proxy(request, "chat/completions")
+    except ApiError as exc:
+        return JSONResponse(error_body(exc.status, exc.body(english=True)["error"]["message"], exc.code),
+                            status_code=exc.status, headers=exc.headers)
+    headers = _kept_headers(response)
+    if not isinstance(response, StreamingResponse):
+        data = json.loads(bytes(response.body))
+        return JSONResponse(from_chat(data, model, extra), status_code=response.status_code, headers=headers)
+    inner = response.body_iterator
+    conv = make_stream(model, extra)
+
+    async def events():
+        last = time.monotonic()
+        try:
+            async for kind, obj in protocols.read_chat_sse(inner):
+                out = conv.feed(obj) if kind == "data" else []
+                if out:
+                    last = time.monotonic()
+                    for ev in out:
+                        yield ev
+                elif kind != "done" and time.monotonic() - last >= PING_EVERY:
+                    last = time.monotonic()
+                    for ev in conv.ping():
+                        yield ev
+                if conv.done:
+                    break
+            for ev in conv.finish():
+                yield ev
+        finally:
+            aclose = getattr(inner, "aclose", None)
+            if aclose:
+                await aclose()
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={**headers, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/messages")
+async def anthropic_messages(request: Request):
+    return await _translated(
+        request, lambda b: (protocols.anthropic_to_chat(b), None),
+        lambda data, model, _: protocols.chat_to_anthropic(data, model),
+        lambda model, _: protocols.AnthropicStream(model),
+        lambda status, message, code: protocols.anthropic_error(status, message))
+
+
+@router.post("/messages/count_tokens")
+async def anthropic_count_tokens(request: Request):
+    """Claude Code asks before compacting; an estimate from the same counter the holds use."""
+    await run_in_threadpool(lookup_key, request.app.state.db, request)
+    try:
+        chat = protocols.anthropic_to_chat(_client_body(await request.body()))
+    except protocols.BadRequest as exc:
+        return JSONResponse(protocols.anthropic_error(400, str(exc)), status_code=400)
+    return {"input_tokens": estimate_prompt_tokens(chat)}
+
+
+@router.post("/responses")
+async def openai_responses(request: Request):
+    return await _translated(
+        request, protocols.responses_to_chat,
+        lambda data, model, custom: protocols.chat_to_responses(data, model, custom),
+        lambda model, custom: protocols.ResponsesStream(model, custom),
+        lambda status, message, code: protocols.responses_error(status, message, code))
 
 
 @router.post("/completions")
