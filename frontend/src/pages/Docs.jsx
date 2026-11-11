@@ -91,7 +91,8 @@ export default function Docs({ inApp }) {
     <div className="prose">
       <nav className="crumbs" aria-label={tr("Yo'l")}><span>{tr("Hujjatlar")}</span><i>/</i><span>{tr("Boshlash")}</span></nav>
       <h1 className="docs-title">{tr(site.brand_name)} <em>{tr("hujjatlari")}</em></h1>
-      <p>{tr(site.brand_name)} {tr("OpenAI formatiga mos. Mavjud kutubxonangizda faqat")} <code>base_url</code> {tr("va")} <code>api_key</code> {tr("ni almashtirsangiz yetarli.")}</p>
+      {/* Whole sentences per language: fragments glued around <code> read badly in Russian */}
+      <p>{tr("{v0} OpenAI formatida ishlaydi.", { v0: tr(site.brand_name) })} {tr("Mavjud kutubxonangizda ikkita sozlamani almashtiring:")} <code>base_url</code>, <code>api_key</code>.</p>
       <div className="docs-highlights">
         <div className="mini-card"><span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconZap /></span> {tr("OpenAI bilan 1:1 mos")}</span><span className="dim small">{tr("Mavjud SDK, prompt va kodlaringiz ishlaydi")}</span></div>
         <div className="mini-card"><span className="mini-card__head"><span className="ico-chip ico-chip--sm"><IconLayers /></span> {tr("Bir nechta model")}</span><span className="dim small">{tr(site.assistant_name)} {tr("modellari va kelajakda yangi imkoniyatlar")}</span></div>

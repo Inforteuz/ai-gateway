@@ -1794,4 +1794,6 @@ export default {
   "odatiy": "odatiy",
   "Fikrlashni yashirish": "Fikrlashni yashirish",
   "Fikrlashni ko‘rish": "Fikrlashni ko‘rish",
+  "{v0} OpenAI formatida ishlaydi.": "{v0} OpenAI formatida ishlaydi.",
+  "Mavjud kutubxonangizda ikkita sozlamani almashtiring:": "Mavjud kutubxonangizda ikkita sozlamani almashtiring:",
 }

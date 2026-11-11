@@ -2245,10 +2245,13 @@ body {
 }
 .docs-title em { font-style: normal; color: var(--primary); }
 .docs-highlights {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px; margin: 6px 0 10px;
 }
-.docs-highlights .mini-card { gap: 6px; }
+@media (max-width: 520px) { .docs-highlights { grid-template-columns: 1fr; } }
+/* Russian words ("производительность") are longer than a narrow card: wrap and hyphenate instead of spilling out */
+.docs-highlights .mini-card { gap: 6px; min-width: 0; overflow-wrap: break-word; hyphens: auto; }
+.docs-highlights .mini-card__head > :first-child { flex-shrink: 0; }
 .docs-highlights .mini-card__head { font-size: 0.86rem; }
 .quick-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
 .quick-row .who { min-width: 0; flex: 1; display: grid; }
@@ -3040,7 +3043,7 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
 
 .pg-chat {
   display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
-  height: calc(100dvh - 220px); min-height: 520px;
+  height: calc(100dvh - 290px); min-height: 480px;
   border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elev); overflow: hidden;
 }
 .pg-chat__bar {
@@ -3118,7 +3121,7 @@ button.key-analytics-row:hover, .key-analytics-row.is-selected { background: var
 @media (max-width: 900px) {
   .pg-grid { grid-template-columns: 1fr; gap: 12px; }
   .pg-bench { position: static; }
-  .pg-chat { height: calc(100dvh - 180px); min-height: 460px; }
+  .pg-chat { height: calc(100dvh - 140px); min-height: 440px; }
   .pg-list { padding: 16px 14px 8px; }
   .pg-bubble { max-width: 88%; }
   .pg-composer__foot small { display: none; }

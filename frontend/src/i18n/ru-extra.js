@@ -1794,4 +1794,6 @@ export default {
   "odatiy": "по умолчанию",
   "Fikrlashni yashirish": "Скрыть рассуждения",
   "Fikrlashni ko‘rish": "Показать рассуждения",
+  "{v0} OpenAI formatida ishlaydi.": "{v0} работает в формате OpenAI.",
+  "Mavjud kutubxonangizda ikkita sozlamani almashtiring:": "В вашей библиотеке достаточно заменить две настройки:",
 }
