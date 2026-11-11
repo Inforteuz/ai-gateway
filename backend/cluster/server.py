@@ -1571,6 +1571,110 @@ async def images_edits(req: ImageEditRequest, request: Request):
     return _image_payload(used_model, task, images[:count])
 
 
+class VideoRequest(BaseModel):
+    prompt: str
+    model: Optional[str] = "flow"
+    image: Optional[str] = None      # data URI of the first frame (optional)
+    seconds: Optional[int] = None    # informational: Flow clips are 8 s
+    size: Optional[str] = None       # "720x1280" (portrait) or anything else for 16:9
+
+
+_VIDEO_ERRORS = {
+    # FlowError.code -> (HTTP status, client code, client message, Retry-After)
+    "quota_exceeded": (503, "server_busy", "Video capacity for today is used up. Try again later.", 3600),
+    "flow_unavailable": (503, "model_unavailable", "Video generation is unavailable right now.", 60),
+    "generation_not_started": (502, "generation_failed", "The video could not be started. Try again.", None),
+    "generation_failed": (502, "generation_failed", "The video could not be generated. Try a different description.", None),
+    "timeout": (504, "timeout", "The video took too long to render. Try again.", None),
+    "download_failed": (502, "generation_failed", "The finished video could not be read. Try again.", None),
+    "image_upload_failed": (502, "invalid_image", "The image could not be used as the first frame.", None),
+}
+
+
+@app.post("/v1/videos/generations", dependencies=[Depends(_auth)])
+async def videos_generations(req: VideoRequest, request: Request):
+    """One video clip from a description (and optionally a first-frame image), via Google Flow.
+
+    Synchronous on purpose: the gateway runs it as a background job and polls nothing.
+    Each Flow tab renders one clip at a time; requests wait for a free tab up to
+    VIDEO_QUEUE_WAIT. See adapters/flow_adapter.py for the measured page behaviour.
+    """
+    from .adapters.flow_adapter import FlowError
+    prompt = (req.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="`prompt` must not be empty")
+    pool = request.app.state.balancer.pool
+    await pool.scan(force=False)
+    deadline = time.monotonic() + cfg.VIDEO_QUEUE_WAIT
+    worker = None
+    while worker is None:
+        tabs = pool.workers_for_model("flow")
+        if not tabs:
+            raise ClusterError(503, "model_unavailable", "Video generation is unavailable right now.", 60)
+        free = [w for w in tabs if w.is_available() and not w.lock.locked()]
+        if free:
+            worker = min(free, key=lambda w: w.last_used)
+            break
+        if time.monotonic() > deadline:
+            raise ClusterError(503, "server_busy", "All video slots are busy. Try again shortly.", 30)
+        await asyncio.sleep(1.0)
+
+    portrait = str(req.size or "").strip() in ("720x1280", "1080x1920", "9:16")
+    t_start = time.monotonic()
+    with attach.AttachmentStore() as store:
+        image_path = None
+        if req.image:
+            head, _, payload = str(req.image).partition(",")
+            mime = head[5:].split(";")[0] if head.startswith("data:") else ""
+            if mime not in ("image/png", "image/jpeg", "image/webp") or ";base64" not in head:
+                raise ClusterError(400, "invalid_image", "`image` must be a PNG, JPEG or WebP data URI.")
+            import base64 as _b64
+            import os as _os
+            try:
+                raw = _b64.b64decode(payload, validate=True)
+            except Exception:
+                raise ClusterError(400, "invalid_image", "`image` is not valid base64.")
+            if len(raw) > cfg.MAX_ATTACHMENT_BYTES:
+                raise ClusterError(413, "request_too_large", "The image is too large.")
+            image_path = _os.path.join(store.dir, "first-frame." + mime.split("/")[1].replace("jpeg", "jpg"))
+            with open(image_path, "wb") as f:
+                f.write(raw)
+        async with worker.lock:
+            worker.last_used = time.time()
+            try:
+                async with await worker.connect() as ws:
+                    data, meta = await worker.adapter.generate_video(
+                        ws, prompt, image_path=image_path, aspect="9:16" if portrait else "16:9",
+                        timeout=cfg.VIDEO_REQUEST_TIMEOUT)
+            except FlowError as e:
+                worker.failed_requests += 1
+                if e.code == "quota_exceeded":
+                    worker.set_cooldown(cfg.VIDEO_QUOTA_COOLDOWN, "quota")
+                log.warning("video failed port=%d code=%s detail=%s", worker.browser_port, e.code, e)
+                status, code, message, retry = _VIDEO_ERRORS.get(e.code, _VIDEO_ERRORS["generation_failed"])
+                raise ClusterError(status, code, message, retry)
+            except ClusterError:
+                raise
+            except Exception as e:
+                worker.failed_requests += 1
+                log.exception("video crashed port=%d", worker.browser_port)
+                raise ClusterError(502, "generation_failed", "The video could not be generated. Try again.") from e
+            worker.total_requests += 1
+            worker.last_finished = time.time()
+
+    import base64 as _b64
+    log.info("video port=%d bytes=%d time=%.1fs", worker.browser_port, len(data), time.monotonic() - t_start)
+    prompt_tokens = max(1, int(len(prompt) / cfg.CHARS_PER_TOKEN))
+    return {
+        "created": int(time.time()), "model": "flow",
+        "data": [{"b64_mp4": _b64.b64encode(data).decode(), "mime_type": "video/mp4",
+                  "seconds": meta.get("seconds", 8), "size": "720x1280" if portrait else "1280x720"}],
+        # 1 clip = 1,000,000 output tokens: the gateway prices a clip at the model's output price
+        "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": 1_000_000,
+                  "total_tokens": prompt_tokens + 1_000_000},
+    }
+
+
 def main() -> None:
     import uvicorn
     log.info("binding %s:%d", cfg.HOST, cfg.PORT)

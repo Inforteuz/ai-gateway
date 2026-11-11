@@ -40,6 +40,8 @@ class Capabilities:
     image_edit: bool = False      # measured attachment-to-image editing
     temporary_chat: bool = False  # chat not saved to history
     delete_chats: bool = False    # delete old chats
+    chat: bool = True             # takes chat requests (False: a media-only tab such as Flow)
+    video_gen: bool = False       # generates video clips (Flow)
 
 # "New chat" URL of every provider.
 # ChatGPT: the temporary-chat=true parameter — the chat is not saved to history, always clean (ideal).

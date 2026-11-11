@@ -142,6 +142,8 @@ _URL_TO_MODEL = {
     "chatbotchatapp.com": "chatbotchatapp",
     "gemini.google.com": "gemini",
     "venice.ai": "venice",
+    # Video only (adapters/flow_adapter.py); never a chat worker
+    "flow.google.com": "flow",
 }
 
 
@@ -1336,7 +1338,9 @@ class ClusterPool:
                     continue
                 # An explicit model for the port (e.g. anonymous chatgpt) takes
                 # precedence over URL-based detection.
-                model = cfg.PORT_MODEL_OVERRIDE.get(port) or detect_model_from_url(tab.get("url", ""))
+                # A Flow tab opened in a Gemini browser is still Flow: the port override names the chat site.
+                url_model = detect_model_from_url(tab.get("url", ""))
+                model = url_model if url_model == "flow" else (cfg.PORT_MODEL_OVERRIDE.get(port) or url_model)
                 if not model:
                     continue
                 # If direct API token is configured, skip Chrome deepseek tab in favor of direct worker
@@ -1379,7 +1383,8 @@ class ClusterPool:
         pages = [t for t in tabs if t.get("type") == "page"]
         by_model: Dict[str, List[dict]] = {}
         for t in pages:
-            m = cfg.PORT_MODEL_OVERRIDE.get(port) or detect_model_from_url(t.get("url", ""))
+            url_model = detect_model_from_url(t.get("url", ""))
+            m = url_model if url_model == "flow" else (cfg.PORT_MODEL_OVERRIDE.get(port) or url_model)
             if m:
                 by_model.setdefault(m, []).append(t)
         for model, mine in by_model.items():

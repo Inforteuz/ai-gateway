@@ -11,6 +11,7 @@ from .chatbotapp_adapter import ChatbotAppAdapter
 from .chatbotchatapp_adapter import ChatbotChatAppAdapter
 from .gemini_adapter import GeminiAdapter
 from .venice_adapter import VeniceAdapter
+from .flow_adapter import FlowAdapter
 
 ADAPTERS = {
     "chatgpt": ChatGPTAdapter(),
@@ -25,6 +26,7 @@ ADAPTERS = {
     "chatbotchatapp": ChatbotChatAppAdapter(),
     "gemini": GeminiAdapter(),
     "venice": VeniceAdapter(),
+    "flow": FlowAdapter(),
 }
 
 def get_adapter(model_name: str) -> BaseAIAdapter:

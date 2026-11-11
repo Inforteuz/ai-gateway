@@ -363,6 +363,12 @@ MAX_IMAGES_PER_REQUEST = int(os.getenv("SF_CLUSTER_MAX_IMAGES", "4"))
 
 # Image generation takes much longer than text: separate, longer timeout
 IMAGE_REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_IMAGE_TIMEOUT", "180"))
+# Video (Flow): one 8 s clip renders in ~45-60 s; the timeout covers a slow queue on Google's side.
+VIDEO_REQUEST_TIMEOUT = int(os.getenv("SF_CLUSTER_VIDEO_TIMEOUT", "300"))
+# How long a request waits for a free Flow tab before 503 (clips are sequential per tab).
+VIDEO_QUEUE_WAIT = int(os.getenv("SF_CLUSTER_VIDEO_QUEUE_WAIT", "120"))
+# An account whose daily Flow credits ran out rests this long (they refresh once a day).
+VIDEO_QUOTA_COOLDOWN = int(os.getenv("SF_CLUSTER_VIDEO_QUOTA_COOLDOWN", str(6 * 3600)))
 IMAGE_POLL_INTERVAL = float(os.getenv("SF_CLUSTER_IMAGE_POLL", "0.5"))
 
 

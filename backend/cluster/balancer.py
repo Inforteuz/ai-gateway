@@ -137,6 +137,8 @@ class ClusterBalancer:
 
         # Circuit breaker check: skip models whose circuit is open
         target = [w for w in target if self.circuits.get(_circuit_key(w)).is_available()]
+        # Media-only tabs (Flow) never take chat or image work, even under "auto"
+        target = [w for w in target if getattr(getattr(w.adapter, "caps", None), "chat", True)]
 
         # Capability filter (vision / files / image_gen)
         if require:
@@ -247,6 +249,7 @@ class ClusterBalancer:
             ws = self.pool.workers_for_model(model_req)
         else:
             ws = list(self.pool.workers)
+        ws = [w for w in ws if getattr(getattr(w.adapter, "caps", None), "chat", True)]
         return [w for w in ws if self.circuits.get(_circuit_key(w)).is_available()
                 and all(getattr(w.adapter.caps, c, False) for c in require)]
 
