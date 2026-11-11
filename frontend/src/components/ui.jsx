@@ -104,7 +104,7 @@ export function PageHead({ eyebrow, title, lead, action, crumbs }) {
       {/* The action sits on the title row at the right edge; the lead stays
           below at full width. */}
       <div className="page-head__row">
-        <h1>{tr(head)}{accent && <em>{tr(accent)}</em>}</h1>
+        <h1>{tr(head)}{accent && <> <em>{tr(accent)}</em></>}</h1>
         {tr(action)}
       </div>
       {lead && <p>{tr(lead)}</p>}

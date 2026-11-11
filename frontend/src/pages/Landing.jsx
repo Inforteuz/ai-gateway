@@ -164,7 +164,7 @@ export default function Landing() {
               )}
             </div>
 
-            <div className="hero-visual">
+            <div className="hero-visual hero-visual--receipt">
               <div className="hero-mock-glow" aria-hidden="true" />
               <div className="hero-mock" role="img" aria-label={t('landing.mockAria', { brand: site.brand_name })}>
                 <div className="hero-mock-bar">
@@ -187,14 +187,11 @@ export default function Landing() {
                     <div>&nbsp;&nbsp;stream=<span className="k">True</span>,</div>
                     <div>)</div>
                   </div>
-                  <div className="hero-mock-stats">
-                    {fast
-                      ? <div className="hero-mock-stat"><b>{secs(fast.ms)}<small style={{ fontSize: '0.5em', marginLeft: 4, color: 'var(--fg-subtle)', fontWeight: 500 }}>{t('common.secUnit')}</small></b><span>{t('landing.mockReply', { name: fast.name })}</span></div>
-                      : <div className="hero-mock-stat"><b>OpenAI</b><span>{t('landing.compatible')}</span></div>}
-                    <div className="hero-mock-stat"><b>UZS</b><span>{t('landing.mockBilling')}</span></div>
-                    <div className="hero-mock-stat"><b>SSE</b><span>{t('landing.mockStream')}</span></div>
-                  </div>
                 </div>
+              </div>
+              {/* The product's own proof: what that request costs, in so'm, as a receipt */}
+              <div className="hero-receipt">
+                <DemoReceipt priceIn={receiptModel.price_in_per_1m} priceOut={receiptModel.price_out_per_1m} model={receiptModel.id} free={freeMode} />
               </div>
             </div>
           </div>
@@ -221,10 +218,9 @@ export default function Landing() {
             <h2>{t('landing.whyTitle')}</h2>
             <p>{t('landing.whyLead')}</p>
           </div>
-          <div className="feature-grid">
-            {FEATURES.map((f, i) => (
-              <article key={f.icon} className={`feature ${i === 0 ? 'feature--highlight' : ''}`}>
-                <div className="feature-ico"><Icon name={f.icon} /></div>
+          <div className="point-list">
+            {FEATURES.map((f) => (
+              <article key={f.icon} className="point">
                 <h3>{t(`landing.feat.${f.id}.title`)}</h3>
                 <p>{t(`landing.feat.${f.id}.text`, { bonus })}</p>
               </article>
@@ -240,10 +236,10 @@ export default function Landing() {
             <h2>{t('landing.audTitle')}</h2>
             <p>{t('landing.audLead')}</p>
           </div>
-          <div className="feature-grid">
+          <div className="point-list point-list--audience">
             {AUDIENCE.map((a) => (
-              <article key={a.icon} className="feature">
-                <div className="feature-ico"><Icon name={a.icon} /></div>
+              <article key={a.icon} className="point">
+                <span className="point__ico"><Icon name={a.icon} /></span>
                 <h3>{t(`landing.aud.${a.id}.title`)}</h3>
                 <p>{t(`landing.aud.${a.id}.text`, { bonus })}</p>
               </article>
@@ -434,11 +430,6 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="wrap" aria-hidden="true" style={{ display: 'flex', justifyContent: 'center', padding: '0 24px 60px' }}>
-        <div style={{ maxWidth: 420, width: '100%' }}>
-          <DemoReceipt priceIn={receiptModel.price_in_per_1m} priceOut={receiptModel.price_out_per_1m} model={receiptModel.id} free={freeMode} />
-        </div>
-      </section>
     </>
   )
 }
