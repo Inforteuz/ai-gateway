@@ -186,8 +186,9 @@ def test_empty_tool_result_is_preserved_and_repeat_not_emitted(cluster_client):
     messages = [{"role":"user","content":"Open the clock"},
         {"role":"assistant","tool_calls":[first]}, {"role":"tool","tool_call_id":"opened","content":""}]
     raw = json.dumps({"actions":[{"name":"shell","arguments":{"command":"open -a Safari ~/Desktop/clock/index.html"}}]})
-    response, bal = cluster_client([raw], {"messages":messages,"tools":[{"type":"function","function":{"name":"shell"}}]})
-    assert response.status_code == 200 and len(bal.prompts) == 1
+    # The repeat gets one re-ask (loop_retry_instruction); repeating again ends the turn
+    response, bal = cluster_client([raw, raw], {"messages":messages,"tools":[{"type":"function","function":{"name":"shell"}}]})
+    assert response.status_code == 200 and len(bal.prompts) == 2
     assert "Tool returned no text" in bal.prompts[0]
     assert response.json()["choices"][0]["finish_reason"] == "stop"
     assert "tool_calls" not in response.json()["choices"][0]["message"]

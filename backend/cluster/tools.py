@@ -699,3 +699,28 @@ def render_assistant_tool_calls(msg: Mapping[str, Any]) -> str:
         lines.append(f"- {fn.get('name')}" + (f" (chaqiruv {cid})" if cid else "")
                      + f": {str(fn.get('arguments'))[:400]}")
     return "\n".join(lines)
+
+
+def loop_retry_instruction(repeated: Sequence[Mapping[str, Any]]) -> str:
+    """Reminder for a model whose only action repeated an action that already returned.
+
+    WHY: ending the turn with the local notice ends the whole agent session; in the
+    Terminal-Bench pilot (2026-11-12) the model re-read a file with merge-conflict
+    markers one step before resolving it and the task was lost. One bounded re-ask
+    lets it take the next step; a second repeat still gets the notice.
+    """
+    shown = []
+    for call in list(repeated)[:3]:
+        fn = (call.get("function") or {}) if isinstance(call, Mapping) else {}
+        args = str(fn.get("arguments") or "")
+        shown.append(f"- `{fn.get('name') or '?'}` {args[:160]}")
+    return "\n".join([
+        "[Eslatma — bu chaqiruv takror]",
+        "Quyidagi chaqiruv(lar) shu vazifada allaqachon bajarilgan, natijasi yuqoridagi",
+        "`[Vosita natijasi]` ichida bor:",
+        *shown,
+        "Uni qayta chaqirma. Natijadan foydalanib KEYINGI qadamni `actions:` bloki bilan yoz",
+        "(masalan, faylni tahrirla yoki boshqa buyruqni ishga tushir), yoki ish tugagan bo'lsa",
+        "`final_answer:` bilan yakuniy javob ber.",
+    ])
+
