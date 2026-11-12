@@ -116,13 +116,35 @@ def test_repeated_successful_tool_call_ends_agent_loop(cluster_client):
     messages = [{"role": "user", "content": "Read the file"},
                 {"role": "assistant", "content": None, "tool_calls": [previous]},
                 {"role": "tool", "tool_call_id": "call_old", "name": "read_file", "content": "probe-code"}]
-    response, bal = cluster_client([CALL], {"messages": messages, "tools": TOOLS})
-    assert response.status_code == 200 and len(bal.prompts) == 1
+    # The model is asked once more for the next step; repeating again ends the loop with the notice
+    response, bal = cluster_client([CALL, CALL], {"messages": messages, "tools": TOOLS})
+    assert response.status_code == 200 and len(bal.prompts) == 2
+    assert "[Eslatma — bu chaqiruv takror]" in bal.prompts[1] and "/workspace/probe.txt" in bal.prompts[1]
     assert "tool_calls" not in response.json()["choices"][0]["message"]
     assert response.json()["choices"][0]["message"]["content"] == (
         "I did not repeat this action. Its earlier result is shown above.")
     status = response.json()["gateway"]["tool_protocol"]
     assert status["loop_guard"] == "repeated_tool_action" and status["final_answer"]
+
+
+def test_repeated_call_gets_one_reask_and_the_next_step_goes_through(cluster_client):
+    # Terminal-Bench pilot 2026-11-12: the model re-read a conflicted file one step before fixing it;
+    # ending the turn there ended the whole agent session.
+    previous = {"id": "call_old", "type": "function", "function": {
+        "name": "read_file", "arguments": json.dumps({"path": "/workspace/probe.txt"})}}
+    messages = [{"role": "user", "content": "Read the file"},
+                {"role": "assistant", "content": None, "tool_calls": [previous]},
+                {"role": "tool", "tool_call_id": "call_old", "name": "read_file", "content": "probe-code"}]
+    nxt = CALL.replace("/workspace/probe.txt", "/workspace/other.txt")
+    response, bal = cluster_client([CALL, nxt], {"messages": messages, "tools": TOOLS})
+    assert response.status_code == 200 and len(bal.prompts) == 2
+    calls = response.json()["choices"][0]["message"]["tool_calls"]
+    assert [json.loads(c["function"]["arguments"]) for c in calls] == [{"path": "/workspace/other.txt"}]
+    assert not response.json()["choices"][0]["message"].get("content")
+    # a final answer after the reminder is passed through instead of the canned notice
+    response, bal = cluster_client([CALL, '```yaml\nfinal_answer: |\n  probe-code is the content\n```'],
+                                   {"messages": messages, "tools": TOOLS})
+    assert response.json()["choices"][0]["message"]["content"] == "probe-code is the content"
 
 
 @pytest.mark.parametrize("prompt, expected", [

@@ -1062,6 +1062,26 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
                         calls = [call for call in calls if id(call) not in repeated_ids]
                         tool_status["loop_guard"] = "repeated_tool_action"
                         tool_status["loop_guard_count"] = len(repeated_ids)
+                        if not calls and can_retry():
+                            # Only repeats: ask once for the next step instead of ending the agent's
+                            # session with the notice (tool_proto.loop_retry_instruction explains why).
+                            try:
+                                retry_answer, retry_model, retry_worker, retry_images = await call(
+                                    prompt_text + "\n\n" + tool_proto.loop_retry_instruction(repeated))
+                                fresh, retry_left = tool_proto.parse_tool_calls(retry_answer, schemas)
+                                fresh = tool_proto.unique_open_calls(tool_proto.unique_tool_calls(fresh))
+                                r_exact, r_target = tool_proto.repeated_successful_actions(fresh, req.messages)
+                                r_open = [c for c in fresh if tool_proto.repeated_open([c], req.messages)]
+                                again = {id(c) for c in r_exact + r_target + r_open}
+                                fresh = [c for c in fresh if id(c) not in again]
+                                if fresh:
+                                    calls = fresh
+                                    answer, used_model, worker, images = retry_left, retry_model, retry_worker, retry_images
+                                    tool_status["loop_guard_recovered"] = True
+                                elif not again and tool_proto.parse_final_answer(retry_answer) is not None:
+                                    answer = retry_answer
+                            except DispatchError:
+                                pass
                         if not calls:
                             final_ready = True
                             # Preserve a model-written final envelope when it
