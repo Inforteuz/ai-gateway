@@ -33,11 +33,11 @@ def test_image_pro_boosts_the_prompt_and_asks_for_upscaling(env):
     add_model(env, "img-pro", upstream="image-pro", provider="cluster")
     env.up["draft"] = "Photorealistic close-up of a silver laptop on an oak desk, soft window light, 50mm lens."
     key, _ = add_key(env, add_user(env, balance_som=1000))
-    r = env.client.post("/v1/images/generations", headers=bearer(key), json={"model": "img-pro", "prompt": "noutbuk rasmi"})
+    r = env.client.post("/v1/images/generations", headers=bearer(key), json={"model": "img-pro", "prompt": "a laptop on the desk"})
     assert r.status_code == 200, r.text
     sent = seen[-1]
     assert sent["model"] == "gemini" and sent["sf_post"] == "upscale2"
-    assert sent["prompt"].startswith("Photorealistic close-up") and env.up["last"]["messages"][-1]["content"] == "noutbuk rasmi"
+    assert sent["prompt"].startswith("Photorealistic close-up") and env.up["last"]["messages"][-1]["content"] == "a laptop on the desk"
     item = next(m for m in env.client.get("/portal/models").json()["items"] if m["id"] == "img-pro")
     assert item["capabilities"]["image_generation"] and item["capabilities"]["image_only"]
 
@@ -75,16 +75,27 @@ def test_image_pro_boosts_with_the_pool_first(env):
 
 @pytest.mark.parametrize("pool", [{"answer": "", "status": 503},
                                   {"answer": "Composition & camera angle? Yes (eye-level", "finish": "length"}])
-def test_image_pro_local_fallback_keeps_the_users_words(env, pool):
+def test_image_pro_fallback_never_lets_the_local_model_misread_uzbek(env, pool):
     seen = _cluster(env)
-    _pool(env, **pool)
+    asked = _pool(env, **pool)
     add_model(env, "img-pro", upstream="image-pro", provider="cluster")
-    env.up["draft"] = "A photorealistic goat portrait in soft daylight, shallow depth of field."
+    env.up["draft"] = "A carpet with goat patterns in a yurt."
     key, _ = add_key(env, add_user(env, balance_som=1000))
     r = env.client.post("/v1/images/generations", headers=bearer(key), json={"model": "img-pro", "prompt": "kulib turgan echki"})
     assert r.status_code == 200, r.text
-    prompt = seen[-1]["prompt"]
-    assert prompt.startswith("A photorealistic goat portrait") and prompt.endswith("kulib turgan echki")
+    assert [a["model"] for a in asked] == ["gemini-3.5-flash", "gemini-3-flash-preview"]
+    assert seen[-1]["prompt"].startswith("kulib turgan echki\n\nPhotorealistic") and env.up.get("calls", 0) == 0
+
+
+def test_image_pro_english_request_may_use_the_local_model(env):
+    seen = _cluster(env)
+    _pool(env, "", status=503)
+    add_model(env, "img-pro", upstream="image-pro", provider="cluster")
+    env.up["draft"] = "A photorealistic red apple on an oak table, soft window light, 50mm lens."
+    key, _ = add_key(env, add_user(env, balance_som=1000))
+    r = env.client.post("/v1/images/generations", headers=bearer(key), json={"model": "img-pro", "prompt": "a red apple on the table"})
+    assert r.status_code == 200, r.text
+    assert seen[-1]["prompt"].startswith("A photorealistic red apple")
 
 
 def test_media_rows_refuse_chat(env):

@@ -4,9 +4,10 @@ A model rewrites a short request into a detailed English prompt before it goes t
 image or video generator. First choice is the Gemini key pool (provider "pool"): the
 local Qwen 14B does not understand Uzbek and swapped the subject ("kulib turgan echki",
 a smiling goat, became a carpet in a yurt; a horse in the mountains went to a beach).
-The local model stays as the fallback, and then the user's own words travel along as
-the authority. Best effort: any failure keeps the user's prompt, and the request is
-never failed because of this step.
+The local model stays as the fallback for English requests only: when it was handed
+the Uzbek one with the user's words appended, Gemini still drew the carpet. Any other
+request falls back to the user's own words plus a style hint. Best effort: the request
+is never failed because of this step.
 """
 from __future__ import annotations
 
@@ -56,27 +57,47 @@ def _usable(text: str) -> bool:
     return 20 <= len(text) <= 2000
 
 
+_ENGLISH = {"the", "a", "an", "of", "in", "on", "with", "and", "at", "is", "for", "from", "by", "under", "over"}
+# When no model could rewrite a non-English request, the generator still gets a nudge towards the pro look
+PLAIN_SUFFIX = {
+    "image": "Photorealistic photograph, natural light, sharp focus, fine texture detail.",
+    "video": "Cinematic, smooth camera movement, natural light, rich detail.",
+}
+
+
+def looks_english(prompt: str) -> bool:
+    """The local Qwen rewrites English well and misreads Uzbek, so it only gets English requests."""
+    if re.search(r"[\u0400-\u04ff]", prompt):
+        return False
+    return any(w in _ENGLISH for w in re.findall(r"[a-z]+", prompt.lower()))
+
+
 async def enhance(state, settings: dict, prompt: str, system: str) -> str:
-    """The richer prompt, or `prompt` unchanged when no model gives a usable answer."""
+    """The richer prompt; on failure the user's own prompt (with a style hint when it is not English)."""
     from . import gateway   # here, not at import time: gateway imports this module
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt[:4000]}]
     if settings.get("pool_base_url") and settings.get("pool_api_key"):
         client, base, headers, _sem = gateway._target(state, {"provider": "pool"}, settings)
-        # "low", not "none": the pool's gemini-3.5-flash times out on "none" and refuses "minimal";
-        # its thinking spends tokens, hence the larger cap (the answer itself is ~100 tokens)
-        text = await _ask(client, f"{base}/chat/completions", headers, {
-            "model": settings.get("prompt_boost_model") or "gemini-3.5-flash", "stream": False,
-            "max_tokens": 2000, "temperature": 0.4, "reasoning_effort": "low", "messages": messages}, 25.0)
-        if _usable(text):
-            return text
-        log.info("prompt enhancement: pool gave no usable answer, trying the local model")
+        first = settings.get("prompt_boost_model") or "gemini-3.5-flash"
+        # Usually 3-6 s; a key out of credit makes the pool try others, so each model gets a bounded turn.
+        # "low", not "none": gemini-3.5-flash times out on "none" and refuses "minimal"; its thinking
+        # spends tokens, hence the larger cap (the answer itself is ~100 tokens).
+        for upstream in dict.fromkeys([first, "gemini-3-flash-preview"]):
+            text = await _ask(client, f"{base}/chat/completions", headers, {
+                "model": upstream, "stream": False, "max_tokens": 2000, "temperature": 0.4,
+                "reasoning_effort": "low", "messages": messages}, 15.0)
+            if _usable(text):
+                return text
+            log.warning("prompt enhancement: pool model %s gave no usable answer", upstream)
+    kind = "video" if system == VIDEO_SYSTEM else "image"
+    if not looks_english(prompt):
+        return f"{prompt}\n\n{PLAIN_SUFFIX[kind]}"
     upstream = settings.get("video_prompt_upstream") or "qwen3:14b"
     client, base, headers, _sem = gateway._target(state, {"provider": "local"}, settings)
     text = await _ask(client, f"{base}/chat/completions", headers, {
         "model": upstream, "stream": False, "max_tokens": 400, "temperature": 0.4, "reasoning_effort": "none",
         "messages": messages}, TIMEOUT)
     if not _usable(text):
-        log.info("prompt enhancement skipped (%d chars)", len(text))
+        log.warning("prompt enhancement skipped (%d chars)", len(text))
         return prompt
-    # The local model may misread a non-English request; the generator gets the user's words as the authority
-    return f"{text}\n\nThe user's own request (follow it wherever the description above disagrees): {prompt[:1000]}"
+    return text

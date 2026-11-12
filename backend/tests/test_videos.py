@@ -306,11 +306,11 @@ def test_pro_model_sends_the_enhanced_prompt(env, cluster):
     env.up["draft"] = "Close-up of a ginger cat surfing a turquoise wave at golden hour, slow tracking shot, warm light."
     uid = add_user(env, balance_som=100_000)
     key, _ = add_key(env, uid)
-    vid = env.client.post("/v1/videos", headers=bearer(key), json={"model": "veo-pro", "prompt": "mushuk to'lqinda"}).json()["id"]
+    vid = env.client.post("/v1/videos", headers=bearer(key), json={"model": "veo-pro", "prompt": "a cat on the wave"}).json()["id"]
     assert wait_done(env, vid, key)["status"] == "completed"
     sent = cluster["calls"][-1]["body"]
     assert sent["model"] == "flow-pro" and sent["prompt"].startswith("Close-up of a ginger cat")
-    assert env.up["last"]["messages"][-1]["content"] == "mushuk to'lqinda"
+    assert env.up["last"]["messages"][-1]["content"] == "a cat on the wave"
     assert wallet(env, uid)[0] == 100_000 * SOM - 2 * PRICE
 
 
