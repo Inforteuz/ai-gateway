@@ -1,4 +1,5 @@
 import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
+import { isVideoModel } from '../site.js'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
@@ -101,6 +102,29 @@ export default function ModelDetail() {
         </div>
       )}
 
+      {isVideoModel(m) ? (
+      <div className="metric-grid">
+        <div className="metric">
+          <span className="label">{tr("Klip uzunligi")}</span>
+          <b>8</b><span className="trend">{tr("soniya")}</span>
+        </div>
+        <div className="metric">
+          <span className="label">{tr("Sifat")}</span>
+          <b>720p</b><span className="trend">{m.id.endsWith('-pro') ? tr('48 FPS') : tr('24 FPS')}</span>
+        </div>
+        {!freeMode && (
+          <div className="metric">
+            <span className="label">{tr("Bitta klip narxi")}</span>
+            <b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr("so'm")}</b>
+            <span className="trend">{tr("video chiqmasa pul yechilmaydi")}</span>
+          </div>
+        )}
+        <div className="metric">
+          <span className="label">{tr("Tayyorlanish vaqti")}</span>
+          <b>~1</b><span className="trend">{tr("daqiqa (o‘rtacha)")}</span>
+        </div>
+      </div>
+      ) : (
       <div className="metric-grid">
         <div className="metric">
           <span className="label">{tr("Kontekst oynasi")}</span>
@@ -125,6 +149,7 @@ export default function ModelDetail() {
           </div>
         )}
       </div>
+      )}
 
       <div className="block">
         <div className="block-head"><h2>{tr("Nimalarni qila oladi")}</h2></div>
@@ -194,7 +219,7 @@ export default function ModelDetail() {
         <CompareBars
           title={tr("Kontekst oynasi")}
           note="Bitta so'rovda model qancha matnni bir vaqtda ko'ra oladi."
-          items={list}
+          items={list.filter((x) => !isVideoModel(x))}
           current={m.id}
           value={(x) => x.context_window}
           format={(v) => `${fmtNumber(v)} token`}
@@ -204,7 +229,7 @@ export default function ModelDetail() {
           <CompareBars
             title={tr("O'rtacha so'rov narxi")}
             note={tr("{v0} kirish va {v1} chiqish tokeni uchun.", { v0: (SAMPLE_IN), v1: (SAMPLE_OUT) })}
-            items={list}
+            items={list.filter((x) => !isVideoModel(x))}
             current={m.id}
             value={sampleCost}
             format={(v) => tr("{v0} so'm", { v0: (v.toFixed(1)) })}

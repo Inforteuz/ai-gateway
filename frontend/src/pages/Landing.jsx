@@ -2,7 +2,7 @@ import { translateText as tr, useLang as useLocaleRefresh, modelDescription } fr
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth, useSite } from '../auth.js'
-import { META_FIELD, MODEL_PLACEHOLDER, apiOrigin, freeModel, hostOf } from '../site.js'
+import { META_FIELD, MODEL_PLACEHOLDER, apiOrigin, freeModel, hostOf, isVideoModel } from '../site.js'
 import { CategoryChart, OverallChart } from '../components/BenchmarkChart.jsx'
 import DemoReceipt from '../components/DemoReceipt.jsx'
 import { CodeTabs, Status, useLoad } from '../components/ui.jsx'
@@ -114,7 +114,7 @@ export default function Landing() {
   // Only from the real catalog (so the placeholder model never shows up as "free" while loading)
   const freeM = freeModel(models?.items)
   // Use a paid model so the receipt shows a real amount; otherwise the first one.
-  const receiptModel = list.find((m) => m.price_in_per_1m || m.price_out_per_1m) || main
+  const receiptModel = list.find((m) => !isVideoModel(m) && (m.price_in_per_1m || m.price_out_per_1m)) || main
   const som = t('common.som')
 
   return (
@@ -366,7 +366,9 @@ export default function Landing() {
                     ? <div className="price-figs"><div><b>{t('common.free')}</b><span>{t('landing.forPartners')}</span></div></div>
                     : isFree
                       ? <div className="price-figs"><div><b>{t('common.free')}</b><span>{t('landing.noCharge')}</span></div></div>
-                      : (
+                      : isVideoModel(m)
+                        ? <div className="price-figs"><div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr(som)}</b><span>{tr('1 klip (8 soniya)')}</span></div></div>
+                        : (
                         <div className="price-figs">
                           <div><b>{fmtNumber(m.price_in_per_1m / MICRO)} {tr(som)}</b><span>{t('landing.per1mIn')}</span></div>
                           <div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr(som)}</b><span>{t('landing.per1mOut')}</span></div>

@@ -1,4 +1,5 @@
 import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
+import { isVideoModel } from '../site.js'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
@@ -145,7 +146,14 @@ export default function Catalog() {
                     <b>{tr(b ? `${Math.round(b.ratio * 100)}%` : '—')}</b><span className="sub">{tr("(bizning sinov)")}</span>
                   </div>
                 </div>
-                {free
+                {isVideoModel(m) && !freeMode
+                  ? (
+                    <div className="price-figs">
+                      <span className="price-figs__cap">{tr("Narx (1 klip uchun)")}</span>
+                      <div><div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("8 soniya, 720p")}</span></div></div>
+                    </div>
+                  )
+                  : free
                   ? <div className="price-figs"><div><div><b>{tr("Bepul")}</b><span>{tr(freeMode ? tr("hamkorlar uchun") : tr("limit bilan"))}</span></div></div></div>
                   : (
                     <div className="price-figs">
@@ -178,7 +186,7 @@ export default function Catalog() {
           {/* One average request, printed as a receipt: what each model would charge for it */}
           <div className="receipt price-explain__receipt">
             <div className="receipt-head"><b>{tr("Bitta so‘rov narxi")}</b><span>{tr("300 kirish + 500 chiqish token")}</span></div>
-            {all.map((m) => {
+            {all.filter((m) => !isVideoModel(m)).map((m) => {
               const avg = (300 * (m.price_in_per_1m / MICRO) + 500 * (m.price_out_per_1m / MICRO)) / 1_000_000
               return <div className="rline" key={m.id}><span>{m.id}</span><span>{tr(avg === 0 ? tr("bepul") : `~${avg.toFixed(0)} ${tr("so'm")}`)}</span></div>
             })}

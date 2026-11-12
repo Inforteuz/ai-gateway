@@ -54,3 +54,6 @@ export const freeModel = (items) =>
 // Name of the extra metadata field in API responses (backend format, e.g.
 // `"<META_FIELD>": {"verified": true}`). Update here if the backend renames it.
 export const META_FIELD = 'gateway'
+
+/** A video model (Google Flow via the cluster): priced per 8-second clip, not per token. */
+export const isVideoModel = (m) => !!m?.capabilities?.video_generation

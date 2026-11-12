@@ -1,4 +1,5 @@
 import { useLang as useLocaleRefresh } from '../i18n/index.jsx'
+import { isVideoModel } from '../site.js'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import DemoReceipt from './DemoReceipt.jsx'
@@ -12,7 +13,7 @@ export default function AuthArt() {
   const { freeMode } = useAuth()
   const { data } = useLoad(() => api.get('/portal/models'), [])
   const list = data?.items || []
-  const m = list.find((x) => x.price_in_per_1m || x.price_out_per_1m) || list[0]
+  const m = list.find((x) => !isVideoModel(x) && (x.price_in_per_1m || x.price_out_per_1m)) || list[0]
   return (
     <div className="auth-art" aria-hidden="true">
       {m && (
