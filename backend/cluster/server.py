@@ -1455,6 +1455,7 @@ class ImageRequest(BaseModel):
     n: Optional[int] = 1
     size: Optional[str] = None
     response_format: Optional[str] = "b64_json"
+    sf_post: Optional[str] = None     # set by the gateway only: "upscale2" for Image Pro
 
 
 @app.post("/v1/images/generations", dependencies=[Depends(_auth)])
@@ -1497,10 +1498,21 @@ async def images_generations(req: ImageRequest, request: Request):
         raise HTTPException(status_code=502,
                             detail="The model returned no image — try a different description")
 
-    log.info("image model=%s effort=%s count=%d phases=%s time=%.1fs", used_model,
-             run_meta.get("upstream_effort") or "-", len(images),
+    images = images[:count]
+    if req.sf_post == "upscale2":
+        # Image Pro: a larger, sharpened JPEG. Delivering the plain image would not be what was paid for.
+        from . import video_post
+        import base64 as _b64
+        try:
+            images = [("image/jpeg", _b64.b64encode(await video_post.upscale_image(_b64.b64decode(b64))).decode())
+                      for _mime, b64 in images]
+        except video_post.PostError as e:
+            log.warning("image upscale failed: %s", e)
+            raise ClusterError(502, "generation_failed", "The image could not be finished. Try again.")
+    log.info("image model=%s effort=%s count=%d post=%s phases=%s time=%.1fs", used_model,
+             run_meta.get("upstream_effort") or "-", len(images), req.sf_post or "-",
              _phases_str(run_meta), time.monotonic() - t_start)
-    return _image_payload(used_model, task, images[:count])
+    return _image_payload(used_model, task, images)
 
 
 class ImageEditRequest(BaseModel):

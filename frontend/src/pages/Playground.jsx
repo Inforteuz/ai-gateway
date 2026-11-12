@@ -183,9 +183,9 @@ export default function Playground() {
 
   const all = (models.data?.items || []).filter((m) => !m.maintenance)
   // Video models take a description, not a chat: they live in the Video tab
-  const items = all.filter((m) => !m.capabilities?.video_generation)
+  const items = all.filter((m) => !m.capabilities?.video_generation && !m.capabilities?.image_only)
   const videoItems = all.filter((m) => m.capabilities?.video_generation)
-  const imageItems = items.filter((m) => m.capabilities?.image_generation)
+  const imageItems = all.filter((m) => m.capabilities?.image_generation)
   const [mode, setMode] = useState('text')
   useEffect(() => { if (summary.data) setBalance(summary.data.balance) }, [summary.data])
   useEffect(() => {

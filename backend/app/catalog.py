@@ -63,6 +63,8 @@ VERIFICATION_POLICY = {
 
 # Same set as app/videos.VIDEO_UPSTREAMS (kept here to avoid an import cycle; a test checks they match)
 VIDEO_UPSTREAMS = frozenset({"flow", "flow-pro"})
+# Image Pro (app/gateway.py, _execute): image generation only, prompt boosted and result upscaled
+IMAGE_PRO_UPSTREAM = "image-pro"
 
 
 def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
@@ -80,6 +82,9 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
         # Video models (Google Flow via the cluster, app/videos.py): one clip per request, priced per clip
         extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": False,
                  "video_generation": True}
+    elif r["provider"] == "cluster" and r["upstream_name"] == IMAGE_PRO_UPSTREAM:
+        extra = {"vision": False, "file_input": False, "image_generation": True, "tool_calling": False,
+                 "image_only": True}
     elif r["provider"] == "cluster":
         extra = _cluster_caps(r["upstream_name"])
     elif r["provider"] == "local":

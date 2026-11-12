@@ -64,3 +64,39 @@ async def raise_fps(clip: bytes, fps: int | None = None) -> bytes:
         return out
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+async def upscale_image(data: bytes, factor: int = 2) -> bytes:
+    """Image Pro: `factor`x larger with Lanczos and a light unsharp mask, as a high-quality JPEG.
+
+    A CPU step of well under a second for a 1024 px image. (A learned upscaler such as
+    Real-ESRGAN needs the GPU, which the cluster container does not have.)
+    """
+    binary = ffmpeg_path()
+    if not binary:
+        raise PostError("ffmpeg is not installed")
+    folder = tempfile.mkdtemp(prefix="image-post-", dir=cfg.ATTACHMENT_DIR or None)
+    src, dst = os.path.join(folder, "in.img"), os.path.join(folder, "out.jpg")
+    try:
+        with open(src, "wb") as f:
+            f.write(data)
+        vf = f"scale=iw*{factor}:ih*{factor}:flags=lanczos,unsharp=5:5:0.6:5:5:0.0"
+        proc = await asyncio.create_subprocess_exec(
+            "nice", "-n", "10", binary, "-hide_banner", "-loglevel", "error", "-y", "-threads", "2",
+            "-i", src, "-vf", vf, "-q:v", "2", dst,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), timeout=60)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise PostError("upscale timed out")
+        if proc.returncode != 0 or not os.path.isfile(dst):
+            raise PostError(f"ffmpeg exited {proc.returncode}: {(err or b'').decode(errors='replace')[-200:]}")
+        with open(dst, "rb") as f:
+            out = f.read()
+        if out[:2] != b"\xff\xd8":
+            raise PostError("ffmpeg produced no JPEG")
+        return out
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)

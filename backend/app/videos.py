@@ -31,7 +31,7 @@ from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from . import billing, directions, gateway
+from . import billing, directions, gateway, prompt_boost
 from .common import ApiError, client_ip
 from .db import Database, now
 
@@ -45,11 +45,7 @@ VIDEO_UPSTREAMS = frozenset({"flow", "flow-pro"})
 # detailed text-to-video prompt, and the cluster raises the clip's frame rate (cluster/video_post.py).
 PRO_UPSTREAM = "flow-pro"
 ENHANCE_TIMEOUT = 30.0
-ENHANCE_SYSTEM = (
-    "You rewrite a user's video idea into ONE prompt for a text-to-video model. Write in English, under 120 "
-    "words: the subject and its action, the setting, camera movement and framing, lighting, lens and colour, "
-    "mood and style. Keep every concrete detail the user gave (names, objects, text, numbers, language of any "
-    "spoken words) and do not add new subjects. Output only the prompt, no quotes or explanations.")
+ENHANCE_SYSTEM = prompt_boost.VIDEO_SYSTEM
 # One clip is billed as this many output tokens, so its price is the model's price_out_per_1m.
 CLIP_TOKENS = 1_000_000
 UPSTREAM_TIMEOUT = 420.0      # the cluster renders a clip in a few minutes; past this it is not coming
@@ -328,23 +324,8 @@ def _failure(status_code: int, code: str, message: str, label: str | None = None
 
 
 async def enhance_prompt(state, settings: dict, prompt: str) -> str:
-    """The pro model's richer prompt, from the local GPU model; the original prompt on any failure."""
-    upstream = settings.get("video_prompt_upstream") or "qwen3:14b"
-    client, base, headers, _sem = gateway._target(state, {"provider": "local"}, settings)
-    body = {"model": upstream, "stream": False, "max_tokens": 400, "temperature": 0.4, "reasoning_effort": "none",
-            "messages": [{"role": "system", "content": ENHANCE_SYSTEM}, {"role": "user", "content": prompt[:4000]}]}
-    try:
-        resp = await client.post(f"{base}/chat/completions", json=body, headers=headers,
-                                 timeout=httpx.Timeout(ENHANCE_TIMEOUT, connect=5.0))
-        text = (resp.json()["choices"][0]["message"].get("content") or "").strip() if resp.status_code == 200 else ""
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        text = ""
-    # Qwen may still wrap its thinking in <think>...</think>; keep only the answer
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip().strip('"')
-    if not (20 <= len(text) <= 2000):
-        log.info("video prompt enhancement skipped (%d chars)", len(text))
-        return prompt
-    return text
+    """The pro model's richer prompt (app/prompt_boost.py); the original prompt on any failure."""
+    return await prompt_boost.enhance(state, settings, prompt, ENHANCE_SYSTEM)
 
 
 async def _render(state, job: dict) -> dict:
