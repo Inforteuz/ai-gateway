@@ -186,7 +186,7 @@ def chat_to_anthropic(chat: dict, model: str) -> dict:
         content.append({"type": "tool_use", "id": call.get("id") or _id("toolu"), "name": fn.get("name") or "", "input": args})
     pt, ct = _usage(chat)
     stop = _STOP_TO_ANTHROPIC.get(choice.get("finish_reason") or "stop", "end_turn")
-    if any(b["type"] == "tool_use" for b in content):
+    if any(b["type"] == "tool_use" for b in content) and stop != "max_tokens":
         stop = "tool_use"
     return {"id": "msg_" + str(chat.get("id") or uuid.uuid4().hex)[-24:], "type": "message", "role": "assistant",
             "model": model, "content": content, "stop_reason": stop, "stop_sequence": None,
@@ -260,7 +260,8 @@ class AnthropicStream:
                 self.stop = "tool_use"
             if ch.get("finish_reason"):
                 mapped = _STOP_TO_ANTHROPIC.get(ch["finish_reason"], "end_turn")
-                self.stop = "tool_use" if self.stop == "tool_use" else mapped
+                # A tool call cut at max_tokens is incomplete JSON: Claude Code handles max_tokens, not a broken tool_use
+                self.stop = mapped if mapped == "max_tokens" else ("tool_use" if self.stop == "tool_use" else mapped)
         return out
 
     def finish(self) -> list[bytes]:
@@ -411,8 +412,12 @@ def chat_to_responses(chat: dict, model: str, custom: set[str]) -> dict:
     for call in msg.get("tool_calls") or []:
         fn = call.get("function") or {}
         output.append(_call_item(call.get("id") or _id("call"), fn.get("name") or "", fn.get("arguments") or "{}", custom))
-    return _response_shell("resp_" + str(chat.get("id") or uuid.uuid4().hex)[-24:], model, "completed", output,
-                           _usage(chat), int(chat.get("created") or time.time()))
+    cut = ((chat.get("choices") or [{}])[0]).get("finish_reason") == "length"
+    shell = _response_shell("resp_" + str(chat.get("id") or uuid.uuid4().hex)[-24:], model,
+                            "incomplete" if cut else "completed", output, _usage(chat), int(chat.get("created") or time.time()))
+    if cut:
+        shell["incomplete_details"] = {"reason": "max_output_tokens"}
+    return shell
 
 
 class ResponsesStream:
@@ -428,6 +433,7 @@ class ResponsesStream:
         self.text_item: dict | None = None
         self.calls: dict[int, dict] = {}       # chat tool index -> {"item", "output_index", "args"}
         self.usage = (0, 0)
+        self.cut = False                       # finish_reason "length": the answer hit max_output_tokens
         self.done = False
 
     def _ev(self, kind: str, **data) -> bytes:
@@ -497,6 +503,8 @@ class ResponsesStream:
                     if self.calls[i]["item"]["type"] == "function_call":
                         out.append(self._ev("response.function_call_arguments.delta", item_id=self.calls[i]["item"]["id"],
                                             output_index=self.calls[i]["output_index"], delta=fn["arguments"]))
+            if ch.get("finish_reason") == "length":
+                self.cut = True
         return out
 
     def finish(self) -> list[bytes]:
@@ -515,6 +523,13 @@ class ResponsesStream:
                 out.append(self._ev("response.custom_tool_call_input.done", item_id=done["id"],
                                     output_index=c["output_index"], input=done["input"]))
             out.append(self._ev("response.output_item.done", output_index=c["output_index"], item=done))
+        if self.cut:
+            # Not "completed": an answer cut at the token limit (often only reasoning, no output at all)
+            # used to look finished, and Codex ended the turn with nothing done.
+            shell = _response_shell(self.resp_id, self.model, "incomplete", self.output, self.usage, self.created)
+            shell["incomplete_details"] = {"reason": "max_output_tokens"}
+            out.append(self._ev("response.incomplete", response=shell))
+            return out
         out.append(self._ev("response.completed", response=_response_shell(
             self.resp_id, self.model, "completed", self.output, self.usage, self.created)))
         return out

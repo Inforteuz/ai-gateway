@@ -656,8 +656,12 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             raise free_limit_error(quota)
     default_max, hard_max = int(settings["default_max_tokens"]), int(settings["max_max_tokens"])
     requested = body.get("max_tokens", body.get("max_completion_tokens"))
+    # The Responses API's own default for an omitted max_output_tokens is "up to the model's limit";
+    # Codex never sends it. With the generic 4096 default a thinking model spent the whole budget on
+    # reasoning and Codex got an empty, "completed" answer (Terminal-Bench pilot, 2026-11-12).
+    output_unlimited = requested is None and getattr(request.state, "output_unlimited", False)
     if requested is None:
-        max_out = default_max
+        max_out = hard_max if output_unlimited else default_max
     elif isinstance(requested, int) and not isinstance(requested, bool) and requested > 0:
         max_out = min(requested, hard_max)
     else:
@@ -698,6 +702,9 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
                            f"This model's maximum context length is {model['context_window']} tokens, "
                            f"but the request needs about {need} tokens. Shorten the conversation or "
                            f"choose a model with a larger context.")
+        if output_unlimited:
+            # The answer shares the local context with the prompt; past it Ollama drops the prompt's start
+            max_out = max(min(max_out, int(model["context_window"]) - need), min(default_max, max_out))
     free_mode = settings.get("free_mode") == "1"       # free mode: nothing is charged and no balance is required
     price_in, price_out = (0, 0) if free_mode else (model["price_in_per_1m"], model["price_out_per_1m"])
     if price_source is not None and not free_mode:
@@ -1382,6 +1389,8 @@ async def _translated(request: Request, to_chat, from_chat, make_stream, error_b
         return JSONResponse(error_body(400, str(exc), "invalid_request"), status_code=400)
     model = chat.get("model") if isinstance(chat.get("model"), str) else ""
     request.state.translated_body = json.dumps(chat, ensure_ascii=False).encode()
+    # Anthropic requires max_tokens; a Responses body without max_output_tokens means "model limit"
+    request.state.output_unlimited = "max_tokens" not in chat
     try:
         response = await proxy(request, "chat/completions")
     except ApiError as exc:

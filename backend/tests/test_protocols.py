@@ -288,3 +288,40 @@ def test_context_overflow_uses_anthropic_wording_for_claude_code(env):
     r = env.client.post("/v1/responses", headers={"Authorization": f"Bearer {key}"},
                         json={"model": "model-1.0", "input": "salom dunyo " * 7000})
     assert r.status_code == 400 and r.json()["error"]["code"] == "context_length_exceeded"
+
+
+def test_responses_without_max_output_tokens_get_the_model_limit(env):
+    # Codex never sends max_output_tokens; the generic 4096 default was spent on reasoning alone.
+    seen, key = _upstream(env, reply=TOOL_REPLY)
+    r = env.client.post("/v1/responses", headers={"Authorization": f"Bearer {key}"},
+                        json={"model": "agent-model", "input": "hello"})
+    assert r.status_code == 200, r.text
+    assert seen[0]["max_tokens"] == env.db.setting_int("max_max_tokens")
+    r = env.client.post("/v1/responses", headers={"Authorization": f"Bearer {key}"},
+                        json={"model": "agent-model", "input": "hello", "max_output_tokens": 300})
+    assert seen[1]["max_tokens"] == 300
+    # plain chat completions keep the configured default
+    r = env.client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {key}"},
+                        json={"model": "agent-model", "messages": [{"role": "user", "content": "hello"}]})
+    assert seen[2]["max_tokens"] == env.db.setting_int("default_max_tokens")
+
+
+def test_responses_cut_at_the_token_limit_is_incomplete_not_completed(env):
+    stream = ['data: {"choices":[{"index":0,"delta":{"reasoning":"thinking..."}}]}\n\n',
+              'data: {"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}\n\n',
+              'data: {"choices":[],"usage":{"prompt_tokens":6277,"completion_tokens":4096}}\n\n', "data: [DONE]\n\n"]
+    _, key = _upstream(env, stream=stream)
+    r = env.client.post("/v1/responses", headers={"Authorization": f"Bearer {key}"}, json=CODEX_BODY)
+    ev = _events(r.text)
+    assert ev[-1][0] == "response.incomplete" and "response.completed" not in [e[0] for e in ev]
+    assert ev[-1][1]["response"]["incomplete_details"] == {"reason": "max_output_tokens"}
+    assert ev[-1][1]["response"]["usage"]["output_tokens"] == 4096
+
+
+def test_messages_tool_call_cut_at_max_tokens_reports_max_tokens(env):
+    stream = _sse_chunks({"tool_calls": [{"index": 0, "id": "call_9", "type": "function",
+                                          "function": {"name": "Read", "arguments": '{"file_pa'}}]}, finish="length")
+    _, key = _upstream(env, stream=stream)
+    r = env.client.post("/v1/messages", headers={"x-api-key": key}, json={**CLAUDE_BODY, "stream": True})
+    final = [e for e in _events(r.text) if e[0] == "message_delta"][-1][1]
+    assert final["delta"]["stop_reason"] == "max_tokens"
