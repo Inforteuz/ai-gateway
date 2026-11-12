@@ -17,6 +17,7 @@ model's. Long silences become `ping` events instead.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from typing import Any, AsyncIterator
@@ -64,14 +65,21 @@ def anthropic_to_chat(body: dict) -> dict:
     if not isinstance(msgs, list) or not msgs:
         raise BadRequest("`messages` must be a non-empty list.")
     out: list[dict] = []
-    system = body.get("system")
-    if system:
-        text = _text_of(system)
-        if text:
-            out.append({"role": "system", "content": text})
+    # Claude Code 2.1+ also puts {"role": "system"} entries (environment notes, reminders) inside
+    # `messages`. They join the top-level system prompt: several upstream chat templates accept a
+    # system message only at the start, and the text is still an instruction, not a user turn.
+    system_parts = [_text_of(body.get("system"))] if body.get("system") else []
     for m in msgs:
+        if isinstance(m, dict) and m.get("role") == "system":
+            system_parts.append(_text_of(m.get("content")))
+    system_text = "\n\n".join(p for p in system_parts if p)
+    if system_text:
+        out.append({"role": "system", "content": system_text})
+    for m in msgs:
+        if isinstance(m, dict) and m.get("role") == "system":
+            continue
         if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
-            raise BadRequest("Each message needs role 'user' or 'assistant'.")
+            raise BadRequest("Each message needs role 'user', 'assistant' or 'system'.")
         role, content = m["role"], m.get("content")
         if isinstance(content, str):
             out.append({"role": role, "content": content})
@@ -142,11 +150,17 @@ def anthropic_to_chat(body: dict) -> dict:
         elif kind == "none":
             chat["tool_choice"] = "none"
     thinking = body.get("thinking")
+    effort = (body.get("output_config") or {}).get("effort") if isinstance(body.get("output_config"), dict) else None
     if isinstance(thinking, dict):
         if thinking.get("type") == "enabled":
             chat["reasoning_effort"] = _effort_from_budget(thinking.get("budget_tokens"))
         elif thinking.get("type") == "disabled":
             chat["reasoning_effort"] = "none"
+        elif thinking.get("type") == "adaptive":
+            # Adaptive thinking (Claude Code 2.1+): the depth comes from output_config.effort
+            level = {"xhigh": "high", "max": "high"}.get(str(effort), str(effort))
+            if level in ("low", "medium", "high"):
+                chat["reasoning_effort"] = level
     if chat["stream"]:
         chat["stream_options"] = {"include_usage": True}
     return chat
@@ -260,7 +274,14 @@ class AnthropicStream:
         return out
 
 
-def anthropic_error(status: int, message: str) -> dict:
+_CONTEXT_NUMBERS = re.compile(r"maximum context length is (\d+) tokens, but the request needs about (\d+) tokens")
+
+
+def anthropic_error(status: int, message: str, code: str | None = None) -> dict:
+    if code == "context_length_exceeded" and (m := _CONTEXT_NUMBERS.search(message)):
+        # Claude Code recognises an over-long prompt only by Anthropic's own wording and then
+        # compacts the conversation and retries; any other text just ends the session.
+        message = f"prompt is too long: {m.group(2)} tokens > {m.group(1)} maximum"
     kind = {400: "invalid_request_error", 401: "authentication_error", 402: "billing_error", 403: "permission_error",
             404: "not_found_error", 413: "request_too_large", 429: "rate_limit_error", 529: "overloaded_error"}.get(
         status, "api_error" if status >= 500 else "invalid_request_error")
