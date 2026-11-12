@@ -153,7 +153,8 @@ services:
     ports:
       # Optional raw VNC for an SSH tunnel; the admin panel has a built-in VNC viewer.
       # One screen per instance: instance N is on the Nth port of this range.
-      - "127.0.0.1:${VNC_PORTS:-15900-15912}:5900-5912"
+      # 17 ports = SF_MAX_INSTANCES; VNC_PORTS must name a range of the same length.
+      - "127.0.0.1:${VNC_PORTS:-15900-15916}:5900-5916"
 
   ollama:
     profiles: ["ollama"]
