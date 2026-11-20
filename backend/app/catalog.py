@@ -83,10 +83,12 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
         extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": False,
                  "video_generation": True}
     elif r["provider"] == "cluster" and r["upstream_name"] == IMAGE_PRO_UPSTREAM:
-        extra = {"vision": False, "file_input": False, "image_generation": True, "tool_calling": False,
-                 "image_only": True}
+        extra = {"vision": False, "file_input": False, "image_generation": True, "image_editing": True,
+                 "tool_calling": False, "image_only": True, "image_resolution": "2K"}
     elif r["provider"] == "cluster":
         extra = _cluster_caps(r["upstream_name"])
+        if extra.get("image_generation"):
+            extra["image_resolution"] = "1K"     # the web chat's own size (~1024 px); Image Pro is 2K
     elif r["provider"] == "local":
         # Ollama models officially support OpenAI tools (verified with opencode/aider/Qwen Code).
         # Previously this field was missing entirely and local models looked unfit for agents

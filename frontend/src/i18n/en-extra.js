@@ -1868,4 +1868,10 @@ export default {
   "video chiqmasa pul yechilmaydi": "not charged if no video comes out",
   "Tayyorlanish vaqti": "Render time",
   "daqiqa (o‘rtacha)": "minute (average)",
+  "Nimani o‘zgartirish kerak": "What to change",
+  "Masalan: osmonni qizil qil, odamni olib tashla.": "For example: make the sky red, remove the person.",
+  "Asl rasm (ixtiyoriy)": "Source image (optional)",
+  "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.": "This model cannot edit images — choose another one.",
+  "Rasmni o‘zgartirish": "Edit image",
+  "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.": "An image is usually ready in 15–30 seconds. 1K is about 1024 px, 2K is 2048 px. The price is per image; if no image comes out, nothing is charged.",
 }

@@ -138,10 +138,16 @@ async def video_file(video_id: str, request: Request, user=Depends(require_user)
 
 
 # --- images (2026-11-12): /v1/images/generations through the session, same billing as the API ----------------
+IMAGE_SIZES = Literal["1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792", "1536x1152", "1152x1536"]
+_IMAGE_DATA_URI = re.compile(r"data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+")
+
+
 class ImageIn(BaseModel):
     model: str = Field(min_length=1, max_length=80)
     prompt: str = Field(min_length=1, max_length=4000)
-    size: Literal["1024x1024", "1024x1536", "1536x1024"] | None = None
+    size: IMAGE_SIZES | None = None
+    # img2img: the picture to change, as a data URI (10 MB file -> ~14 MB of base64)
+    image: str | None = Field(default=None, max_length=14_500_000)
 
 
 @router.post("/images")
@@ -153,5 +159,9 @@ async def create_image(body: ImageIn, request: Request, user=Depends(require_use
     payload = {"model": body.model, "prompt": body.prompt.strip(), "n": 1}
     if body.size:
         payload["size"] = body.size
+    if body.image is not None and not _IMAGE_DATA_URI.fullmatch(body.image):
+        raise ApiError(400, "invalid_image", "Faqat PNG, JPEG yoki WebP rasm.", en="Only a PNG, JPEG or WebP image.")
+    if body.image:
+        payload["image"] = [body.image]
     request.state.translated_body = json.dumps(payload, ensure_ascii=False).encode()
-    return await gateway.proxy(request, "images/generations")
+    return await gateway.proxy(request, "images/edits" if body.image else "images/generations")

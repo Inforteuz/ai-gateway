@@ -121,10 +121,63 @@ def test_cluster_upscales_when_asked(monkeypatch):
     monkeypatch.setattr(cluster_server.cfg, "API_KEY", "")
     monkeypatch.setattr(cluster_server.app.state, "balancer", _Bal(), raising=False)
 
-    async def run():
+    seen = []
+
+    class _Bal:
+        async def execute(self, **kw):
+            seen.append(kw["prompt_text"])
+            return "", "gemini", None, [("image/png", base64.b64encode(PNG).decode())]
+    monkeypatch.setattr(cluster_server.app.state, "balancer", _Bal(), raising=False)
+    src = "data:image/png;base64," + base64.b64encode(PNG).decode()
+
+    async def run(path, body):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=cluster_server.app), base_url="http://c") as c:
-            return await c.post("/v1/images/generations", json={"prompt": "x", "model": "gemini", "sf_post": "upscale2"})
-    r = asyncio.run(run())
+            return await c.post(path, json=body)
+    for path, body in (("/v1/images/generations", {"prompt": "x", "model": "gemini", "sf_post": "upscale2", "size": "1792x1024"}),
+                       ("/v1/images/edits", {"prompt": "x", "model": "gemini", "sf_post": "upscale2", "image": src})):
+        r = asyncio.run(run(path, body))
+        assert r.status_code == 200, (path, r.text)
+        item = r.json()["data"][0]
+        assert item["mime_type"] == "image/jpeg" and base64.b64decode(item["b64_json"]).startswith(b"\xff\xd8\x89PNG")
+    assert "Aspect ratio 16:9" in seen[0]
+
+
+def test_image_pro_edit_keeps_the_instruction_and_upscales(env):
+    seen = []
+    app = FastAPI()
+
+    @app.post("/v1/images/edits")
+    async def edit(request: Request):
+        seen.append(await request.json())
+        return {"created": 1, "data": [{"b64_json": base64.b64encode(PNG).decode(), "mime_type": "image/jpeg"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 1000}}
+    env.app.state.cluster_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://cluster")
+    env.db.set_setting("cluster_base_url", "http://cluster/v1")
+    env.db.set_setting("fastpath_enabled", "0")
+    asked = _pool(env, "SHOULD NOT BE USED: a whole new scene")
+    add_model(env, "img-pro", upstream="image-pro", provider="cluster")
+    key, _ = add_key(env, add_user(env, balance_som=1000))
+    src = "data:image/png;base64," + base64.b64encode(PNG).decode()
+    r = env.client.post("/v1/images/edits", headers=bearer(key), json={"model": "img-pro", "prompt": "make the sky red", "image": src})
     assert r.status_code == 200, r.text
-    item = r.json()["data"][0]
-    assert item["mime_type"] == "image/jpeg" and base64.b64decode(item["b64_json"]).startswith(b"\xff\xd8\x89PNG")
+    sent = seen[-1]
+    assert sent["prompt"] == "make the sky red" and sent["model"] == "gemini" and sent["sf_post"] == "upscale2"
+    assert asked == [] and env.up.get("calls", 0) == 0
+
+
+def test_catalog_marks_image_resolution(env):
+    add_model(env, "img-pro", upstream="image-pro", provider="cluster")
+    add_model(env, "img-1", upstream="gemini", provider="cluster")
+    items = {m["id"]: m["capabilities"] for m in env.client.get("/portal/models").json()["items"]}
+    assert items["img-pro"]["image_resolution"] == "2K" and items["img-pro"]["image_editing"]
+    if items["img-1"].get("image_generation"):
+        assert items["img-1"]["image_resolution"] == "1K"
+
+
+def test_cluster_size_note_names_the_aspect_ratio():
+    from cluster.server import image_size_note
+    assert "16:9" in image_size_note("1792x1024") and "landscape" in image_size_note("1792x1024")
+    assert "9:16" in image_size_note("1024x1792") and "3:4" in image_size_note("1152x1536")
+    assert "4:3" in image_size_note("1600x1200")          # any WxH is reduced to its ratio
+    assert image_size_note(None) == "" and image_size_note("huge") == ""
+

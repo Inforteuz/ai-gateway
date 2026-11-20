@@ -1868,4 +1868,10 @@ export default {
   "video chiqmasa pul yechilmaydi": "video chiqmasa pul yechilmaydi",
   "Tayyorlanish vaqti": "Tayyorlanish vaqti",
   "daqiqa (o‘rtacha)": "daqiqa (o‘rtacha)",
+  "Nimani o‘zgartirish kerak": "Nimani o‘zgartirish kerak",
+  "Masalan: osmonni qizil qil, odamni olib tashla.": "Masalan: osmonni qizil qil, odamni olib tashla.",
+  "Asl rasm (ixtiyoriy)": "Asl rasm (ixtiyoriy)",
+  "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.": "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.",
+  "Rasmni o‘zgartirish": "Rasmni o‘zgartirish",
+  "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.": "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.",
 }

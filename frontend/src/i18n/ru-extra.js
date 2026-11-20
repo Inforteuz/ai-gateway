@@ -1868,4 +1868,10 @@ export default {
   "video chiqmasa pul yechilmaydi": "если видео не получится, деньги не списываются",
   "Tayyorlanish vaqti": "Время создания",
   "daqiqa (o‘rtacha)": "минута (в среднем)",
+  "Nimani o‘zgartirish kerak": "Что изменить",
+  "Masalan: osmonni qizil qil, odamni olib tashla.": "Например: сделай небо красным, убери человека.",
+  "Asl rasm (ixtiyoriy)": "Исходное изображение (необязательно)",
+  "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.": "Эта модель не умеет редактировать изображения — выберите другую.",
+  "Rasmni o‘zgartirish": "Изменить изображение",
+  "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.": "Изображение обычно готово за 15–30 секунд. 1K — около 1024 px, 2K — 2048 px. Цена за одно изображение; если оно не получится, деньги не списываются.",
 }

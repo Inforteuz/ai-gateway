@@ -187,3 +187,33 @@ def test_playground_image_is_paid_from_the_balance(env):
     rec = env.client.get(f"/portal/playground/receipt/{rid}").json()
     assert rec["ready"] and rec["cost"] > 0 and wallet(env, uid)[0] == before - rec["cost"]
     assert env.client.post("/portal/playground/images", headers=CSRF, json={"model": "nope", "prompt": "x"}).status_code == 404
+
+
+def test_playground_img2img_goes_to_edits_with_the_picture_and_size(env):
+    # img2img (2026-11-20): an uploaded picture turns the request into /v1/images/edits
+    import base64
+    from fastapi import FastAPI
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    src = "data:image/png;base64," + base64.b64encode(png).decode()
+    seen = []
+    cl = FastAPI()
+
+    @cl.post("/v1/images/edits")
+    async def edit(request: Request):
+        seen.append(await request.json())
+        return {"created": 1, "data": [{"b64_json": base64.b64encode(png).decode(), "mime_type": "image/png"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 1000}}
+    env.app.state.cluster_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=cl), base_url="http://cluster")
+    env.db.set_setting("cluster_base_url", "http://cluster/v1")
+    env.db.set_setting("fastpath_enabled", "0")
+    add_model(env, "img-1", upstream="gemini", provider="cluster")
+    _login(env)
+    r = env.client.post("/portal/playground/images", headers=CSRF,
+                        json={"model": "img-1", "prompt": "make the sky red", "size": "1792x1024", "image": src})
+    assert r.status_code == 200, r.text
+    assert seen[-1]["image"] == [src] and seen[-1]["prompt"] == "make the sky red" and seen[-1]["size"] == "1792x1024"
+    bad = env.client.post("/portal/playground/images", headers=CSRF,
+                          json={"model": "img-1", "prompt": "x", "image": "data:text/html;base64,PGI+"})
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "invalid_image"
+    assert env.client.post("/portal/playground/images", headers=CSRF,
+                           json={"model": "img-1", "prompt": "x", "size": "999x999"}).status_code == 422

@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import math
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -1469,6 +1471,47 @@ def _phases_str(meta: dict) -> str:
     return ",".join(f"{k}:{v}" for k, v in (meta.get("phases") or {}).items()) or "-"
 
 
+# Picture shape for the web chat. "O'lcham: 1536x1024" alone was vague; Gemini follows a named
+# aspect ratio. Sizes are the OpenAI-style ones the API and the playground offer.
+IMAGE_ASPECTS = {
+    "1024x1024": ("1:1", "square"),
+    "1536x1024": ("3:2", "landscape"), "1024x1536": ("2:3", "portrait"),
+    "1792x1024": ("16:9", "wide landscape"), "1024x1792": ("9:16", "tall portrait"),
+    "1536x1152": ("4:3", "landscape"), "1152x1536": ("3:4", "portrait"),
+}
+
+
+def image_size_note(size: Optional[str]) -> str:
+    """The shape instruction for the task text ("" when no size was asked for)."""
+    if not size:
+        return ""
+    ratio, shape = IMAGE_ASPECTS.get(size.strip().lower(), (None, None))
+    if ratio is None:
+        m = re.fullmatch(r"\s*(\d{2,5})\s*[x:]\s*(\d{2,5})\s*", size)
+        if not m:
+            return ""
+        w, h = int(m.group(1)), int(m.group(2))
+        g = math.gcd(w, h) or 1
+        ratio = f"{w // g}:{h // g}"
+        shape = "square" if w == h else ("landscape" if w > h else "portrait")
+    return f" Aspect ratio {ratio} ({shape}): draw the picture in exactly this shape."
+
+
+async def _post_process(images: list, sf_post: Optional[str]) -> list:
+    """Image Pro ("upscale2"): a larger, sharpened JPEG. Delivering the plain image would not be what
+    was paid for, so a failed upscale fails the request."""
+    if sf_post != "upscale2":
+        return images
+    from . import video_post
+    import base64 as _b64
+    try:
+        return [("image/jpeg", _b64.b64encode(await video_post.upscale_image(_b64.b64decode(b64))).decode())
+                for _mime, b64 in images]
+    except video_post.PostError as e:
+        log.warning("image upscale failed: %s", e)
+        raise ClusterError(502, "generation_failed", "The image could not be finished. Try again.")
+
+
 class ImageRequest(BaseModel):
     prompt: str
     model: Optional[str] = "auto"
@@ -1493,7 +1536,7 @@ async def images_generations(req: ImageRequest, request: Request):
 
     balancer: ClusterBalancer = request.app.state.balancer
     count = max(1, min(int(req.n or 1), cfg.MAX_IMAGES_PER_REQUEST))
-    size_note = f" O'lcham: {req.size}." if req.size else ""
+    size_note = image_size_note(req.size)
     task = (f"{prompt}\n\n[Vazifa]: Yuqoridagi tavsif bo'yicha {count} ta rasm chiz "
             f"(generate image).{size_note} Matn bilan tushuntirma berma, faqat rasmni qaytar.")
 
@@ -1518,17 +1561,7 @@ async def images_generations(req: ImageRequest, request: Request):
         raise HTTPException(status_code=502,
                             detail="The model returned no image — try a different description")
 
-    images = images[:count]
-    if req.sf_post == "upscale2":
-        # Image Pro: a larger, sharpened JPEG. Delivering the plain image would not be what was paid for.
-        from . import video_post
-        import base64 as _b64
-        try:
-            images = [("image/jpeg", _b64.b64encode(await video_post.upscale_image(_b64.b64decode(b64))).decode())
-                      for _mime, b64 in images]
-        except video_post.PostError as e:
-            log.warning("image upscale failed: %s", e)
-            raise ClusterError(502, "generation_failed", "The image could not be finished. Try again.")
+    images = await _post_process(images[:count], req.sf_post)
     log.info("image model=%s effort=%s count=%d post=%s phases=%s time=%.1fs", used_model,
              run_meta.get("upstream_effort") or "-", len(images), req.sf_post or "-",
              _phases_str(run_meta), time.monotonic() - t_start)
@@ -1542,6 +1575,7 @@ class ImageEditRequest(BaseModel):
     n: Optional[int] = 1
     size: Optional[str] = None
     response_format: Optional[str] = "b64_json"
+    sf_post: Optional[str] = None     # set by the gateway only: "upscale2" for Image Pro
 
 
 @app.post("/v1/images/edits", dependencies=[Depends(_auth)])
@@ -1562,7 +1596,7 @@ async def images_edits(req: ImageEditRequest, request: Request):
 
     balancer: ClusterBalancer = request.app.state.balancer
     count = max(1, min(int(req.n or 1), cfg.MAX_IMAGES_PER_REQUEST))
-    size_note = f" O'lcham: {req.size}." if req.size else ""
+    size_note = image_size_note(req.size)
     task = (f"{prompt}\n\n[Vazifa]: Biriktirilgan rasmni yuqoridagi ko'rsatma bo'yicha tahrirla "
             f"va natijani {count} ta rasm qilib qaytar (edit image).{size_note} "
             f"Matn bilan tushuntirma berma, faqat tahrirlangan rasmni qaytar.")
@@ -1597,10 +1631,11 @@ async def images_edits(req: ImageEditRequest, request: Request):
     if not images:
         raise HTTPException(status_code=502,
                             detail="Model tahrirlangan rasm qaytarmadi — ko'rsatmani boshqacha yozib ko'ring")
-    log.info("image model=%s effort=%s count=%d phases=%s time=%.1fs", used_model,
-             run_meta.get("upstream_effort") or "-", len(images),
+    images = await _post_process(images[:count], req.sf_post)
+    log.info("image edit model=%s effort=%s count=%d post=%s phases=%s time=%.1fs", used_model,
+             run_meta.get("upstream_effort") or "-", len(images), req.sf_post or "-",
              _phases_str(run_meta), time.monotonic() - t_start)
-    return _image_payload(used_model, task, images[:count])
+    return _image_payload(used_model, task, images)
 
 
 class VideoRequest(BaseModel):

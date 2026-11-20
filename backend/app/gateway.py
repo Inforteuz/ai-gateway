@@ -559,9 +559,10 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     if model["provider"] == "cluster" and model["upstream_name"] in catalog.VIDEO_UPSTREAMS:
         raise ApiError(400, "unsupported_endpoint", "Bu model faqat /v1/videos orqali ishlaydi.",
                        en="This model works only through /v1/videos.")
-    if model["provider"] == "cluster" and model["upstream_name"] == catalog.IMAGE_PRO_UPSTREAM and endpoint != "images/generations":
-        raise ApiError(400, "unsupported_endpoint", "Bu model faqat /v1/images/generations orqali ishlaydi.",
-                       en="This model works only through /v1/images/generations.")
+    if (model["provider"] == "cluster" and model["upstream_name"] == catalog.IMAGE_PRO_UPSTREAM
+            and endpoint not in ("images/generations", "images/edits")):
+        raise ApiError(400, "unsupported_endpoint", "Bu model faqat /v1/images/generations va /v1/images/edits orqali ishlaydi.",
+                       en="This model works only through /v1/images/generations and /v1/images/edits.")
     if endpoint in ("images/generations", "images/edits"):
         # Image generation/editing exists only on cluster models (local models are text-only)
         if model["provider"] != "cluster":
@@ -943,11 +944,13 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
         # Clients cannot send internal cluster fields (e.g. a forced model variant)
         for k in [k for k in payload if k.startswith("sf_")]:
             payload.pop(k)
-        if endpoint == "images/generations" and model["upstream_name"] == catalog.IMAGE_PRO_UPSTREAM:
-            # Image Pro: a richer, photo-real prompt from the local model, the base image model draws it,
-            # and the cluster upscales the result (cluster/video_post.upscale_image)
-            payload["prompt"] = await prompt_boost.enhance(state, settings, str(payload.get("prompt") or ""),
-                                                           prompt_boost.IMAGE_SYSTEM)
+        if endpoint in ("images/generations", "images/edits") and model["upstream_name"] == catalog.IMAGE_PRO_UPSTREAM:
+            # Image Pro: the base image model draws, the cluster upscales the result to 2K
+            # (cluster/video_post.upscale_image). A new picture also gets a richer, photo-real prompt;
+            # an edit keeps the user's instruction word for word ("make the sky red" must stay that).
+            if endpoint == "images/generations":
+                payload["prompt"] = await prompt_boost.enhance(state, settings, str(payload.get("prompt") or ""),
+                                                               prompt_boost.IMAGE_SYSTEM)
             payload["model"] = settings.get("image_pro_base") or "gemini"
             payload["sf_post"] = "upscale2"
         if model["provider"] == "cluster":

@@ -3579,3 +3579,8 @@ html .cmp-warn > :first-child { font-family: var(--font-display); }
 .vs-card img.is-image { display: block; width: 100%; height: auto; background: var(--bg-sunken); }
 .vs-stage.is-square { aspect-ratio: 1 / 1; }
 .vs-list > .vs-empty { grid-column: 1 / -1; }
+
+/* Image formats: seven ratios wrap into a grid instead of overflowing the form column */
+.vs-seg--grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+.vs-seg--grid button { padding: 8px 6px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.vs-seg--grid button:nth-child(4n) { border-right: 0; }
