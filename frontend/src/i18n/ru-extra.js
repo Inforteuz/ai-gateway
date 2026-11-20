@@ -1874,4 +1874,10 @@ export default {
   "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.": "Эта модель не умеет редактировать изображения — выберите другую.",
   "Rasmni o‘zgartirish": "Изменить изображение",
   "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.": "Изображение обычно готово за 15–30 секунд. 1K — около 1024 px, 2K — 2048 px. Цена за одно изображение; если оно не получится, деньги не списываются.",
+  "(so‘nggi so‘rovlar)": "(последние запросы)",
+  "Narx (1 rasm uchun)": "Цена (за 1 изображение)",
+  "1 rasm": "1 изображение",
+  "Bitta rasm narxi": "Цена одного изображения",
+  "rasm chiqmasa pul yechilmaydi": "если изображение не получится, деньги не списываются",
+  "soniya (o‘rtacha)": "секунд (в среднем)",
 }

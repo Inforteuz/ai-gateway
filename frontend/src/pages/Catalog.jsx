@@ -1,5 +1,5 @@
 import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
-import { isVideoModel } from '../site.js'
+import { isVideoModel, isImageOnlyModel, isMediaModel } from '../site.js'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
@@ -132,6 +132,27 @@ export default function Catalog() {
                     {m.capabilities?.reasoning_levels?.length > 0 && <span className="tag">{tr("Fikrlash:")} {m.capabilities.reasoning_levels.join(', ')}</span>}
                   </div>
                 </div>
+                {isMediaModel(m) ? (
+                  /* Video and Image Pro: tokens and the text benchmark say nothing here; show the clip/picture
+                     format, how long one takes and how often it comes out */
+                  <div className="model-metrics">
+                    <div className="mm">
+                      <span className="mm-top">{tr("Format")}</span>
+                      {isVideoModel(m)
+                        ? <><b>8 s</b><span className="sub">720p</span></>
+                        : <><b>{m.capabilities?.image_resolution || '—'}</b><span className="sub">{tr("rasm")}</span></>}
+                    </div>
+                    <div className="mm">
+                      <span className="mm-top">{tr("Tayyorlanish vaqti")}</span>
+                      <SpeedFigure measured={m.measured} />
+                    </div>
+                    <div className="mm">
+                      <span className="mm-top">{tr("Muvaffaqiyat")}</span>
+                      <b>{m.measured?.success_rate != null ? `${Math.round(m.measured.success_rate * 100)}%` : '—'}</b>
+                      <span className="sub">{tr("(so‘nggi so‘rovlar)")}</span>
+                    </div>
+                  </div>
+                ) : (
                 <div className="model-metrics">
                   <div className="mm">
                     <span className="mm-top">{tr("Kontekst")}</span>
@@ -146,11 +167,19 @@ export default function Catalog() {
                     <b>{tr(b ? `${Math.round(b.ratio * 100)}%` : '—')}</b><span className="sub">{tr("(bizning sinov)")}</span>
                   </div>
                 </div>
+                )}
                 {isVideoModel(m) && !freeMode
                   ? (
                     <div className="price-figs">
                       <span className="price-figs__cap">{tr("Narx (1 klip uchun)")}</span>
                       <div><div><b>{fmtNumber(m.price_out_per_1m / MICRO)} {tr("so'm")}</b><span>{tr("8 soniya, 720p")}</span></div></div>
+                    </div>
+                  )
+                  : isImageOnlyModel(m) && !freeMode
+                  ? (
+                    <div className="price-figs">
+                      <span className="price-figs__cap">{tr("Narx (1 rasm uchun)")}</span>
+                      <div><div><b>{fmtNumber(m.price_out_per_1m / MICRO / 1000)} {tr("so'm")}</b><span>{m.capabilities?.image_resolution === '2K' ? '2048 px' : '1024 px'}</span></div></div>
                     </div>
                   )
                   : free
@@ -186,7 +215,7 @@ export default function Catalog() {
           {/* One average request, printed as a receipt: what each model would charge for it */}
           <div className="receipt price-explain__receipt">
             <div className="receipt-head"><b>{tr("Bitta so‘rov narxi")}</b><span>{tr("300 kirish + 500 chiqish token")}</span></div>
-            {all.filter((m) => !isVideoModel(m)).map((m) => {
+            {all.filter((m) => !isMediaModel(m)).map((m) => {
               const avg = (300 * (m.price_in_per_1m / MICRO) + 500 * (m.price_out_per_1m / MICRO)) / 1_000_000
               return <div className="rline" key={m.id}><span>{m.id}</span><span>{tr(avg === 0 ? tr("bepul") : `~${avg.toFixed(0)} ${tr("so'm")}`)}</span></div>
             })}

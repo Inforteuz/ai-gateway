@@ -64,13 +64,33 @@ def _setup(env):
     return state, key
 
 
-def test_gateway_routes_greeting_to_fast_local_model(env):
+def test_gateway_answers_greeting_with_a_fixed_reply(env):
+    # 2026-11-20: no model at all (the shared GPU made "kimsan" take 77 s; a local model named itself Qwen)
     state, key = _setup(env)
     r = env.client.post("/v1/chat/completions", headers=bearer(key),
                         json={"model": "model-3.5", **_b("Hey", tools=[{"type": "function", "function": {"name": "x"}}])})
     assert r.status_code == 200 and r.json()["model"] == "model-3.5"
-    assert "local" in state and "cluster" not in state
-    assert state["local"]["model"] == "qwen3:14b" and len(state["local"]["messages"]) == 2
+    assert r.json()["choices"][0]["message"]["content"] == fp.REPLIES["greeting"]["en"]
+    assert state == {}                                   # neither the cluster nor the GPU was asked
+    assert env.db.scalar("SELECT COUNT(*) FROM usage_logs WHERE status_code=200") == 1
+
+
+def test_identity_question_to_a_local_model_never_names_qwen(env):
+    state, key = _setup(env)
+    add_model(env, "model-2.0", provider="local", upstream="qwen3:14b")
+    r = env.client.post("/v1/chat/completions", headers=bearer(key), json={"model": "model-2.0", **_b("Sen kimsan?")})
+    text = r.json()["choices"][0]["message"]["content"]
+    assert r.status_code == 200 and "Qwen" not in text and text == fp.REPLIES["identity"]["uz"]
+    assert state == {}
+
+
+def test_fixed_reply_streams_with_usage(env):
+    state, key = _setup(env)
+    r = env.client.post("/v1/chat/completions", headers=bearer(key),
+                        json={"model": "model-3.5", "stream": True, "stream_options": {"include_usage": True},
+                              **_b("кто ты")})
+    assert r.status_code == 200 and fp.REPLIES["identity"]["ru"].split(" — ")[0] in r.text
+    assert '"usage"' in r.text and "[DONE]" in r.text and state == {}
 
 
 def test_real_task_still_goes_to_cluster_and_toggle_disables(env):

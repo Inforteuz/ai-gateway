@@ -512,6 +512,7 @@ def test_cluster_model_that_disallows_thinking_also_forces_none(env):
     key, _ = add_key(env, uid)
     add_model(env, "sf-cluster-fast", provider="cluster", upstream="gemini", allow_thinking=0)
     env.db.set_setting("cluster_base_url", "http://cluster/v1")
+    env.db.set_setting("fastpath_enabled", "0")   # a greeting would get the fixed fast-path reply
     import httpx
     from fastapi import FastAPI, Request
     fake = FastAPI()

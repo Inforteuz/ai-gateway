@@ -317,9 +317,12 @@ class WorkerTab:
         self.last_probe = {"ts": int(time.time()), "ok": healthy, "reason": reason}
         if healthy:
             # A DOM probe proves the page/session is available, not that a
-            # timed-out generation recovered. Only an explicit successful
-            # reload may clear a stale transient request error.
-            if reloaded and self.last_error in ("timeout", "empty", "send_failed"):
+            # timed-out generation recovered: "timeout"/"empty" are cleared only
+            # by an explicit successful reload. "send_failed" (the input field
+            # could not be typed into) is exactly what the probe checks, so a
+            # healthy probe clears it — otherwise an idle tab showed a red error
+            # for hours while VNC showed a working page (2026-11-20, Qwen #12/#14).
+            if self.last_error == "send_failed" or (reloaded and self.last_error in ("timeout", "empty")):
                 self.last_error = None
                 self.consecutive_failures = 0
                 if self.cooldown_reason.startswith(("timeout", "streak=")):

@@ -1874,4 +1874,10 @@ export default {
   "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.": "Bu model rasmni tahrirlay olmaydi — boshqa modelni tanlang.",
   "Rasmni o‘zgartirish": "Rasmni o‘zgartirish",
   "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.": "Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.",
+  "(so‘nggi so‘rovlar)": "(so‘nggi so‘rovlar)",
+  "Narx (1 rasm uchun)": "Narx (1 rasm uchun)",
+  "1 rasm": "1 rasm",
+  "Bitta rasm narxi": "Bitta rasm narxi",
+  "rasm chiqmasa pul yechilmaydi": "rasm chiqmasa pul yechilmaydi",
+  "soniya (o‘rtacha)": "soniya (o‘rtacha)",
 }

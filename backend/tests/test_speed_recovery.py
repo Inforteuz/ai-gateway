@@ -11,6 +11,18 @@ from cluster.adapters import gemini_adapter as ga
 from .test_audit_regressions import cluster_client
 
 
+def test_healthy_probe_clears_stale_send_failed_without_reload():
+    # The probe checks the very input field "send_failed" could not type into (2026-11-20)
+    w = pool.WorkerTab(19872, "recovery", "qwen", "ws://unused", object())
+    w.last_error = "send_failed"
+    w.consecutive_failures = 1
+    w.apply_probe(True, "ok", reloaded=False)
+    assert w.last_error is None and w.consecutive_failures == 0
+    w.last_error = "send_failed"
+    w.apply_probe(False, "no_chat_input")
+    assert w.last_error == "send_failed"
+
+
 @pytest.mark.parametrize("reloaded", [False, True])
 def test_only_successful_reload_clears_stale_timeout(reloaded):
     w = pool.WorkerTab(19871, "recovery", "gemini", "ws://unused", object())

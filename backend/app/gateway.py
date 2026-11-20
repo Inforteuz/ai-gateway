@@ -792,6 +792,9 @@ def _target(state, model, settings: dict):
         if key:
             headers["Authorization"] = f"Bearer {key}"
         return state.cluster_http, base, headers, state.cluster_sem
+    if provider == "canned":
+        # Fixed replies for trivial messages (app/fastpath.py): in-process, no queue worth having
+        return state.canned_http, "http://canned/v1", {}, state.canned_sem
     return state.http, f"{state.config.upstream_url}/v1", {}, state.sem
 
 
@@ -920,12 +923,14 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
         # Fast path: a trivial message to a web-chat model ("Hey", "ishlayapsanmi", "sen kimsan")
         # is answered by the fast GPU model — decided BEFORE queueing, otherwise it would also
         # wait 30-60 s in the web window queue (app/fastpath.py). Priced as the requested model.
-        fast = (endpoint == "chat/completions" and model["provider"] == "cluster"
+        # Local and key-pool models take it only for "who are you": they named their real model (Qwen).
+        fast = (endpoint == "chat/completions"
                 and model["upstream_name"].lower() not in ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1")
-                and settings.get("fastpath_enabled", "1") == "1" and fastpath.eligible(body))
+                and settings.get("fastpath_enabled", "1") == "1"
+                and ((model["provider"] == "cluster" and fastpath.eligible(body))
+                     or (model["provider"] in ("local", "pool") and fastpath.is_identity(body))))
         if fast:
-            model = {**model, "provider": "local", "refine": 0,
-                     "upstream_name": settings.get("fastpath_model") or "qwen3:14b"}
+            model = {**model, "provider": "canned", "refine": 0, "upstream_name": "fastpath"}
             log.info("fast path: %s -> %s (%s)", model.get("public_id") or model["id"],
                      model["upstream_name"], request_id)
         client, base, headers, sem = _target(state, model, settings)

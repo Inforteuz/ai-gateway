@@ -1,5 +1,12 @@
 """Fast path: answer trivial messages (greetings, status checks, "who are you", thanks)
-with the fast GPU model instead of the web-chat model.
+at once with a fixed reply instead of a model.
+
+Until 2026-11-20 these went to the local GPU model. It shares one GPU with agent traffic
+(32k-token prompts), so "kimsan" streamed 16 tokens in 77 s; and a thinking local model
+answered "Men Qwen, Alibaba Cloud..." despite its identity note. The replies are the
+persona's own examples anyway, so they are now produced here: no queue, no GPU, no leak.
+The gateway sends these requests to `make_app()` (provider "canned") through the normal
+pipeline, so streaming, usage, billing and receipts work as for any model.
 
 Why (measured): agent CLIs send the whole context (~50k characters) with every message.
 Even when a web-chat model (e.g. Gemini) writes its answer in 4-8 s, TYPING the request into
@@ -15,8 +22,14 @@ Safety limits:
 """
 from __future__ import annotations
 
+import json as _json
 import re
+import time as _time
+import uuid as _uuid
 from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 
 from .branding import ASSISTANT_NAME as _A, BRAND_NAME as _B
 
@@ -111,6 +124,82 @@ def eligible(body: dict) -> bool:
         prior = _normalize(_text_of(previous[-1].get("content")) or "") if previous else ""
         return bool(re.fullmatch(r"(?:sen\s+|siz\s+)?kims(?:an|iz)|who are you|ты кто|кто ты", prior))
     return False
+
+
+_EN = re.compile(r"^(?:hey+|hi+|hello+|hola|yo|how are (?:u|you)|are you (?:there|working|alive|ok)|you there|test|"
+                 r"testing|ping|who are you|what(?:'s| is) your name|thanks?|thank you|thx|really who are you)$")
+_KINDS = (
+    ("identity", re.compile(r"kim|isming|who are|your name|кто|зовут|aslida|really")),
+    ("thanks", re.compile(r"rahmat|raxmat|thank|thx|спасибо|благодарю")),
+    ("status", re.compile(r"ishlay|bormisan|bormisiz|there|working|alive|\bok\b|test|ping|тут|здесь|работаешь")),
+)
+REPLIES = {
+    "greeting": {"uz": "Salom! Qanday yordam bera olaman?", "ru": "Привет! Чем могу помочь?",
+                 "en": "Hi! How can I help?"},
+    "identity": {"uz": f"Men {_A} — {_B} platformasining sun'iy intellekt yordamchisiman. Qanday yordam kerak?",
+                 "ru": f"Я {_A} — ИИ-ассистент платформы {_B}. Чем помочь?",
+                 "en": f"I'm {_A}, the AI assistant of the {_B} platform. How can I help?"},
+    "status": {"uz": "Ha, ishlayapman. Nima qilamiz?", "ru": "Да, работаю. Чем займёмся?",
+               "en": "Yes, I'm here. What shall we do?"},
+    "thanks": {"uz": "Arzimaydi! Yana savol bo'lsa, yozing.", "ru": "Пожалуйста! Если будут вопросы — пишите.",
+               "en": "You're welcome! Ask any time."},
+}
+
+
+def kind(text: str) -> str:
+    """greeting | identity | status | thanks."""
+    t = _normalize(text)
+    return next((k for k, rx in _KINDS if rx.search(t)), "greeting")
+
+
+def is_identity(body: dict) -> bool:
+    """An eligible "who are you" message. Local and key-pool models get the fixed reply only for
+    these: they have no web-chat queue to skip, but they did name their real model."""
+    return eligible(body) and kind(last_user_text(body) or "") == "identity"
+
+
+def reply(text: str) -> str:
+    """The fixed answer to an eligible message, in its language."""
+    t = _normalize(text)
+    lang = "ru" if re.search(r"[а-яё]", t) else ("en" if _EN.fullmatch(t) else "uz")
+    return REPLIES[kind(t)][lang]
+
+
+def _tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+
+def make_app():
+    """OpenAI-shaped upstream that answers eligible messages with `reply()`."""
+    app = FastAPI()
+
+    @app.post("/v1/chat/completions")
+    async def chat(request: Request):
+        body = await request.json()
+        msgs = body.get("messages") or []
+        text = reply(_text_of((msgs[-1] or {}).get("content")) or "" if msgs else "")
+        usage = {"prompt_tokens": sum(_tokens(_text_of(m.get("content")) or "") for m in msgs if isinstance(m, dict)),
+                 "completion_tokens": _tokens(text)}
+        usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
+        cid, created, model = "chatcmpl-" + _uuid.uuid4().hex[:24], int(_time.time()), body.get("model") or "fastpath"
+        if not body.get("stream"):
+            return {"id": cid, "object": "chat.completion", "created": created, "model": model, "usage": usage,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}]}
+
+        def chunk(delta, finish=None, **extra):
+            return "data: " + _json.dumps({"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
+                                           "choices": [{"index": 0, "delta": delta, "finish_reason": finish}], **extra},
+                                          ensure_ascii=False) + "\n\n"
+
+        async def events():
+            yield chunk({"role": "assistant", "content": text})
+            yield chunk({}, "stop")
+            if (body.get("stream_options") or {}).get("include_usage"):
+                yield "data: " + _json.dumps({"id": cid, "object": "chat.completion.chunk", "created": created,
+                                              "model": model, "choices": [], "usage": usage}) + "\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(events(), media_type="text/event-stream")
+    return app
 
 
 def payload(body: dict, upstream: str, max_out: int) -> dict:

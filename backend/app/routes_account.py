@@ -38,6 +38,7 @@ SPEED_SAMPLE_SIZE = 20
 # With fewer measurements than this no number is shown: a figure derived
 # from 1-2 requests is misleading.
 MIN_SPEED_SAMPLES = 5
+MIN_MEDIA_SAMPLES = 2
 SPEED_TREND = 0.15
 
 
@@ -61,7 +62,12 @@ def _real_speed(db: Database) -> dict[str, dict]:
     out: dict[str, dict] = {}
     # EVERY model in the database is computed (not only those in _LEGACY_NAMES);
     # legacy names are counted under the new one.
-    groups = {r["id"]: (r["id"], *_LEGACY_NAMES.get(r["id"], ())) for r in db.all("SELECT id FROM models")}
+    model_rows = db.all("SELECT id, provider, upstream_name FROM models")
+    groups = {r["id"]: (r["id"], *_LEGACY_NAMES.get(r["id"], ())) for r in model_rows}
+    # Video clips and Image Pro pictures are few and slow (a clip is ~70 s): two measurements
+    # already say more than a dash, and a text model's sample size would hide them for weeks.
+    media = {r["id"] for r in model_rows if r["provider"] == "cluster"
+             and (r["upstream_name"] in catalog.VIDEO_UPSTREAMS or r["upstream_name"] == catalog.IMAGE_PRO_UPSTREAM)}
     for new, olds in _LEGACY_NAMES.items():
         groups.setdefault(new, (new, *olds))
     for new, names in groups.items():
@@ -73,7 +79,7 @@ def _real_speed(db: Database) -> dict[str, dict]:
         recent = list(rows)
         ok_all = [r["latency_ms"] for r in recent if r["status_code"] == 200]
         ok_latencies = ok_all[:SPEED_SAMPLE_SIZE]
-        if len(ok_latencies) < MIN_SPEED_SAMPLES:
+        if len(ok_latencies) < (MIN_MEDIA_SAMPLES if new in media else MIN_SPEED_SAMPLES):
             continue
         median = _median(ok_latencies)
         total = len(recent[:SPEED_SAMPLE_SIZE])

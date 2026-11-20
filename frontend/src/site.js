@@ -57,3 +57,6 @@ export const META_FIELD = 'gateway'
 
 /** A video model (Google Flow via the cluster): priced per 8-second clip, not per token. */
 export const isVideoModel = (m) => !!m?.capabilities?.video_generation
+// Image Pro and other picture-only rows: billed per picture (1000 output tokens), no chat
+export const isImageOnlyModel = (m) => !!m?.capabilities?.image_only
+export const isMediaModel = (m) => isVideoModel(m) || isImageOnlyModel(m)

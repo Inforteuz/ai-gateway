@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import billing, branding
+from . import billing, branding, fastpath
 from . import gateway, monitor, routes_account, routes_admin, routes_auth, routes_instances, routes_monitor, routes_playground, routes_referral
 from . import videos
 from . import topup_telegram
@@ -92,6 +92,8 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
     s.ext_sem = asyncio.Semaphore(config.ext_concurrent)
     s.cluster_http = httpx.AsyncClient(limits=httpx.Limits(max_connections=40, max_keepalive_connections=8))
     s.cluster_sem = asyncio.Semaphore(config.cluster_concurrent)
+    s.canned_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=fastpath.make_app()), base_url="http://canned")
+    s.canned_sem = asyncio.Semaphore(256)
     s.inflight = {}
     s.open_tickets = set()
     s.vnc_tickets = TicketStore()  # admin VNC: one-time tickets (the backend is a single process)

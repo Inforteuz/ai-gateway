@@ -1,5 +1,5 @@
 import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
-import { isVideoModel } from '../site.js'
+import { isVideoModel, isImageOnlyModel } from '../site.js'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
@@ -121,7 +121,32 @@ export default function ModelDetail() {
         )}
         <div className="metric">
           <span className="label">{tr("Tayyorlanish vaqti")}</span>
-          <b>~1</b><span className="trend">{tr("daqiqa (o‘rtacha)")}</span>
+          {m.measured
+            ? <><b>{Math.round(m.measured.typical_latency_ms / 1000)}</b><span className="trend">{tr("soniya (o‘rtacha)")}</span></>
+            : <><b>~1</b><span className="trend">{tr("daqiqa (o‘rtacha)")}</span></>}
+        </div>
+      </div>
+      ) : isImageOnlyModel(m) ? (
+      <div className="metric-grid">
+        <div className="metric">
+          <span className="label">{tr("Sifat")}</span>
+          <b>{m.capabilities?.image_resolution || '2K'}</b><span className="trend">2048 px</span>
+        </div>
+        {!freeMode && (
+          <div className="metric">
+            <span className="label">{tr("Bitta rasm narxi")}</span>
+            <b>{fmtNumber(m.price_out_per_1m / MICRO / 1000)} {tr("so'm")}</b>
+            <span className="trend">{tr("rasm chiqmasa pul yechilmaydi")}</span>
+          </div>
+        )}
+        <div className="metric">
+          <span className="label">{tr("Tayyorlanish vaqti")}</span>
+          <b>{m.measured ? Math.round(m.measured.typical_latency_ms / 1000) : '—'}</b><span className="trend">{tr("soniya (o‘rtacha)")}</span>
+        </div>
+        <div className="metric">
+          <span className="label">{tr("Muvaffaqiyat")}</span>
+          <b>{m.measured?.success_rate != null ? `${Math.round(m.measured.success_rate * 100)}%` : '—'}</b>
+          <span className="trend">{tr("(so‘nggi so‘rovlar)")}</span>
         </div>
       </div>
       ) : (
