@@ -1103,6 +1103,7 @@ export default {
   "Ishonchlilik": "Надежность",
   "Javob (o'rta)": "Время ответа (медиана)",
   "Javob (95%)": "Ответ (95%)",
+  "Oqimda ilk matn yoki vosita chaqiruvi": "Первый текст или вызов инструмента",
   "\"Ishonchlilik\": faqat model yoki serverga bog'liq xatolar. Hisob yetmaganlik, chegara va noto'g'ri so'rovlar kirmaydi.": "«Надежность»: только ошибки, связанные с моделью или сервером. Исключает недостаточное количество, ограничение и недействительные запросы.",
   "Xatolar toifalari": "Категории ошибок",
   "Bu davrda xato bo'lmagan.": "За этот период ошибок не было.",

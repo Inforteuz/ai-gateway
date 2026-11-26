@@ -588,8 +588,9 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
 
     # max_tokens: always capped, so the worst-case cost is known up front.
     settings = await run_in_threadpool(db.get_settings)
+    canned = endpoint == "chat/completions" and fastpath.applies(model, body, settings)
     route_meta = {}
-    if endpoint == "chat/completions" and not force_model and model["provider"] == "cluster":
+    if endpoint == "chat/completions" and not canned and not force_model and model["provider"] == "cluster":
         candidates = [dict(r) for r in await run_in_threadpool(db.all,
             "SELECT m.*, h.state AS route_health FROM models m "
             "LEFT JOIN model_health h ON h.upstream=m.upstream_name "
@@ -597,9 +598,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         # Small tool turns are much faster on a no-thinking, tool-capable
         # upstream. Long or planning-heavy turns fall through to the existing
         # input-size route and keep the requested model's full capacity.
-        selected = routing.tool_target(model, candidates, body)
-        if selected is None:
-            selected = routing.size_target(model, candidates, body)
+        selected = routing.cluster_target(model, candidates, body)
         if selected:
             price_source = model
             model, route_meta = selected
@@ -609,7 +608,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     # Load spill (app/capacity.py): the browser model about to take this request has
     # no free tab, so the key pool answers now instead of the request queueing.
     # Attachments and web search stay on the cluster: the pool passes neither.
-    if (endpoint == "chat/completions" and not force_model and model["provider"] == "cluster"
+    if (endpoint == "chat/completions" and not canned and not force_model and model["provider"] == "cluster"
             and not count_attachments(body) and body.get("web_search") is None):
         spill = await capacity.pool_spill_target(state, db, settings, model)
         if spill:
@@ -626,7 +625,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
     # Sable 3.0 uses the larger coder model.  Tiny text-only turns do not need
     # it and are noticeably faster on Sable 2.0; keep code, tool, attachment,
     # and explicit reasoning turns on the requested model.
-    if (endpoint == "chat/completions" and not force_model and model["provider"] == "local"
+    if (endpoint == "chat/completions" and not canned and not force_model and model["provider"] == "local"
             and model.get("id") == "sable-3.0" and not count_attachments(body)):
         target = await run_in_threadpool(
             db.one, "SELECT * FROM models WHERE id=? AND enabled=1", ("sable-2.0",))
@@ -804,13 +803,18 @@ def _provider_limit(state, provider):
 
 async def _acquire(state, ticket: Ticket, sem) -> None:
     provider = ticket.attribution.get("provider", "local")
-    provider = provider if provider in ("local", "cluster") else "external"
+    needs_lease = provider != "canned"
+    provider = provider if provider in ("local", "cluster", "canned") else "external"
     deadline = time.monotonic() + state.config.queue_wait_seconds
-    await run_in_threadpool(admission.register, state.db, ticket.request_id, "primary", provider)
+    # Fixed replies have their own in-process semaphore and don't consume inference capacity.
+    if needs_lease:
+        await run_in_threadpool(admission.register, state.db, ticket.request_id, "primary", provider)
     try:
         await asyncio.wait_for(sem.acquire(), timeout=max(.001, deadline - time.monotonic()))
         ticket.sem, ticket.sem_held = sem, True
-        if not await admission.wait(state.db, ticket.request_id, "primary", provider, _provider_limit(state, provider), deadline):
+        if needs_lease and not await admission.wait(
+            state.db, ticket.request_id, "primary", provider, _provider_limit(state, provider), deadline
+        ):
             raise asyncio.TimeoutError()
     except asyncio.TimeoutError:
         await ticket.finish(status_code=503, error="server_busy")
@@ -920,15 +924,8 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
         ticket.attribution = attribution.request_meta(request.headers, body)
     try:
         settings = await run_in_threadpool(state.db.get_settings)
-        # Fast path: a trivial message to a web-chat model ("Hey", "ishlayapsanmi", "sen kimsan")
-        # is answered by the fast GPU model — decided BEFORE queueing, otherwise it would also
-        # wait 30-60 s in the web window queue (app/fastpath.py). Priced as the requested model.
-        # Local and key-pool models take it only for "who are you": they named their real model (Qwen).
-        fast = (endpoint == "chat/completions"
-                and model["upstream_name"].lower() not in ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1")
-                and settings.get("fastpath_enabled", "1") == "1"
-                and ((model["provider"] == "cluster" and fastpath.eligible(body))
-                     or (model["provider"] in ("local", "pool") and fastpath.is_identity(body))))
+        # Fixed replies use the normal billing and streaming path without a model queue.
+        fast = endpoint == "chat/completions" and fastpath.applies(model, body, settings)
         if fast:
             model = {**model, "provider": "canned", "refine": 0, "upstream_name": "fastpath"}
             log.info("fast path: %s -> %s (%s)", model.get("public_id") or model["id"],
@@ -1273,6 +1270,10 @@ async def _stream_body(resp: httpx.Response, ticket: Ticket, wants_usage: bool, 
                             if ch.get("finish_reason"):
                                 finished_choices.add(idx)
                             d = ch.get("delta") or {}
+                            if "first_output_ms" not in ticket.attribution and (
+                                (d.get("content") or "").strip() or d.get("tool_calls")
+                            ):
+                                ticket.attribution["first_output_ms"] = int((time.monotonic() - ticket.t0) * 1000)
                             reasoning = d.get("reasoning") or d.get("reasoning_content") or ""
                             if reasoning.startswith(GATEWAY_PLACEHOLDER):
                                 # Our own "still waiting" note, not model output. Counted, it

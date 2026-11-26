@@ -150,15 +150,23 @@ def test_tool_result_turn_keeps_large_task_once_and_all_results():
 
 
 def test_agent_prompt_bounds_old_history_but_keeps_recent_context(monkeypatch):
-    from cluster import compose, settings as cfg
+    from cluster import compose, settings as cfg, tools
     monkeypatch.setattr(cfg, "AGENT_MAX_HISTORY_TURNS", 4)
-    messages = []
+    old_result = {"role": "tool", "content": "obsolete result", "tool_call_id": "old-call"}
+    messages = [old_result]
     for i in range(8):
         messages.extend([
             {"role": "user", "content": f"old task {i}"},
             {"role": "assistant", "content": f"old answer {i}"},
         ])
     messages.append({"role": "user", "content": "current task"})
+    original_render = tools.render_tool_message
+
+    def render_recent(message):
+        assert message is not old_result
+        return original_render(message)
+
+    monkeypatch.setattr(tools, "render_tool_message", render_recent)
     prompt = compose.compile_prompt(messages, tools_instruction="tool protocol")
     assert "current task" in prompt and "old task 7" in prompt
     assert "old task 0" not in prompt and "old answer 0" not in prompt

@@ -38,9 +38,10 @@ MAX_CHARS = 40
 _PATTERN = re.compile(
     r"^(?:"
     # greetings
-    r"salom(?:\s*alaykum)?|assalomu?\s*alaykum|assalom|hey+|hi+|hello+|hola|yo|"
+    r"salom(?:\s*alaykum)?|assalomu?\s*alaykum|assalom|[hx]ayrli\s+(?:tong|kun|kech)|"
+    r"hey+|hi+|hello+|hola|yo|good\s+(?:morning|afternoon|evening)|"
     r"(?:hey\s+)?nima\s+gap|salom\s+(?:qalesan|qalaysan|qalaysiz)|how\s+are\s+u|"
-    r"привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|"
+    r"привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|"
     r"qalesan|qalaysan|qalaysiz|yaxshimisiz|yaxshimisan|ishlar\s+qalay|how\s+are\s+you|как\s+дела|"
     # status checks
     r"ishlayapsanmi|ishlayapsizmi|ishlayabsanmi|ishlayapsanmi\s+o'zi|bormisan|bormisiz|"
@@ -76,6 +77,19 @@ def _normalize(text: str) -> str:
     # Strip leading/trailing punctuation and emoji
     t = re.sub(r"^[^\w']+|[^\w']+$", "", t, flags=re.UNICODE)
     return t
+
+
+_ADDRESSEES = frozenset({"sable", _normalize(_A)}) - {""}
+
+
+def phrase(text: str) -> str:
+    """Remove only a trailing assistant name, so ordinary greetings stay strict."""
+    text = _normalize(text)
+    for name in _ADDRESSEES:
+        suffix = " " + name
+        if text.endswith(suffix):
+            return text[:-len(suffix)].rstrip(" ,")
+    return text
 
 
 def _text_of(content: Any) -> str | None:
@@ -115,18 +129,18 @@ def eligible(body: dict) -> bool:
     text = last_user_text(body)
     if text is None or len(text.strip()) > MAX_CHARS:
         return False
-    if _PATTERN.fullmatch(_normalize(text)):
+    if _PATTERN.fullmatch(phrase(text)):
         return True
     # A context-dependent identity follow-up is small talk only immediately
     # after an identity question, never a generic "continue/really?" shortcut.
     if _normalize(text) in ("aslidachi", "aslida-chi", "aslida chi", "really who are you"):
-        previous = [m for m in body.get("messages", [])[:-1] if m.get("role") == "user"]
+        previous = [m for m in body.get("messages", [])[:-1] if isinstance(m, dict) and m.get("role") == "user"]
         prior = _normalize(_text_of(previous[-1].get("content")) or "") if previous else ""
         return bool(re.fullmatch(r"(?:sen\s+|siz\s+)?kims(?:an|iz)|who are you|ты кто|кто ты", prior))
     return False
 
 
-_EN = re.compile(r"^(?:hey+|hi+|hello+|hola|yo|how are (?:u|you)|are you (?:there|working|alive|ok)|you there|test|"
+_EN = re.compile(r"^(?:hey+|hi+|hello+|hola|yo|good (?:morning|afternoon|evening)|how are (?:u|you)|are you (?:there|working|alive|ok)|you there|test|"
                  r"testing|ping|who are you|what(?:'s| is) your name|thanks?|thank you|thx|really who are you)$")
 _KINDS = (
     ("identity", re.compile(r"kim|isming|who are|your name|кто|зовут|aslida|really")),
@@ -148,7 +162,7 @@ REPLIES = {
 
 def kind(text: str) -> str:
     """greeting | identity | status | thanks."""
-    t = _normalize(text)
+    t = phrase(text)
     return next((k for k, rx in _KINDS if rx.search(t)), "greeting")
 
 
@@ -158,9 +172,18 @@ def is_identity(body: dict) -> bool:
     return eligible(body) and kind(last_user_text(body) or "") == "identity"
 
 
+def applies(model: dict, body: dict, settings: dict) -> bool:
+    if settings.get("fastpath_enabled", "1") != "1":
+        return False
+    if model["upstream_name"].lower() in ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1"):
+        return False
+    return ((model["provider"] == "cluster" and eligible(body))
+            or (model["provider"] in ("local", "pool") and is_identity(body)))
+
+
 def reply(text: str) -> str:
     """The fixed answer to an eligible message, in its language."""
-    t = _normalize(text)
+    t = phrase(text)
     lang = "ru" if re.search(r"[а-яё]", t) else ("en" if _EN.fullmatch(t) else "uz")
     return REPLIES[kind(t)][lang]
 
@@ -203,13 +226,11 @@ def make_app():
 
 
 def payload(body: dict, upstream: str, max_out: int) -> dict:
-    """Compact request for the fast model: only the persona and the last message."""
+    """Compact request for a fast model: only the persona and the last message."""
     text = last_user_text(body) or ""
     if _normalize(text) in ("aslidachi", "aslida-chi", "aslida chi", "really who are you"):
-        previous = [m for m in body.get("messages", [])[:-1] if m.get("role") == "user"]
+        previous = [m for m in body.get("messages", [])[:-1] if isinstance(m, dict) and m.get("role") == "user"]
         if previous:
-            # This shortcut was admitted because of the preceding identity
-            # question. Retain that small context so the follow-up makes sense.
             prior = _text_of(previous[-1].get("content")) or ""
             text = f"[Previous identity question]: {prior}\n[Current message]: {text}"
     out: dict = {

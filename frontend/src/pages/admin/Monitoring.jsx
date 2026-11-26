@@ -155,6 +155,7 @@ export default function Monitoring() {
                 <div className="metric"><span className="label">{tr("Javob (o'rta)")}</span><b>{tr(q.latency_p50 != null ? `${(q.latency_p50 / 1000).toFixed(1)}` : '-')}<small>{tr("s")}</small></b></div>
                 <div className="metric"><span className="label">{tr("Javob (95%)")}</span><b>{tr(q.latency_p95 != null ? `${(q.latency_p95 / 1000).toFixed(1)}` : '-')}<small>{tr("s")}</small></b></div>
                 <div className="metric"><span className="label">TTFB</span><b>{tr(q.ttfb_p50 != null ? `${(q.ttfb_p50 / 1000).toFixed(1)}` : '-')}<small>{tr("s")}</small></b></div>
+                <div className="metric"><span className="label">{tr("Oqimda ilk matn yoki vosita chaqiruvi")}</span><b>{q.first_output_p50 != null ? (q.first_output_p50 / 1000).toFixed(1) : '–'}<small>{tr("s")}</small></b></div>
               </div>
               <p className="hint" style={{ marginTop: 14 }}>{tr("\"Ishonchlilik\": faqat model yoki serverga bog'liq xatolar. Hisob yetmaganlik, chegara va noto'g'ri so'rovlar kirmaydi.")}</p>
             </section>

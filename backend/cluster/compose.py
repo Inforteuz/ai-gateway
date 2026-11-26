@@ -199,6 +199,14 @@ def wrap_untrusted(kind: str, text: str) -> str:
     return f"{UNTRUSTED_OPEN.format(kind=kind)}\n{safe}\n{UNTRUSTED_CLOSE}"
 
 
+def _history_text(role: str, value: str | Mapping[str, Any]) -> str:
+    if isinstance(value, str):
+        return value
+    if role == "tool":
+        return tools.render_tool_message(value)
+    return tools.render_assistant_tool_calls(value)
+
+
 def compile_prompt(messages: Iterable[Mapping[str, Any]],
                    attachments_note: str = "",
                    tools_instruction: str = "") -> str:
@@ -213,7 +221,7 @@ def compile_prompt(messages: Iterable[Mapping[str, Any]],
     msg_list = list(messages)
 
     system_prompts: list[str] = [_BRAND_SYSTEM_PROMPT, _UNTRUSTED_RULE]
-    history: list[tuple[str, str]] = []
+    history: list[tuple[str, str | Mapping[str, Any]]] = []
     current = ""
     # If the last message is a tool result, the model must ANSWER the user's
     # original question using it. If the tool result itself ended up as the
@@ -224,13 +232,9 @@ def compile_prompt(messages: Iterable[Mapping[str, Any]],
     for idx, m in enumerate(msg_list):
         role = (m.get("role") or "").lower()
 
-        # Tool result: the model should see it as part of the history
-        if role == "tool":
-            history.append(("tool", tools.render_tool_message(m)))
-            continue
-        # If the assistant called tools earlier, show that in the history too
-        if role == "assistant" and m.get("tool_calls"):
-            history.append(("assistant", tools.render_assistant_tool_calls(m)))
+        # Render tool history only once we know it fits the retained window.
+        if role == "tool" or (role == "assistant" and m.get("tool_calls")):
+            history.append((role, m))
             continue
 
         content = (m.get("content") or "").strip() if isinstance(m.get("content"), str) else ""
@@ -261,7 +265,8 @@ def compile_prompt(messages: Iterable[Mapping[str, Any]],
             + (f"\nFoydalanuvchining savoli: {last_user}" if last_user else "")
         )
     elif not current and history:
-        _, current = history.pop()
+        role, value = history.pop()
+        current = _history_text(role, value)
 
     system_block = "[System]:\n" + "\n".join(system_prompts)
     parts: list[str] = [system_block]
@@ -278,7 +283,8 @@ def compile_prompt(messages: Iterable[Mapping[str, Any]],
         history_limit = (cfg.AGENT_MAX_HISTORY_TURNS if tools_instruction
                          else cfg.MAX_HISTORY_TURNS)
         # Fill from the end: recent context matters more.
-        for role, content in reversed(history[-history_limit:]):
+        for role, value in reversed(history[-history_limit:]):
+            content = _history_text(role, value)
             prefix = {"user": "User", "assistant": "Assistant",
                       "tool": "Tool"}.get(role, role.capitalize())
             trimmed = (content if len(content) <= cfg.MAX_TURN_CHARS
