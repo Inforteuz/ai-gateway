@@ -102,6 +102,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # from "external", which the answer verifier (refine) uses.
     "pool_base_url": "http://gemini-pool:8088/v1",
     "pool_api_key": "",             # bearer token the pool expects (write-only, never returned)
+    "omni_base_url": "",             # OmniRoute, e.g. http://front-tunnel:20128/v1; "" = omni models answer 503
+    "omni_api_key": "",              # an OmniRoute API key (write-only, never returned)
+    "omni_spill_model": "omni-zaxira",   # hidden OmniRoute row (shared traffic, overflow, failures); "" = off
+    "omni_share": "50",              # % of browser-model chat requests OmniRoute answers (round-robin); 0 = none
     "pool_spill_model": "gemini-zaxira",   # pool model that takes requests when the browser model has no free tab; "" = off
     "refiner_model": "",  # verifier model (name at the external provider)
     "refine_timeout": "15",         # max verification time (seconds); the draft is returned after that

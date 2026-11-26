@@ -48,10 +48,27 @@ async def free_tabs(state, settings) -> dict[str, int] | None:
     return free
 
 
-async def pool_spill_target(state, db, settings, model) -> dict | None:
-    """The pool model to answer instead of `model`, or None to keep the cluster."""
+def omni_ready(settings) -> bool:
+    return bool((settings.get("omni_base_url") or "").strip() and (settings.get("omni_api_key") or "").strip())
+
+
+def background_rows(settings) -> list[tuple[str, str]]:
+    """(model id, provider) of the background layers, in order: the Gemini key pool, then OmniRoute
+    (owner's call 2026-11-27: OmniRoute is not a model of its own either, it takes overflow and failures)."""
+    rows = []
     name = (settings.get("pool_spill_model") or "").strip()
-    if not name or not (settings.get("pool_api_key") or "").strip():
+    if name and (settings.get("pool_api_key") or "").strip():
+        rows.append((name, "pool"))
+    name = (settings.get("omni_spill_model") or "").strip()
+    if name and omni_ready(settings):
+        rows.append((name, "omni"))
+    return rows
+
+
+async def pool_spill_target(state, db, settings, model) -> dict | None:
+    """The background model to answer instead of `model`, or None to keep the cluster."""
+    layers = background_rows(settings)
+    if not layers:
         return None
     free = await free_tabs(state, settings)
     if free is None:
@@ -59,5 +76,46 @@ async def pool_spill_target(state, db, settings, model) -> dict | None:
     upstream = str(model.get("upstream_name") or "").lower()
     if free.get(upstream, 1) > 0:        # free tab, or a model the status does not list
         return None
-    row = await run_in_threadpool(db.one, "SELECT * FROM models WHERE id=? AND enabled=1 AND provider='pool'", (name,))
+    for name, provider in layers:
+        row = await run_in_threadpool(db.one, "SELECT * FROM models WHERE id=? AND enabled=1 AND provider=?", (name, provider))
+        if row:
+            return dict(row)
+    return None
+
+
+_balance = {"acc": 0}
+
+
+def omni_balance_turn(settings) -> bool:
+    """Weighted round-robin between the browser cluster and OmniRoute (owner's call 2026-11-27:
+    requests are shared between the two sources, not one kept as a spare). `omni_share` is the
+    percentage OmniRoute takes; 50 alternates exactly. Per process, which is all there is."""
+    try:
+        share = max(0, min(100, int(settings.get("omni_share") or 0)))
+    except ValueError:
+        share = 0
+    if share <= 0 or not omni_ready(settings):
+        return False
+    _balance["acc"] += share
+    if _balance["acc"] >= 100:
+        _balance["acc"] -= 100
+        return True
+    return False
+
+
+async def omni_balance_target(db, settings, model, body) -> dict | None:
+    """OmniRoute's row when this browser-model request is OmniRoute's turn, else None."""
+    name = (settings.get("omni_spill_model") or "").strip()
+    if not name or not omni_balance_turn(settings):
+        return None
+    row = await run_in_threadpool(db.one, "SELECT * FROM models WHERE id=? AND enabled=1 AND provider='omni'", (name,))
     return dict(row) if row else None
+
+
+def omni_stand_in(db, model) -> str | None:
+    """OmniRoute's hidden row for a request that failed and has no fallback of its own."""
+    if (model or {}).get("provider") == "omni":
+        return None
+    s = db.get_settings()
+    name = (s.get("omni_spill_model") or "").strip()
+    return name if name and omni_ready(s) and name != (model or {}).get("id") else None

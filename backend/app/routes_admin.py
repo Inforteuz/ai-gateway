@@ -265,7 +265,7 @@ class ModelIn(BaseModel):
     price_out_per_1m: int = Field(ge=0)
     context_window: int = Field(default=32768, ge=256)
     enabled: bool = True
-    provider: str = Field(default="local", pattern="^(local|external|cluster|pool)$")
+    provider: str = Field(default="local", pattern="^(local|external|cluster|pool|omni)$")
     refine: bool = False
     listed: bool = True
     default_reasoning: str | None = Field(default=None, pattern=LEVEL_PATTERN)
@@ -324,7 +324,7 @@ class ModelPatch(BaseModel):
     price_out_per_1m: int | None = Field(default=None, ge=0)
     context_window: int | None = Field(default=None, ge=256)
     enabled: bool | None = None
-    provider: str | None = Field(default=None, pattern="^(local|external|cluster|pool)$")
+    provider: str | None = Field(default=None, pattern="^(local|external|cluster|pool|omni)$")
     refine: bool | None = None
     listed: bool | None = None
     default_reasoning: str | None = Field(default=None, pattern=LEVEL_PATTERN)
@@ -595,6 +595,11 @@ class SettingsIn(BaseModel):
     pool_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
     pool_api_key: str | None = Field(default=None, max_length=300)
     clear_pool_api_key: bool = False
+    omni_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
+    omni_api_key: str | None = Field(default=None, max_length=300)
+    clear_omni_api_key: bool = False
+    omni_share: str | None = Field(default=None, max_length=3, pattern=r"^(100|[1-9]?[0-9])$")
+    omni_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
     pool_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
     # --- Sign-in via Google and Telegram ---
     site_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
@@ -631,7 +636,7 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
     cfg = request.app.state.config
     text_keys = ("registration_open", "free_mode", "payment_info", "default_reasoning_effort", "alert_telegram_token", "alert_telegram_chat_id",
                  "last_daily_report", "external_base_url", "external_api_key", "refiner_model",
-                 "cluster_base_url", "cluster_api_key", "pool_base_url", "pool_api_key",
+                 "cluster_base_url", "cluster_api_key", "pool_base_url", "pool_api_key", "omni_base_url", "omni_api_key",
                  "site_base_url", "google_client_id", "google_client_secret",
                  "telegram_login_token", "telegram_login_bot", "telegram_login_enabled",
                  "telegram_login_enabled", "telegram_login_bot",
@@ -648,6 +653,10 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
             "cluster_api_key_set": bool(s.get("cluster_api_key")),
             "pool_base_url": s.get("pool_base_url", ""),
             "pool_api_key_set": bool(s.get("pool_api_key")),             # the token itself is never returned
+            "omni_base_url": s.get("omni_base_url", ""),
+            "omni_api_key_set": bool(s.get("omni_api_key")),             # never returned either
+            "omni_share": s.get("omni_share", "50"),
+            "omni_spill_model": s.get("omni_spill_model", "omni-zaxira"),
             "maintenance_models": s.get("maintenance_models", ""),
             "site_base_url": s.get("site_base_url", ""),
             "google_client_id": s.get("google_client_id", ""),
@@ -700,6 +709,8 @@ def put_settings(body: SettingsIn, request: Request, db: Database = Depends(get_
         changes["cluster_api_key"] = ""
     if changes.pop("clear_pool_api_key", False):
         changes["pool_api_key"] = ""
+    if changes.pop("clear_omni_api_key", False):
+        changes["omni_api_key"] = ""
     if changes.pop("clear_google_client_secret", False):
         changes["google_client_secret"] = ""
     if changes.pop("clear_recaptcha_secret", False):

@@ -438,6 +438,11 @@ async def proxy(request: Request, endpoint: str):
     try:
         response = await _execute(request, endpoint, ticket, body, model, max_out, stream)
     except ApiError as exc:
+        if not model.get("fallback_to") and endpoint == "chat/completions":
+            # No fallback of its own: OmniRoute, the background layer, gets the one retry (when configured)
+            omni = await run_in_threadpool(capacity.omni_stand_in, state.db, model)
+            if omni:
+                model = {**model, "fallback_to": omni}
         candidate = await run_in_threadpool(state.db.one, "SELECT * FROM models WHERE id=? AND enabled=1", (model.get("fallback_to"),))
         candidate = dict(candidate) if candidate else None
         stand_in = _stand_in_for(model, exc, candidate, endpoint, ticket.attribution.get("provider"))
@@ -568,7 +573,7 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         if model["provider"] != "cluster":
             raise ApiError(400, "unsupported_endpoint",
                            "Bu model rasm generatsiya qilmaydi.")
-    elif (model["provider"] in ("external", "cluster", "pool") or model["refine"]) and endpoint != "chat/completions":
+    elif (model["provider"] in ("external", "cluster", "pool", "omni") or model["refine"]) and endpoint != "chat/completions":
         raise ApiError(400, "unsupported_endpoint", "Bu model faqat /v1/chat/completions orqali ishlaydi.")
     if endpoint == "chat/completions" and not isinstance(body.get("messages"), list):
         raise ApiError(400, "invalid_messages", "'messages' ro'yxat bo'lishi kerak.")
@@ -606,8 +611,21 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             model = {**model, "public_id": public_id}
             log.info("%s route: %s -> %s chars=%d (%s)", route_meta.get("route_reason", "size"),
                      price_source["id"], model["id"], route_meta["prompt_chars"], request_id)
+    # Two sources (app/capacity.py): browser-model chat requests are shared with OmniRoute by
+    # `omni_share`; on OmniRoute's turn it answers, and a failure goes back to the browser model.
+    # Attachments and web search stay on the cluster: OmniRoute is not given either.
+    if (endpoint == "chat/completions" and not force_model and model["provider"] == "cluster"
+            and not count_attachments(body) and body.get("web_search") is None):
+        omni = await capacity.omni_balance_target(db, settings, model, body)
+        if omni:
+            source = price_source or model
+            log.info("balance route: %s -> %s (%s)", source["id"], omni["id"], request_id)
+            price_source = source
+            model = {**omni, "public_id": public_id, "fallback_to": source["id"],
+                     "price_in_per_1m": source["price_in_per_1m"], "price_out_per_1m": source["price_out_per_1m"]}
+            route_meta = {**route_meta, "route_reason": "balance", "source_model": source["id"]}
     # Load spill (app/capacity.py): the browser model about to take this request has
-    # no free tab, so the key pool answers now instead of the request queueing.
+    # no free tab, so a background layer (key pool, else OmniRoute) answers now instead of queueing.
     # Attachments and web search stay on the cluster: the pool passes neither.
     if (endpoint == "chat/completions" and not force_model and model["provider"] == "cluster"
             and not count_attachments(body) and body.get("web_search") is None):
@@ -649,6 +667,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
     if model["provider"] == "pool" and not ((settings.get("pool_base_url") or "").strip() and (settings.get("pool_api_key") or "").strip()):
         raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
+    if model["provider"] == "omni" and not ((settings.get("omni_base_url") or "").strip() and (settings.get("omni_api_key") or "").strip()):
+        raise ApiError(503, "model_unavailable", "Bu model hozircha mavjud emas.", "server_error")
     # Daily token limit on free models (for accounts without a deposit). Over the limit: rejected, not rerouted to another model.
     billing_model = price_source or model
     if billing_model["id"] in billing.free_limit_models(settings) and not key["free"]:
@@ -680,8 +700,8 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             reasoning = r if isinstance(r, str) else ("think" if body.get("think") else "")
         else:
             level = key.get("reasoning_effort") or model["default_reasoning"] or settings.get("default_reasoning_effort", "")
-            if model["provider"] in ("external", "cluster", "pool"):
-                level = ""   # no default reasoning level for external, cluster and pool providers
+            if model["provider"] in ("external", "cluster", "pool", "omni"):
+                level = ""   # no default reasoning level for external, cluster, pool and OmniRoute providers
             if level and level != "model":
                 body = {**body, "reasoning_effort": level}
                 reasoning = level
@@ -785,6 +805,11 @@ def _target(state, model, settings: dict):
     if provider == "pool":
         return (state.ext_http, (settings.get("pool_base_url") or "").rstrip("/"),
                 {"Authorization": f"Bearer {settings.get('pool_api_key', '')}", "User-Agent": refine.USER_AGENT}, state.ext_sem)
+    if provider == "omni":
+        # OmniRoute (self-hosted router of API-key/OAuth providers, owner's call 2026-11-27): OpenAI-compatible,
+        # reached through the front tunnel; accounts are added in its own dashboard, not here.
+        return (state.ext_http, (settings.get("omni_base_url") or "").rstrip("/"),
+                {"Authorization": f"Bearer {settings.get('omni_api_key', '')}", "User-Agent": refine.USER_AGENT}, state.ext_sem)
     if provider == "cluster":
         base = (settings.get("cluster_base_url") or "").rstrip("/")
         headers = {"User-Agent": refine.USER_AGENT}
@@ -928,7 +953,7 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
                 and model["upstream_name"].lower() not in ("deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1")
                 and settings.get("fastpath_enabled", "1") == "1"
                 and ((model["provider"] == "cluster" and fastpath.eligible(body))
-                     or (model["provider"] in ("local", "pool") and fastpath.is_identity(body))))
+                     or (model["provider"] in ("local", "pool", "omni") and fastpath.is_identity(body))))
         if fast:
             model = {**model, "provider": "canned", "refine": 0, "upstream_name": "fastpath"}
             log.info("fast path: %s -> %s (%s)", model.get("public_id") or model["id"],
@@ -941,7 +966,7 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
         ticket.attribution.update(provider=model["provider"], route_model=model["id"])
 
         payload = fastpath.payload(body, model["upstream_name"], max_out) if fast else dict(body)
-        if not fast and endpoint == "chat/completions" and model["provider"] in ("local", "pool"):
+        if not fast and endpoint == "chat/completions" and model["provider"] in ("local", "pool", "omni"):
             payload["messages"] = branding.with_identity(payload.get("messages"))
         payload["model"] = model["upstream_name"]
         payload["max_tokens"] = min(max_out, payload.get("max_tokens") or max_out)
@@ -980,7 +1005,7 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
             return await _execute_refined(state, ticket, body, payload, model, max_out, stream, settings, (client, base, headers))
 
         wants_usage = bool((body.get("stream_options") or {}).get("include_usage")) if stream else False
-        if stream and model["provider"] in ("local", "pool"):
+        if stream and model["provider"] in ("local", "pool", "omni"):
             # Exact token counts for billing; the usage chunk is hidden again unless the client asked for it
             payload["stream_options"] = {**(body.get("stream_options") or {}), "include_usage": True}
 

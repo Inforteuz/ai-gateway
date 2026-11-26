@@ -15,7 +15,7 @@ def _get(r, key: str) -> str:
 
 
 def processing_class(model) -> str:
-    return "third_party" if model["provider"] in ("external", "cluster", "pool") or model["refine"] else "private"
+    return "third_party" if model["provider"] in ("external", "cluster", "pool", "omni") or model["refine"] else "private"
 
 
 def _cluster_caps(upstream: str) -> dict:
@@ -76,7 +76,7 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
     INTENTIONALLY separate: a model can be down without announced maintenance,
     and vice versa.
     """
-    third_party_provider = r["provider"] in ("external", "cluster", "pool")
+    third_party_provider = r["provider"] in ("external", "cluster", "pool", "omni")
     checked = bool(r["refine"])
     if r["provider"] == "cluster" and r["upstream_name"] in VIDEO_UPSTREAMS:
         # Video models (Google Flow via the cluster, app/videos.py): one clip per request, priced per clip
@@ -94,7 +94,7 @@ def public_model(r, hard_max: int, maintenance: frozenset = frozenset(),
         # Previously this field was missing entirely and local models looked unfit for agents
         # in the catalog/docs. No vision, file input or image generation.
         extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": True}
-    elif r["provider"] == "pool":
+    elif r["provider"] in ("pool", "omni"):
         # Gemini through Google's OpenAI-compatible endpoint: native tool calls,
         # verified 2026-11-12. Attachments are not passed through the pool yet.
         extra = {"vision": False, "file_input": False, "image_generation": False, "tool_calling": True}

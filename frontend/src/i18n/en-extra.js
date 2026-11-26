@@ -1880,4 +1880,9 @@ export default {
   "Bitta rasm narxi": "Price per image",
   "rasm chiqmasa pul yechilmaydi": "nothing is charged if no image comes out",
   "soniya (o‘rtacha)": "seconds (average)",
+  "Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OmniRoute bilan navbatma-navbat bo'linadi. Akkauntlar OmniRoute'ning o'z panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.": "Second source: chat requests to browser models are shared in turn with OmniRoute. Accounts are added in OmniRoute's own panel; it never shows as a catalog model.",
+  "OmniRoute manzili": "OmniRoute URL",
+  "OmniRoute API kaliti": "OmniRoute API key",
+  "OmniRoute ulushi (%)": "OmniRoute share (%)",
+  "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.": "50 splits requests evenly, 0 uses OmniRoute only on errors or when no tab is free. The price is the requested model's.",
 }

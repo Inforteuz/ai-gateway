@@ -18,7 +18,7 @@ from . import billing
 from .config import DEFAULT_SETTINGS, Config
 from .db import from_config, now
 
-PROVIDERS = ("local", "cluster", "external", "pool")
+PROVIDERS = ("local", "cluster", "external", "pool", "omni")
 CLUSTER_CHANNELS = ("auto", "chatgpt", "deepseek", "deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-r1", "qwen", "gemini", "genspark", "deepai", "zai", "grok",
                     "chatbotapp", "chatbotchatapp", "venice")
 

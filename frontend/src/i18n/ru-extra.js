@@ -1880,4 +1880,9 @@ export default {
   "Bitta rasm narxi": "Цена одного изображения",
   "rasm chiqmasa pul yechilmaydi": "если изображение не получится, деньги не списываются",
   "soniya (o‘rtacha)": "секунд (в среднем)",
+  "Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OmniRoute bilan navbatma-navbat bo'linadi. Akkauntlar OmniRoute'ning o'z panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.": "Второй источник: чат-запросы к браузерным моделям поочерёдно делятся с OmniRoute. Аккаунты добавляются в собственной панели OmniRoute; в каталоге он не виден как модель.",
+  "OmniRoute manzili": "Адрес OmniRoute",
+  "OmniRoute API kaliti": "API-ключ OmniRoute",
+  "OmniRoute ulushi (%)": "Доля OmniRoute (%)",
+  "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.": "50 — запросы делятся поровну, 0 — OmniRoute работает только при ошибке или без свободных вкладок. Цена — запрошенной модели.",
 }

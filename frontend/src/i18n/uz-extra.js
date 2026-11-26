@@ -1880,4 +1880,9 @@ export default {
   "Bitta rasm narxi": "Bitta rasm narxi",
   "rasm chiqmasa pul yechilmaydi": "rasm chiqmasa pul yechilmaydi",
   "soniya (o‘rtacha)": "soniya (o‘rtacha)",
+  "Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OmniRoute bilan navbatma-navbat bo'linadi. Akkauntlar OmniRoute'ning o'z panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.": "Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OmniRoute bilan navbatma-navbat bo'linadi. Akkauntlar OmniRoute'ning o'z panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.",
+  "OmniRoute manzili": "OmniRoute manzili",
+  "OmniRoute API kaliti": "OmniRoute API kaliti",
+  "OmniRoute ulushi (%)": "OmniRoute ulushi (%)",
+  "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.": "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.",
 }

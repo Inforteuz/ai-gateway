@@ -46,6 +46,7 @@ export default function Settings() {
       clBase: data.cluster_base_url || '', clKey: '', clSet: data.cluster_api_key_set,
       clFallback: !!data.cluster_fallback_enabled,
       poolBase: data.pool_base_url || '', poolKey: '', poolSet: data.pool_api_key_set, poolSpill: data.pool_spill_model ?? '',
+      omniBase: data.omni_base_url || '', omniKey: '', omniSet: data.omni_api_key_set, omniShare: data.omni_share ?? '50',
       fastOn: data.fastpath_enabled !== false, fastModel: data.fastpath_model || tr("qwen3:14b"),
       siteBase: data.site_base_url || '', gId: data.google_client_id || '', gSecret: '',
       gSet: data.google_client_secret_set, tgLogin: !!data.telegram_login_enabled,
@@ -74,6 +75,7 @@ export default function Settings() {
         ...(f.extKey ? { external_api_key: f.extKey } : {}),
         cluster_base_url: f.clBase, ...(f.clKey ? { cluster_api_key: f.clKey } : {}),
         pool_base_url: f.poolBase, ...(f.poolKey ? { pool_api_key: f.poolKey } : {}), pool_spill_model: f.poolSpill,
+        omni_base_url: f.omniBase, ...(f.omniKey ? { omni_api_key: f.omniKey } : {}), omni_share: String(f.omniShare || '0'),
         cluster_fallback_enabled: f.clFallback, status_public_since: f.statusSince,
         fastpath_enabled: f.fastOn, fastpath_model: f.fastModel,
         site_base_url: f.siteBase, google_client_id: f.gId, telegram_login_enabled: f.tgLogin,
@@ -126,6 +128,10 @@ export default function Settings() {
   }
   const clearPoolKey = async () => {
     try { await _api.put('/portal/admin/settings', { clear_pool_api_key: true }); toast(tr("Kalit o'chirildi")); reload() }
+    catch (err) { toast(err.message, 'error') }
+  }
+  const clearOmniKey = async () => {
+    try { await _api.put('/portal/admin/settings', { clear_omni_api_key: true }); toast(tr("Kalit o'chirildi")); reload() }
     catch (err) { toast(err.message, 'error') }
   }
   const clearClusterKey = async () => {
@@ -239,6 +245,17 @@ export default function Settings() {
               <span className="hint">{tr("Brauzer modelida bo'sh tab qolmasa, so'rov navbatda kutmasdan shu modelga ketadi. Narx so'ralgan modelniki. Bo'sh qoldirilsa o'chadi.")}</span>
             </label>
             {f.poolSet && <div style={{ marginTop: 12 }}><button type="button" className="btn btn--small btn--danger" onClick={clearPoolKey}>{tr("Kalitni o'chirish")}</button></div>}
+          </div>
+
+          <div className="panel">
+            <div className="panel-head"><h2>OmniRoute</h2></div>
+            <p className="muted small" style={{ marginBottom: 10 }}>{tr("Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OmniRoute bilan navbatma-navbat bo'linadi. Akkauntlar OmniRoute'ning o'z panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.")}</p>
+            <label className="field">{tr('OmniRoute manzili')}<input className="input" value={f.omniBase} onChange={set('omniBase')} placeholder="http://front-tunnel:20128/v1" /></label>
+            <label className="field" style={{ marginTop: 12 }}>{tr('OmniRoute API kaliti')} <PasswordInput autoComplete="off" value={f.omniKey} onChange={set('omniKey')} placeholder={f.omniSet ? tr("Saqlangan (o'zgartirish uchun yangisini kiriting)") : 'sk-...'} /></label>
+            <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr("OmniRoute ulushi (%)")} <input className="input" type="number" min="0" max="100" value={f.omniShare} onChange={set('omniShare')} />
+              <span className="hint">{tr("50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.")}</span>
+            </label>
+            {f.omniSet && <div style={{ marginTop: 12 }}><button type="button" className="btn btn--small btn--danger" onClick={clearOmniKey}>{tr("Kalitni o'chirish")}</button></div>}
           </div>
 
           <div className="panel panel--glow">
