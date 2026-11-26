@@ -29,19 +29,19 @@ READ_TOOLS = [{"type": "function", "function": {"name": "read_file"}}]
     "Open the project and optimize all files", "Read the file and implement the fix",
 ])
 def test_short_complex_and_continuation_tasks_are_not_silently_downgraded(prompt):
-    assert routing.cluster_target(model("full", allow_thinking=1),
+    assert routing.tool_target(model("full", allow_thinking=1),
         [model("fast", "qwen", allow_thinking=0)], body(prompt, tools=READ_TOOLS)) is None
 
 
 @pytest.mark.parametrize("prompt", ["Read /tmp/probe.txt", "index.html faylini och", "Прочитай файл app.py"])
 def test_unambiguous_simple_requests_still_have_fast_route(prompt):
-    assert routing.cluster_target(model("full", allow_thinking=1),
+    assert routing.tool_target(model("full", allow_thinking=1),
         [model("fast", "qwen", allow_thinking=0)], body(prompt, tools=READ_TOOLS))
 
 
 @pytest.mark.parametrize("effort", ["medium", "high", "xhigh"])
 def test_explicit_effort_is_preserved_by_optional_speed_route(effort):
-    assert routing.cluster_target(model("full", allow_thinking=1),
+    assert routing.tool_target(model("full", allow_thinking=1),
         [model("fast", "qwen", allow_thinking=0)],
         body("Read app.py", tools=READ_TOOLS, reasoning_effort=effort)) is None
 
@@ -50,7 +50,7 @@ def test_active_tool_history_keeps_requested_route():
     request = body("Read app.py", tools=READ_TOOLS)
     request["messages"] += [{"role": "assistant", "tool_calls": [{"id": "one"}]},
                             {"role": "tool", "tool_call_id": "one", "content": "x" * 50000}]
-    assert routing.cluster_target(model("full", allow_thinking=1),
+    assert routing.tool_target(model("full", allow_thinking=1),
         [model("fast", "qwen", allow_thinking=0)], request) is None
 
 
@@ -59,7 +59,7 @@ def test_optional_speed_route_excludes_known_down_and_thinking_targets():
     request = body("Read app.py", tools=READ_TOOLS)
     for target in (model("down", "qwen", allow_thinking=0, route_health="down"),
                    model("thinking", "qwen", allow_thinking=1)):
-        assert routing.cluster_target(source, [source, target], request) is None
+        assert routing.tool_target(source, [source, target], request) is None
 
 
 def test_gateway_speed_route_obeys_recorded_provider_health(env):

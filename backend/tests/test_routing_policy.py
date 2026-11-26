@@ -23,27 +23,27 @@ def body(text="x" * 32503, **kw):
 
 def test_size_route_uses_adapter_limits_including_protocol(monkeypatch):
     source, wide = model("source"), model("wide", "qwen")
-    selected, meta = routing.cluster_target(source, [wide], body())
+    selected, meta = routing.size_target(source, [wide], body())
     assert selected == wide and meta["source_input_limit"] == get_adapter("gemini").MAX_INPUT_CHARS
     assert 32503 < meta["prompt_chars"] <= get_adapter("qwen").MAX_INPUT_CHARS
     monkeypatch.setattr(get_adapter("gemini"), "MAX_INPUT_CHARS", meta["prompt_chars"])
-    assert routing.cluster_target(source, [wide], body()) is None
+    assert routing.size_target(source, [wide], body()) is None
 
 
 def test_size_route_does_not_use_narrower_unavailable_or_incapable_models(monkeypatch):
     source, wide = model("source"), model("wide", "qwen")
-    assert routing.cluster_target(source, [model("narrow", "deepseek")], body()) is None
-    assert routing.cluster_target(source, [{**wide, "enabled": 0}], body()) is None
-    assert routing.cluster_target(source, [wide], body("x" * 110000)) is None
+    assert routing.size_target(source, [model("narrow", "deepseek")], body()) is None
+    assert routing.size_target(source, [{**wide, "enabled": 0}], body()) is None
+    assert routing.size_target(source, [wide], body("x" * 110000)) is None
     monkeypatch.setattr(get_adapter("qwen"), "caps", replace(get_adapter("qwen").caps, tool_calling=False))
-    assert routing.cluster_target(source, [wide], body(tools=[{"type": "function", "function": {"name": "read_file"}}])) is None
+    assert routing.size_target(source, [wide], body(tools=[{"type": "function", "function": {"name": "read_file"}}])) is None
 
 
 def test_simple_tool_route_prefers_fast_no_thinking_upstream():
     source = model("slow", "gemini", allow_thinking=1)
     candidates = [source, model("qwen-fast", "qwen", allow_thinking=0),
                   model("chat-fast", "chatgpt", allow_thinking=0)]
-    selected = routing.cluster_target(
+    selected = routing.tool_target(
         source, candidates,
         body("Read /tmp/probe.txt",
              tools=[{"type": "function", "function": {"name": "read_file"}}]),
@@ -55,7 +55,7 @@ def test_simple_tool_route_prefers_fast_no_thinking_upstream():
 def test_complex_tool_route_keeps_requested_model():
     source = model("slow", "gemini", allow_thinking=1)
     target = model("qwen-fast", "qwen", allow_thinking=0)
-    assert routing.cluster_target(
+    assert routing.tool_target(
         source, [source, target],
         body("Analyze the architecture and plan a refactor",
              tools=[{"type": "function", "function": {"name": "read_file"}}]),
@@ -64,12 +64,12 @@ def test_complex_tool_route_keeps_requested_model():
 
 def test_attachments_and_private_requests_keep_original_route():
     assert routing.text_profile(body([{"type": "text", "text": "x" * 40000}, {"type": "image_url", "image_url": {"url": "https://example.com/p.png"}}])) is None
-    assert routing.cluster_target(model("local", provider="local"), [model("wide", "qwen")], body()) is None
+    assert routing.size_target(model("local", provider="local"), [model("wide", "qwen")], body()) is None
     private, partner = model("local", provider="local"), model("wide", "qwen")
     assert not routing.compatible(private, partner)
     assert routing.compatible({**private, "refine": 1}, partner)
     # A wide text field must not remove a requested image-generation capability.
-    assert routing.cluster_target(model("gemini"), [partner], body("draw a cat " + "x" * 32000)) is None
+    assert routing.size_target(model("gemini"), [partner], body("draw a cat " + "x" * 32000)) is None
 
 
 def test_fallback_distinguishes_provider_capacity_from_key_limits():
@@ -147,24 +147,15 @@ def setup(env):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_gateway_size_route_price_and_attribution(env, stream, monkeypatch):
+def test_gateway_size_route_price_and_attribution(env, stream):
     seen, uid, key, _ = setup(env)
     add_model(env, "sized", provider="cluster", upstream="gemini", price_in=1000000, price_out=2000000)
     add_model(env, "wide", provider="cluster", upstream="qwen", price_in=9000000, price_out=18000000)
     before = wallet(env, uid)[0]
-    profile_calls = []
-    original_profile = routing.text_profile
-
-    def count_profile(body):
-        profile_calls.append(len(body["messages"]))
-        return original_profile(body)
-
-    monkeypatch.setattr(routing, "text_profile", count_profile)
     response = env.client.post("/v1/chat/completions", headers=bearer(key), json={"model": "sized", **body(stream=stream)})
     assert response.status_code == 200 and response.headers["x-sf-routed-model"] == "wide"
     assert response.headers["x-sf-route-reason"] == "input_size"
     assert seen[0]["model"] == "qwen"
-    assert profile_calls == [1]
     if not stream:
         assert response.json()["model"] == "sized"
     row = env.db.one("SELECT * FROM usage_logs ORDER BY id DESC LIMIT 1")

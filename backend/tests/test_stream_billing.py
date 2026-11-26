@@ -5,8 +5,6 @@ chunk of its own ("[gateway] waiting for the model..."). The gateway counted it
 as model output, so two streams that ended in upstream_failed were logged as
 successful and charged the full prompt price (~515 so'm each).
 """
-import json
-
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
@@ -47,10 +45,9 @@ def test_failed_stream_with_only_the_waiting_note_is_free(env):
     before = wallet(env, uid)
     r = _ask(env, key)
     assert '"upstream_failed"' in r.text
-    row = env.db.one("SELECT status_code, cost, error, attribution FROM usage_logs ORDER BY id DESC LIMIT 1")
+    row = env.db.one("SELECT status_code, cost, error FROM usage_logs ORDER BY id DESC LIMIT 1")
     assert row["status_code"] == 502 and row["cost"] == 0
     assert row["error"].startswith("stream_upstream_error")
-    assert "first_output_ms" not in json.loads(row["attribution"])
     assert wallet(env, uid) == before
 
 
@@ -59,9 +56,8 @@ def test_real_partial_output_is_still_billed(env):
     text = 'data: {"choices":[{"index":0,"delta":{"content":"' + "word " * 200 + '"}}]}\n\n'
     uid, key = _cluster(env, [ROLE, WAIT, text, FAIL, DONE])
     _ask(env, key)
-    row = env.db.one("SELECT status_code, cost, ttfb_ms, attribution FROM usage_logs ORDER BY id DESC LIMIT 1")
+    row = env.db.one("SELECT status_code, cost FROM usage_logs ORDER BY id DESC LIMIT 1")
     assert row["status_code"] == 200 and row["cost"] > 0
-    assert json.loads(row["attribution"])["first_output_ms"] >= row["ttfb_ms"]
 
 
 def test_silent_eof_is_reported_instead_of_looking_finished(env):

@@ -1103,7 +1103,6 @@ export default {
   "Ishonchlilik": "Reliability",
   "Javob (o'rta)": "Response time (median)",
   "Javob (95%)": "Answer (95%)",
-  "Oqimda ilk matn yoki vosita chaqiruvi": "First streamed text or tool call",
   "\"Ishonchlilik\": faqat model yoki serverga bog'liq xatolar. Hisob yetmaganlik, chegara va noto'g'ri so'rovlar kirmaydi.": "\"Reliability\": only model or server related errors. Excludes undercount, limit and invalid requests.",
   "Xatolar toifalari": "Error categories",
   "Bu davrda xato bo'lmagan.": "There was no error during this period.",

@@ -159,22 +159,19 @@ def _simple_tool_request(body, profile) -> bool:
             and _TOOL_SIMPLE.fullmatch(current) is not None)
 
 
-def cluster_target(source, candidates, body):
-    """Try the simple-tool route, then the input-size route, on the same prompt."""
+def tool_target(source, candidates, body):
+    """Pick a no-thinking cluster model by configured priority for a simple tool turn.
+
+    The public model and price remain those requested by the client. This is a
+    capacity route like ``size_target``: it only changes the internal upstream
+    when the candidate accepts the composed prompt and supports tools.
+    """
     if source.get("provider") != "cluster":
         return None
     try:
         profile = text_profile(body)
     except (ValueError, TypeError, AttributeError):
-        # Let the cluster validate malformed requests as usual.
         return None
-    if profile is None:
-        return None
-    return _tool_target(source, candidates, body, profile) or _size_target(source, candidates, profile)
-
-
-def _tool_target(source, candidates, body, profile):
-    """Pick a no-thinking, tool-capable provider for an unambiguous tool turn."""
     if not _simple_tool_request(body, profile):
         return None
     chars = profile[0]
@@ -209,11 +206,21 @@ def _tool_target(source, candidates, body, profile):
                     "tool_speed": True, "source_model": source["id"]}
 
 
-def _size_target(source, candidates, profile):
+def size_target(source, candidates, body):
+    if source["provider"] != "cluster":
+        return None
     from cluster.adapters import get_adapter
     adapter = get_adapter(source["upstream_name"])
     limit = getattr(adapter, "MAX_INPUT_CHARS", 0)
-    if not limit or profile[0] <= limit:
+    if not limit:
+        return None
+    try:
+        profile = text_profile(body)
+    except (ValueError, TypeError, AttributeError):
+        # Malformed messages/tools/formats still get the cluster's normal
+        # validation error; optional routing must not turn them into a 500.
+        return None
+    if profile is None or profile[0] <= limit:
         return None
     chars, needs_tools, wants_images = profile
     if wants_images:

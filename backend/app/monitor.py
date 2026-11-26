@@ -229,9 +229,7 @@ def quality(db: Database, since: int, until: int | None = None) -> dict:
     lat = db.all("""SELECT latency_ms, ttfb_ms, attribution FROM usage_logs WHERE category IS NULL AND latency_ms IS NOT NULL
                     AND created_at>=? AND created_at<? ORDER BY id DESC LIMIT 20000""", (since, until))
     from .attribution import unpack
-    measurements = [(r, unpack(r["attribution"])) for r in lat]
-    measured = [r for r, meta in measurements if meta.get("cache_hit") is not True]
-    first_output = [meta.get("first_output_ms") for _, meta in measurements if meta.get("cache_hit") is not True]
+    measured = [r for r in lat if unpack(r["attribution"]).get("cache_hit") is not True]
     total, ok = t["n"], t["ok"] or 0
     platform = cats.get("platform", 0)
     return {
@@ -244,7 +242,6 @@ def quality(db: Database, since: int, until: int | None = None) -> dict:
         "cache_hits_in_latency_sample": len(lat) - len(measured), "latency_samples": len(measured),
         "latency_p50": _pct([r["latency_ms"] for r in measured], 0.5), "latency_p95": _pct([r["latency_ms"] for r in measured], 0.95),
         "ttfb_p50": _pct([r["ttfb_ms"] for r in measured if r["ttfb_ms"] is not None], 0.5),
-        "first_output_p50": _pct([ms for ms in first_output if isinstance(ms, int)], 0.5),
     }
 
 

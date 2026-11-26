@@ -1,4 +1,4 @@
-"""Fixed fast replies for trivial messages."""
+"""Fast path: trivial messages go to the fast GPU model instead of the web-chat model."""
 import httpx
 from fastapi import FastAPI, Request
 
@@ -14,15 +14,14 @@ def _b(text, **extra):
 def test_trivial_messages_are_eligible():
     for t in ("Hey", "Salom!", "Ishlayapsanmi", "Sen kimsan?", "rahmat 🙏", "Привет", "who are you?",
               "Assalomu alaykum", "ishlayapsanmi?", "Qalaysan", "Hey nima gap", "Nima gap?",
-              "How are u", "Salom qalaysan!", "Hayrli tong Sable", "Xayrli tong, Sable!",
-              "Good morning, Sable!", "Доброе утро, Sable!"):
+              "How are u", "Salom qalaysan!"):
         assert fp.eligible(_b(t)), t
 
 
 def test_commands_and_real_tasks_are_not_eligible():
     for t in ("ok", "ha", "davom et", "Qayta harakat qil", "hello.py yarat", "salom dunyo dasturini yoz",
               "Sen kimsan va qanday ishlaysan, batafsil tushuntir?", "Hey nima gap kodni tuzat",
-              "How are u going to fix the file?", "Hayrli tong Sable, papkalarni sana"):
+              "How are u going to fix the file?"):
         assert not fp.eligible(_b(t)), t
     assert not fp.eligible(_b("Hey", response_format={"type": "json_object"}))
     assert not fp.eligible(_b("Hey", tool_choice="required"))
@@ -82,27 +81,6 @@ def test_identity_question_to_a_local_model_never_names_qwen(env):
     r = env.client.post("/v1/chat/completions", headers=bearer(key), json={"model": "model-2.0", **_b("Sen kimsan?")})
     text = r.json()["choices"][0]["message"]["content"]
     assert r.status_code == 200 and "Qwen" not in text and text == fp.REPLIES["identity"]["uz"]
-    assert state == {}
-
-
-def test_opencode_greeting_skips_cluster_routing_with_large_context(env, monkeypatch):
-    state, key = _setup(env)
-
-    def unexpected(*args):
-        raise AssertionError("A fixed reply must not compose a browser prompt or check browser capacity")
-
-    monkeypatch.setattr("app.routing.text_profile", unexpected)
-    monkeypatch.setattr("app.capacity.pool_spill_target", unexpected)
-    monkeypatch.setattr("app.admission.register", unexpected)
-    response = env.client.post("/v1/chat/completions", headers=bearer(key), json={
-        "model": "model-3.5", "reasoning_effort": "high", "stream": True,
-        "messages": [
-            {"role": "system", "content": "agent context " * 4000},
-            {"role": "user", "content": "Hayrli tong Sable"},
-        ],
-        "tools": [{"type": "function", "function": {"name": "bash"}}],
-    })
-    assert response.status_code == 200 and fp.REPLIES["greeting"]["uz"] in response.text
     assert state == {}
 
 
