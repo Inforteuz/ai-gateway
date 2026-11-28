@@ -18,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import billing, branding, fastpath
 from . import gateway, monitor, routes_account, routes_admin, routes_auth, routes_instances, routes_monitor, routes_playground, routes_referral
-from . import videos
+from . import avatar, videos
 from . import topup_telegram
 from .vnc import TicketStore
 from . import cluster_watch
@@ -163,6 +163,7 @@ def create_app(config: Config | None = None, http_client: httpx.AsyncClient | No
     app.include_router(videos.router)
     app.include_router(routes_auth.router)
     app.include_router(routes_account.router)
+    app.include_router(avatar.router)
     app.include_router(routes_admin.router)
     app.include_router(routes_referral.router)
     app.include_router(routes_referral.admin_router)

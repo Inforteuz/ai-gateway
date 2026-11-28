@@ -7,6 +7,7 @@ import { useT } from '../i18n/index.jsx'
 import { useTheme } from '../theme.js'
 import { fmtSom } from '../format.js'
 import RouteOutlet from '../components/RouteOutlet.jsx'
+import UserAvatar from '../components/Avatar.jsx'
 import { LangSwitch, Logo, useLoad } from '../components/ui.jsx'
 import {
   IconActivity, IconCard, IconChart, IconCoins, IconDoc, IconHome, IconKey,
@@ -59,13 +60,16 @@ function UserMenu({ user }) {
   return (
     <div className="umenu" ref={ref}>
       <button type="button" className="umenu-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="avatar" aria-hidden="true">{(who || '?').slice(0, 1).toUpperCase()}</span>
+        <UserAvatar user={user} />
         <span className="umenu-who"><b>{tr(who)}</b><small>{tr(user.role === 'admin' ? t('shell.admin') : user.email)}</small></span>
         <svg className="umenu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {open && (
         <div className="umenu-pop" role="menu">
-          <div className="umenu-head"><b>{tr(who)}</b><span>{tr(user.email)}</span></div>
+          <div className="umenu-head">
+            <UserAvatar user={user} className="avatar avatar--lg" />
+            <span className="umenu-head__t"><b>{tr(who)}</b><span>{tr(user.email)}</span></span>
+          </div>
           <Link role="menuitem" to="/app/account"><IconUser /> {tr('Profil')}</Link>
           <Link role="menuitem" to="/"><IconHome /> {t('nav.home')}</Link>
           <button role="menuitem" type="button" onClick={async () => { await logout(); nav('/') }}>

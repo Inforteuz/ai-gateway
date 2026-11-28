@@ -43,7 +43,7 @@ SCHEMA = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
 
 # Bump when `schema.sql` or MIGRATIONS change. The app refuses to start when the
 # database version is lower (better than failing silently on an old schema).
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Schema changes: {version: [SQL, ...]}. Every statement must be idempotent
 # (`ADD COLUMN IF NOT EXISTS` etc.) — add it to `schema.sql` too.
@@ -125,6 +125,8 @@ MIGRATIONS: dict[int, list[str]] = {
         END $$"""],
     # v12: async video jobs (/v1/videos) — video_jobs and video_files are new tables, created in schema.sql.
     12: [],
+    # v13: profile photos — user_avatars is a new table, created in schema.sql.
+    13: [],
 }
 
 # Advisory lock key for the write queue ("SFDB"). Other processes on the same

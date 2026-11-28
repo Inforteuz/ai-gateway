@@ -1951,4 +1951,12 @@ export default {
   "Tarjima": "Translate",
   "G‘oyalar": "Ideas",
   "Kichik onlayn do‘kon uchun beshta marketing g‘oyasini yoz.": "Suggest five marketing ideas for a small online shop.",
+  "Rasm 15 MB dan oshmasligi kerak.": "The image must not exceed 15 MB.",
+  "Profil rasmi yangilandi.": "Profile photo updated.",
+  "Rasmni o‘qib bo‘lmadi.": "Could not read the image.",
+  "Profil rasmi olib tashlandi.": "Profile photo removed.",
+  "Profil rasmi": "Profile photo",
+  "PNG, JPEG yoki WebP. Rasm kvadrat qilib kesiladi.": "PNG, JPEG or WebP. The picture is cropped to a square.",
+  "Rasmni almashtirish": "Change photo",
+  "Rasm yuklash": "Upload photo",
 }

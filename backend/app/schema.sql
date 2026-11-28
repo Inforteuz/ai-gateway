@@ -367,3 +367,12 @@ CREATE TABLE IF NOT EXISTS video_files (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_video_files_time ON video_files(created_at);
+
+-- Profile photos (avatar.py). One small square image per user, resized in the browser;
+-- the server only checks the format and the size. Accounts are never deleted, so no TTL.
+CREATE TABLE IF NOT EXISTS user_avatars (
+  user_id    BIGINT PRIMARY KEY REFERENCES users(id),
+  mime       TEXT NOT NULL CHECK (mime IN ('image/png','image/jpeg','image/webp')),
+  data       BYTEA NOT NULL,
+  updated_at BIGINT NOT NULL
+);

@@ -1,12 +1,66 @@
 import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.jsx'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
+import UserAvatar, { squareJpeg } from '../components/Avatar.jsx'
 import { PageHead, PasswordInput, useToast } from '../components/ui.jsx'
+
+const MAX_PHOTO = 15 * 1024 * 1024
+
+/** Profile photo: pick, crop to a square in the browser, upload; or remove. */
+function PhotoField({ user, onChanged }) {
+  useLocaleRefresh()
+  const toast = useToast()
+  const fileRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function pick(e) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    setError('')
+    if (!/^image\/(png|jpeg|webp)$/.test(f.type)) { setError(tr('Faqat PNG, JPEG yoki WebP rasm.')); return }
+    if (f.size > MAX_PHOTO) { setError(tr('Rasm 15 MB dan oshmasligi kerak.')); return }
+    setBusy(true)
+    try {
+      const image = await squareJpeg(f)
+      await api.put('/portal/account/avatar', { image })
+      await onChanged()
+      toast(tr('Profil rasmi yangilandi.'))
+    } catch (err) {
+      setError(err.message === 'decode' ? tr('Rasmni o‘qib bo‘lmadi.') : err.message)
+    } finally { setBusy(false) }
+  }
+
+  async function remove() {
+    setBusy(true); setError('')
+    try { await api.del('/portal/account/avatar'); await onChanged(); toast(tr('Profil rasmi olib tashlandi.')) }
+    catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="photo-field">
+      <UserAvatar user={user} className="avatar avatar--xl" />
+      <div className="photo-field__body">
+        <b>{tr('Profil rasmi')}</b>
+        <span className="hint">{tr('PNG, JPEG yoki WebP. Rasm kvadrat qilib kesiladi.')}</span>
+        <div className="photo-field__actions">
+          <button type="button" className="btn btn--small btn--primary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {tr(user.avatar ? 'Rasmni almashtirish' : 'Rasm yuklash')}
+          </button>
+          {user.avatar && <button type="button" className="btn btn--small" disabled={busy} onClick={remove}>{tr('Olib tashlash')}</button>}
+        </div>
+        {error && <div className="alert alert--error" role="alert">{error}</div>}
+      </div>
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={pick} />
+    </div>
+  )
+}
 
 export default function Account() {
   useLocaleRefresh()
-  const { user } = useAuth()
+  const { user, refresh } = useAuth()
   const toast = useToast()
   const [form, setForm] = useState({ current: '', next: '', again: '' })
   const [error, setError] = useState('')
@@ -30,9 +84,9 @@ export default function Account() {
       <div className="account-grid">
       <div className="panel account-card">
         <div className="account-id">
-          <span className="avatar" aria-hidden="true">{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</span>
           <h2>{tr("Hisob ma'lumotlari")}</h2>
         </div>
+        <PhotoField user={user} onChanged={refresh} />
         <dl className="kv">
           <dt>{tr("Email")}</dt><dd>{tr(user.email)}</dd>
           <dt>{tr("Ism")}</dt><dd>{tr(user.name || '-')}</dd>

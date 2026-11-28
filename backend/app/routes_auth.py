@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 
 from . import branding
-from . import abuse, captcha, oauth, password_reset, referral, security
+from . import abuse, avatar, captcha, oauth, password_reset, referral, security
 from .common import (SESSION_COOKIE, ApiError, client_ip, create_user, csrf_guard, get_db, optional_user,
                      public_user, require_user)
 from .db import Database, now
@@ -144,7 +144,9 @@ def me(user=Depends(optional_user), db: Database = Depends(get_db)):
     if user is None:
         return {"user": None, "registration_open": settings.get("registration_open") == "1", "free_mode": free_mode,
                 "site": branding.site_info()}
-    return {"user": public_user(user), "registration_open": False, "free_mode": free_mode, "site": branding.site_info()}
+    # `avatar`: when the profile photo last changed (the image URL's cache key), None without one
+    out = {**public_user(user), "avatar": avatar.avatar_version(db, user["id"])}
+    return {"user": out, "registration_open": False, "free_mode": free_mode, "site": branding.site_info()}
 
 
 @router.post("/register")

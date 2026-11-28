@@ -1951,4 +1951,12 @@ export default {
   "Tarjima": "Tarjima",
   "G‘oyalar": "G‘oyalar",
   "Kichik onlayn do‘kon uchun beshta marketing g‘oyasini yoz.": "Kichik onlayn do‘kon uchun beshta marketing g‘oyasini yoz.",
+  "Rasm 15 MB dan oshmasligi kerak.": "Rasm 15 MB dan oshmasligi kerak.",
+  "Profil rasmi yangilandi.": "Profil rasmi yangilandi.",
+  "Rasmni o‘qib bo‘lmadi.": "Rasmni o‘qib bo‘lmadi.",
+  "Profil rasmi olib tashlandi.": "Profil rasmi olib tashlandi.",
+  "Profil rasmi": "Profil rasmi",
+  "PNG, JPEG yoki WebP. Rasm kvadrat qilib kesiladi.": "PNG, JPEG yoki WebP. Rasm kvadrat qilib kesiladi.",
+  "Rasmni almashtirish": "Rasmni almashtirish",
+  "Rasm yuklash": "Rasm yuklash",
 }
