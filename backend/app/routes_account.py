@@ -39,7 +39,7 @@ SPEED_SAMPLE_SIZE = 20
 # With fewer measurements than this no number is shown: a figure derived
 # from 1-2 requests is misleading.
 MIN_SPEED_SAMPLES = 5
-MIN_MEDIA_SAMPLES = 2
+MIN_MEDIA_SAMPLES = 1   # media is rare and slow: one real measurement beats a dash (owner, 2026-11-28)
 SPEED_TREND = 0.15
 
 
@@ -73,9 +73,12 @@ def _real_speed(db: Database) -> dict[str, dict]:
         groups.setdefault(new, (new, *olds))
     for new, names in groups.items():
         placeholders = ",".join("?" for _ in names)
+        # A text model's speed is its chat answers: pictures drawn by the same model (minutes on a
+        # busy tab) used to be averaged in and made the text figure look several times slower.
+        kind = "endpoint LIKE 'images/%'" if new in media else "endpoint NOT LIKE 'images/%'"
         rows = db.all(
             f"SELECT status_code, latency_ms FROM usage_logs"
-            f" WHERE model IN ({placeholders}) AND latency_ms IS NOT NULL"
+            f" WHERE model IN ({placeholders}) AND latency_ms IS NOT NULL AND {kind}"
             f" ORDER BY id DESC LIMIT ?", (*names, SPEED_SAMPLE_SIZE * 6))
         recent = list(rows)
         ok_all = [r["latency_ms"] for r in recent if r["status_code"] == 200]
@@ -98,6 +101,19 @@ def _real_speed(db: Database) -> dict[str, dict]:
             "success_rate": round(len(ok_latencies) / total, 3) if total else None,
             "samples": len(ok_latencies),
         }
+    # Video clips are async jobs: their real duration (queued -> file ready) and outcome live in
+    # video_jobs, not in a request latency, so the catalog showed a dash for every video model.
+    for r in model_rows:
+        if r["provider"] != "cluster" or r["upstream_name"] not in catalog.VIDEO_UPSTREAMS:
+            continue
+        jobs = db.all("SELECT status, created_at, completed_at FROM video_jobs WHERE (public_model=? OR model=?)"
+                      " AND status IN ('completed','failed') AND completed_at IS NOT NULL ORDER BY seq DESC LIMIT ?",
+                      (r["id"], r["id"], SPEED_SAMPLE_SIZE))
+        done = [(j["completed_at"] - j["created_at"]) * 1000 for j in jobs if j["status"] == "completed"]
+        if len(done) < MIN_MEDIA_SAMPLES:
+            continue
+        out[r["id"]] = {"typical_latency_ms": round(_median(done)), "previous_latency_ms": None, "trend": None,
+                        "success_rate": round(len(done) / len(jobs), 3), "samples": len(done)}
     return out
 
 
