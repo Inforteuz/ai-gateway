@@ -128,7 +128,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # must match the URL in the Google console exactly. When empty it is taken
     # from the request itself (unreliable behind nginx, so setting it
     # explicitly is recommended).
-    "site_base_url": os.getenv("SF_API_URL", "").rstrip("/").removesuffix("/v1"),
+    # Empty by default: this row is seeded into the database once and then wins over the
+    # environment, so a value copied from SF_API_URL here froze an old domain into referral,
+    # reset and Google links. oauth.site_url() falls back to SF_SITE_URL, then SF_API_URL.
+    "site_base_url": "",
     "google_client_id": "",         # empty = no Google button
     "google_client_secret": "",     # write-only, never returned
     # The Telegram button is off ON PURPOSE: for the widget to work the domain MUST be

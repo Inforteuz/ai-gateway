@@ -405,3 +405,15 @@ def test_forged_host_header_does_not_reach_redirect_uri_or_links(env):
     assert q["redirect_uri"] == ["http://testserver/portal/auth/google/callback"]   # configured, not evil.example
     assert oauth.site_url({}) == "https://example.com"                                # SF_SITE_URL fallback
     assert oauth.site_url({"site_base_url": "https://panel.example/"}) == "https://panel.example"
+
+
+def test_site_url_default_is_not_frozen_from_api_url(monkeypatch):
+    """The seeded setting must not copy SF_API_URL: once in the database it would hide SF_SITE_URL."""
+    from app import branding
+    from app.config import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["site_base_url"] == ""
+    monkeypatch.setattr(branding, "SITE_URL", "https://site.example")
+    monkeypatch.setattr(branding, "API_URL", "https://api.example/v1")
+    assert oauth.site_url({"site_base_url": ""}) == "https://site.example"
+    monkeypatch.setattr(branding, "SITE_URL", "")
+    assert oauth.site_url({}) == "https://api.example"     # last resort: the API host without /v1

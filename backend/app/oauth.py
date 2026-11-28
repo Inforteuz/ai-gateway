@@ -58,9 +58,8 @@ def site_url(settings: dict) -> str:
     Never derived from the request's Host header: a forged Host would put another site into
     Google's redirect_uri, referral links or webhook URLs. Empty when nothing is configured.
     """
-    from .config import DEFAULT_SETTINGS
     return ((settings.get("site_base_url") or "").strip() or branding.SITE_URL
-            or DEFAULT_SETTINGS.get("site_base_url", "")).rstrip("/")
+            or branding.API_URL.removesuffix("/v1")).rstrip("/")
 
 
 def site_base(db, request=None) -> str:
