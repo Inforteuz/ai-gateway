@@ -1884,6 +1884,8 @@ export default {
   "OR manzili": "OR manzili",
   "OR API kaliti": "OR API kaliti",
   "OR ulushi (%)": "OR ulushi (%)",
+  "Rasmlar ulushi (%)": "Rasmlar ulushi (%)",
+  "1K rasmlarning shuncha foizini OR chizadi; bo'sh tab yo'q yoki xato bo'lsa ham OR'ga o'tadi. 2K rasm va video o'zgarmaydi.": "1K rasmlarning shuncha foizini OR chizadi; bo'sh tab yo'q yoki xato bo'lsa ham OR'ga o'tadi. 2K rasm va video o'zgarmaydi.",
   "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.": "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.",
   "Taqsimlash": "Taqsimlash",
   "Bo'sh tab yo'q": "Bo'sh tab yo'q",

@@ -325,3 +325,118 @@ def test_or_status_counts_our_traffic(env):
     login_admin(env)
     t = env.client.get("/portal/admin/or-status").json()["traffic"]
     assert t["requests"] == 1 and t["ok"] == 1 and t["by_reason"]["balance"]["requests"] == 1
+
+
+# --- Pictures shared with OR (owner's call 2026-11-28) -------------------------------------------------------------
+PNG = "iVBORw0KGgo="
+
+
+def _img_env(env, *, share="50", free=True, cluster_status=200, omni_status=200, omni_empty=False):
+    calls = {"cluster": 0, "omni": 0, "omni_body": None, "cluster_model": None}
+    cluster = FastAPI()
+
+    @cluster.get("/cluster/status")
+    async def status():
+        return {"workers": [{"model": "qwen", "available": free}, {"model": "image-pro", "available": free}]}
+
+    @cluster.post("/v1/images/generations")
+    @cluster.post("/v1/images/edits")
+    async def cluster_img(request: Request):
+        calls["cluster"] += 1
+        calls["cluster_model"] = (await request.json()).get("model")
+        if cluster_status != 200:
+            return JSONResponse({"error": {"message": "tab failed", "code": "model_unavailable"}}, status_code=cluster_status)
+        return {"data": [{"b64_json": PNG, "mime_type": "image/png"}], "usage": {"prompt_tokens": 10, "completion_tokens": 1000}}
+
+    ext = FastAPI()
+
+    @ext.post("/v1/images/generations")
+    @ext.post("/v1/images/edits")
+    async def omni_img(request: Request):
+        calls["omni"] += 1
+        calls["omni_body"] = await request.json()
+        if omni_status != 200:
+            return JSONResponse({"error": {"message": "no provider"}}, status_code=omni_status)
+        return {"created": 1, "data": [] if omni_empty else [{"b64_json": PNG}]}   # OR reports no usage
+
+    env.app.state.cluster_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=cluster), base_url="http://cluster")
+    env.app.state.ext_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=ext), base_url="http://front-tunnel")
+    for k, v in {"cluster_base_url": "http://cluster/v1", "fastpath_enabled": "0", "pool_api_key": "",
+                 "omni_base_url": "http://front-tunnel:20128/v1", "omni_api_key": "omni-key", "omni_share": "0",
+                 "omni_image_model": "omni-rasm", "omni_image_share": share}.items():
+        env.db.set_setting(k, v)
+    add_model(env, "sable-3.1", upstream="qwen", provider="cluster")
+    add_model(env, "sable-image-pro", upstream="image-pro", provider="cluster")
+    add_model(env, "omni-rasm", upstream="antigravity/gemini-3.1-flash-image", provider="omni", listed=0, price_in=1, price_out=1)
+    key, _ = add_key(env, add_user(env, balance_som=100000))
+    capacity._image_balance["acc"] = 0
+    return calls, key
+
+
+def _draw(env, key, model="sable-3.1", edit=False):
+    body = {"model": model, "prompt": "kulib turgan echki", "size": "1024x1024"}
+    if edit:
+        body["image"] = "data:image/png;base64," + PNG
+    return env.client.post("/v1/images/edits" if edit else "/v1/images/generations", headers=bearer(key), json=body)
+
+
+def test_pictures_alternate_between_cluster_and_or(env):
+    calls, key = _img_env(env, share="50")
+    rs = [_draw(env, key) for _ in range(4)]
+    assert all(r.status_code == 200 for r in rs), [r.text for r in rs]
+    assert calls["cluster"] == 2 and calls["omni"] == 2
+    assert calls["omni_body"]["model"] == "antigravity/gemini-3.1-flash-image"
+    rows = env.db.all("SELECT model, cost, completion_tokens, attribution FROM usage_logs WHERE status_code=200 ORDER BY id")
+    or_rows = [r for r in rows if json.loads(r["attribution"]).get("route_model") == "omni-rasm"]
+    assert len(or_rows) == 2 and all(r["model"] == "sable-3.1" for r in or_rows)
+    assert {r["completion_tokens"] for r in or_rows} == {1000}                 # billed as one picture, not ~free
+    cluster_cost = next(r["cost"] for r in rows if r not in or_rows)
+    assert all(abs(r["cost"] - cluster_cost) <= cluster_cost * 0.01 for r in or_rows)   # same price as the cluster (prompt estimate aside)
+
+
+def test_busy_picture_model_draws_on_or(env):
+    calls, key = _img_env(env, share="0", free=False)
+    r = _draw(env, key)
+    assert r.status_code == 200 and calls["omni"] == 1 and calls["cluster"] == 0
+    assert json.loads(env.db.one("SELECT attribution FROM usage_logs")["attribution"])["route_reason"] == "capacity"
+
+
+def test_failed_cluster_picture_retries_on_or(env):
+    calls, key = _img_env(env, share="0", cluster_status=503)
+    r = _draw(env, key)
+    assert r.status_code == 200 and r.headers.get("x-fallback-model") == "omni-rasm"
+    assert calls["cluster"] >= 1 and calls["omni"] == 1
+
+
+def test_or_picture_failure_goes_back_to_the_cluster(env):
+    calls, key = _img_env(env, share="100", omni_status=503)
+    r = _draw(env, key)
+    assert r.status_code == 200 and calls["omni"] == 1 and calls["cluster"] == 1
+
+
+def test_empty_or_picture_is_a_failure_not_free(env):
+    calls, key = _img_env(env, share="100", omni_empty=True)
+    r = _draw(env, key)
+    assert r.status_code == 200 and calls["cluster"] == 1                      # redrawn on the cluster
+    assert env.db.one("SELECT COUNT(*) n FROM usage_logs WHERE status_code=200 AND cost=0")["n"] == 0
+
+
+def test_image_pro_stays_on_the_cluster(env):
+    calls, key = _img_env(env, share="100")
+    assert _draw(env, key, model="sable-image-pro").status_code == 200
+    assert calls["omni"] == 0 and calls["cluster"] == 1
+
+
+def test_picture_edits_go_to_or_with_the_source_image(env):
+    calls, key = _img_env(env, share="100")
+    r = _draw(env, key, edit=True)
+    assert r.status_code == 200 and calls["omni"] == 1 and str(calls["omni_body"].get("image", "")).startswith("data:image/png")
+
+
+def test_hidden_rows_cannot_be_asked_for_by_name(env):
+    calls, key = _env(env)
+    for hidden in ("omni-zaxira", "gemini-zaxira"):
+        r = env.client.post("/v1/chat/completions", headers=bearer(key),
+                            json={"model": hidden, "messages": [{"role": "user", "content": "hi"}]})
+        assert r.status_code == 404, hidden
+    assert calls["omni"] == 0 and calls["pool"] == 0

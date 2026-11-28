@@ -602,6 +602,7 @@ class SettingsIn(BaseModel):
     omni_share: str | None = Field(default=None, max_length=3, pattern=r"^(100|[1-9]?[0-9])$")
     omni_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
     omni_cover_local: str | None = Field(default=None, pattern=r"^[01]$")
+    omni_image_share: str | None = Field(default=None, max_length=3, pattern=r"^(100|[1-9]?[0-9])$")
     omni_manage_key: str | None = Field(default=None, max_length=300)   # OR key with `manage` scope, status only
     clear_omni_manage_key: bool = False
     pool_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
@@ -663,6 +664,7 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
             "omni_share": s.get("omni_share", "50"),
             "omni_spill_model": s.get("omni_spill_model", "omni-zaxira"),
             "omni_cover_local": s.get("omni_cover_local", "1"),
+            "omni_image_share": s.get("omni_image_share", "50"),
             "maintenance_models": s.get("maintenance_models", ""),
             "site_base_url": s.get("site_base_url", ""),
             "google_client_id": s.get("google_client_id", ""),

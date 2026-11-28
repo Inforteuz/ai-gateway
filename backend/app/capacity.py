@@ -16,6 +16,8 @@ import time
 
 from fastapi.concurrency import run_in_threadpool
 
+from . import catalog
+
 log = logging.getLogger("gateway.capacity")
 
 TTL = 3.0
@@ -110,6 +112,62 @@ async def omni_balance_target(db, settings, model, body) -> dict | None:
         return None
     row = await run_in_threadpool(db.one, "SELECT * FROM models WHERE id=? AND enabled=1 AND provider='omni'", (name,))
     return dict(row) if row else None
+
+
+_image_balance = {"acc": 0}
+
+
+def _image_row_name(settings) -> str:
+    return (settings.get("omni_image_model") or "").strip()
+
+
+def image_eligible(model) -> bool:
+    """A 1K browser picture. Image Pro (2K, upscaled by the cluster) stays on the cluster:
+    OR's image model draws about 1024 px and would hand back less than was paid for."""
+    return (model.get("provider") == "cluster"
+            and str(model.get("upstream_name") or "") != catalog.IMAGE_PRO_UPSTREAM
+            and str(model.get("upstream_name") or "") not in catalog.VIDEO_UPSTREAMS)
+
+
+async def _image_row(db, settings) -> dict | None:
+    name = _image_row_name(settings)
+    if not name or not omni_ready(settings):
+        return None
+    row = await run_in_threadpool(db.one, "SELECT * FROM models WHERE id=? AND enabled=1 AND provider='omni'", (name,))
+    return dict(row) if row else None
+
+
+async def omni_image_target(state, db, settings, model) -> tuple[dict, str] | None:
+    """(OR's picture row, reason) when this browser picture should be drawn by OR:
+    its turn by `omni_image_share` ("balance"), or no free tab for the model ("capacity")."""
+    if not image_eligible(model):
+        return None
+    row = await _image_row(db, settings)
+    if not row:
+        return None
+    try:
+        share = max(0, min(100, int(settings.get("omni_image_share") or 0)))
+    except ValueError:
+        share = 0
+    if share > 0:
+        _image_balance["acc"] += share
+        if _image_balance["acc"] >= 100:
+            _image_balance["acc"] -= 100
+            return row, "balance"
+    free = await free_tabs(state, settings)
+    upstream = str(model.get("upstream_name") or "").lower()
+    if free is not None and free.get(upstream, 1) <= 0:
+        return row, "capacity"
+    return None
+
+
+def omni_image_stand_in(db, model) -> str | None:
+    """OR's picture row for a browser picture that failed."""
+    if not image_eligible(model or {}):
+        return None
+    s = db.get_settings()
+    name = _image_row_name(s)
+    return name if name and omni_ready(s) else None
 
 
 def cover_state(settings) -> dict:

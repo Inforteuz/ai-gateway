@@ -1884,6 +1884,8 @@ export default {
   "OR manzili": "OR URL",
   "OR API kaliti": "OR API key",
   "OR ulushi (%)": "OR share (%)",
+  "Rasmlar ulushi (%)": "Pictures share (%)",
+  "1K rasmlarning shuncha foizini OR chizadi; bo'sh tab yo'q yoki xato bo'lsa ham OR'ga o'tadi. 2K rasm va video o'zgarmaydi.": "OR draws this share of 1K pictures; it also takes them when no tab is free or on failure. 2K pictures and video are unchanged.",
   "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.": "The page was reloaded, so the result was not received. If you were charged, the request appears on the Usage page.",
   "Taqsimlash": "Load sharing",
   "Bo'sh tab yo'q": "No free tab",

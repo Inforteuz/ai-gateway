@@ -46,7 +46,7 @@ export default function Settings() {
       clBase: data.cluster_base_url || '', clKey: '', clSet: data.cluster_api_key_set,
       clFallback: !!data.cluster_fallback_enabled,
       poolBase: data.pool_base_url || '', poolKey: '', poolSet: data.pool_api_key_set, poolSpill: data.pool_spill_model ?? '',
-      omniBase: data.omni_base_url || '', omniKey: '', omniSet: data.omni_api_key_set, omniManageKey: '', omniManageSet: data.omni_manage_key_set, omniShare: data.omni_share ?? '50', omniCoverLocal: String(data.omni_cover_local ?? '1') === '1',
+      omniBase: data.omni_base_url || '', omniKey: '', omniSet: data.omni_api_key_set, omniManageKey: '', omniManageSet: data.omni_manage_key_set, omniShare: data.omni_share ?? '50', omniCoverLocal: String(data.omni_cover_local ?? '1') === '1', omniImageShare: data.omni_image_share ?? '50',
       fastOn: data.fastpath_enabled !== false, fastModel: data.fastpath_model || tr("qwen3:14b"),
       siteBase: data.site_base_url || '', gId: data.google_client_id || '', gSecret: '',
       gSet: data.google_client_secret_set, tgLogin: !!data.telegram_login_enabled,
@@ -75,7 +75,7 @@ export default function Settings() {
         ...(f.extKey ? { external_api_key: f.extKey } : {}),
         cluster_base_url: f.clBase, ...(f.clKey ? { cluster_api_key: f.clKey } : {}),
         pool_base_url: f.poolBase, ...(f.poolKey ? { pool_api_key: f.poolKey } : {}), pool_spill_model: f.poolSpill,
-        omni_base_url: f.omniBase, ...(f.omniKey ? { omni_api_key: f.omniKey } : {}), ...(f.omniManageKey ? { omni_manage_key: f.omniManageKey } : {}), omni_share: String(f.omniShare || '0'), omni_cover_local: f.omniCoverLocal ? '1' : '0',
+        omni_base_url: f.omniBase, ...(f.omniKey ? { omni_api_key: f.omniKey } : {}), ...(f.omniManageKey ? { omni_manage_key: f.omniManageKey } : {}), omni_share: String(f.omniShare || '0'), omni_cover_local: f.omniCoverLocal ? '1' : '0', omni_image_share: String(f.omniImageShare || '0'),
         cluster_fallback_enabled: f.clFallback, status_public_since: f.statusSince,
         fastpath_enabled: f.fastOn, fastpath_model: f.fastModel,
         site_base_url: f.siteBase, google_client_id: f.gId, telegram_login_enabled: f.tgLogin,
@@ -258,6 +258,9 @@ export default function Settings() {
             <label className="field" style={{ marginTop: 12 }}>{tr('OR API kaliti')} <PasswordInput autoComplete="off" value={f.omniKey} onChange={set('omniKey')} placeholder={f.omniSet ? tr("Saqlangan (o'zgartirish uchun yangisini kiriting)") : 'sk-...'} /></label>
             <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr("OR ulushi (%)")} <input className="input" type="number" min="0" max="100" value={f.omniShare} onChange={set('omniShare')} />
               <span className="hint">{tr("50 — so'rovlar teng bo'linadi, 0 — OR faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.")}</span>
+            </label>
+            <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr("Rasmlar ulushi (%)")} <input className="input" type="number" min="0" max="100" value={f.omniImageShare} onChange={set('omniImageShare')} />
+              <span className="hint">{tr("1K rasmlarning shuncha foizini OR chizadi; bo'sh tab yo'q yoki xato bo'lsa ham OR'ga o'tadi. 2K rasm va video o'zgarmaydi.")}</span>
             </label>
             <label className="check" style={{ marginTop: 12 }}><input type="checkbox" checked={f.omniCoverLocal} onChange={set('omniCoverLocal')} /> {tr("GPU server ishlamasa, mahalliy modellar OR orqali javob bersin")}</label>
             <span className="hint">{tr("Mahalliy modellar odatda matnni serverdan chiqarmaydi. Yoqilganda GPU server o'chiq paytda so'rov tashqi provayderga ketadi; javobda X-SF-Data-Processing: third_party bo'ladi.")}</span>

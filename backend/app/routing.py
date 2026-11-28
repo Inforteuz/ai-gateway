@@ -37,13 +37,19 @@ _LOCAL_COMPLEX_HINTS = _TOOL_COMPLEX_HINTS + (
 )
 
 
+IMAGE_ENDPOINTS = ("images/generations", "images/edits")
+
+
 def compatible(source, target, endpoint="chat/completions"):
     if not target or not target.get("enabled") or source["id"] == target["id"]:
         return False
     if catalog.processing_class(source) == "private" and catalog.processing_class(target) != "private":
         return False
     if endpoint != "chat/completions" and target["provider"] != source["provider"]:
-        return False
+        # Pictures may move between the browser cluster and OR in either direction (shared load,
+        # overflow, failures); every other non-chat endpoint stays on its own provider.
+        if not (endpoint in IMAGE_ENDPOINTS and {source["provider"], target["provider"]} == {"cluster", "omni"}):
+            return False
     return True
 
 

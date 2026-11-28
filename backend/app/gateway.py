@@ -450,6 +450,11 @@ async def proxy(request: Request, endpoint: str):
             omni = await run_in_threadpool(capacity.omni_stand_in, state.db, model)
             if omni:
                 model = {**model, "fallback_to": omni}
+        if not model.get("fallback_to") and endpoint in routing.IMAGE_ENDPOINTS:
+            # A browser picture that failed: OR's picture row draws it instead
+            omni = await run_in_threadpool(capacity.omni_image_stand_in, state.db, model)
+            if omni:
+                model = {**model, "fallback_to": omni}
         candidate = await run_in_threadpool(state.db.one, "SELECT * FROM models WHERE id=? AND enabled=1", (model.get("fallback_to"),))
         candidate = dict(candidate) if candidate else None
         # covers_private: the privacy check (routing.compatible) is the very rule the owner lifted here
@@ -567,6 +572,15 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         raise ApiError(404, "model_not_found", f"Model topilmadi. Mavjud modellar: {names}.",
                        en=f"The model `{public_id}` does not exist. Available models: {names}.")
     model = dict(model)
+    if not force_model and not model.get("listed") and (
+            model["provider"] in ("pool", "omni") or str(model["id"]).endswith("-zaxira")):
+        # Stand-in rows (…-zaxira, OR, the key pool) are where the gateway routes on its own; asked for
+        # by name they would answer at their own, often zero, price. Same answer as an unknown model.
+        # Other unlisted rows are retired catalog models and keep working for old clients.
+        listed = [r["id"] for r in await run_in_threadpool(db.all, "SELECT id FROM models WHERE enabled=1 AND listed=1 ORDER BY id")]
+        names = ", ".join(sorted(directions.listed(set(listed))) + listed)
+        raise ApiError(404, "model_not_found", f"Model topilmadi. Mavjud modellar: {names}.",
+                       en=f"The model `{public_id}` does not exist. Available models: {names}.")
     model["public_id"] = public_id
     if force_model and model["provider"] == "omni" and price_source:
         # OmniRoute's hidden row stands in under the requested name, as on the balance and spill paths
@@ -583,8 +597,9 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
         raise ApiError(400, "unsupported_endpoint", "Bu model faqat /v1/images/generations va /v1/images/edits orqali ishlaydi.",
                        en="This model works only through /v1/images/generations and /v1/images/edits.")
     if endpoint in ("images/generations", "images/edits"):
-        # Image generation/editing exists only on cluster models (local models are text-only)
-        if model["provider"] != "cluster":
+        # Image generation/editing exists only on cluster models (local models are text-only);
+        # OR's picture row is reached only as the gateway's own stand-in (force_model)
+        if model["provider"] != "cluster" and not (force_model and model["provider"] == "omni"):
             raise ApiError(400, "unsupported_endpoint",
                            "Bu model rasm generatsiya qilmaydi.")
     elif (model["provider"] in ("external", "cluster", "pool", "omni") or model["refine"]) and endpoint != "chat/completions":
@@ -655,6 +670,19 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
             model = {**spill, "public_id": public_id, "fallback_to": source["id"],
                      "price_in_per_1m": source["price_in_per_1m"], "price_out_per_1m": source["price_out_per_1m"]}
             route_meta = {**route_meta, "route_reason": "capacity", "source_model": source["id"]}
+    # Pictures (owner's call 2026-11-28): a 1K browser picture is drawn by OR on its turn
+    # (`omni_image_share`) or when the model has no free tab; a failure there goes back to the
+    # browser model. Priced as the requested model, shown under its name.
+    if endpoint in routing.IMAGE_ENDPOINTS and not force_model and model["provider"] == "cluster":
+        picked = await capacity.omni_image_target(state, db, settings, model)
+        if picked:
+            omni, reason = picked
+            source = price_source or model
+            log.info("image %s route: %s -> %s (%s)", reason, source["id"], omni["id"], request_id)
+            price_source = source
+            model = {**omni, "public_id": public_id, "fallback_to": source["id"],
+                     "price_in_per_1m": source["price_in_per_1m"], "price_out_per_1m": source["price_out_per_1m"]}
+            route_meta = {**route_meta, "route_reason": reason, "source_model": source["id"]}
     # Sable 3.0 uses the larger coder model.  Tiny text-only turns do not need
     # it and are noticeably faster on Sable 2.0; keep code, tool, attachment,
     # and explicit reasoning turns on the requested model.
@@ -1010,6 +1038,9 @@ async def _execute(request: Request, endpoint: str, ticket: Ticket, body: dict, 
                     (model["fallback_to"],))
                 if stand_in and stand_in["provider"] == "cluster":
                     payload["sf_stand_in"] = stand_in["upstream_name"]
+        if model["provider"] == "omni" and endpoint == "images/edits" and isinstance(payload.get("image"), list) \
+                and len(payload["image"]) == 1:
+            payload["image"] = payload["image"][0]   # OR takes one source picture as a plain data URL
         if model["provider"] == "local" and endpoint == "chat/completions":
             # Local models skip the cluster compose layer — the rule against instructions
             # embedded in documents is added here (app/untrusted.py).
@@ -1218,6 +1249,9 @@ def _replay_stream(data: dict, wants_usage: bool, usage: tuple[int, int]):
     yield b"data: [DONE]\n\n"
 
 
+IMAGE_USAGE_TOKENS = 1000   # one picture, as the cluster bills it (frontend: ImageStudio IMAGE_TOKENS)
+
+
 async def _respond_json(resp: httpx.Response, ticket: Ticket, public_model: str) -> JSONResponse:
     ticket.ttfb_ms = int((time.monotonic() - ticket.t0) * 1000)
     try:
@@ -1232,6 +1266,15 @@ async def _respond_json(resp: httpx.Response, ticket: Ticket, public_model: str)
             await ticket.finish(status_code=502, error="repetition_loop")
             raise ApiError(502, "generation_failed", "Model javobi takrorlanib qoldi. Qayta urinib ko'ring.", "server_error")
     usage = usage_of(data)
+    pictures = data.get("data") if isinstance(data, dict) and "choices" not in data else None
+    if isinstance(pictures, list) and usage is None:
+        # An image API that reports no usage (OR): a picture is billed as IMAGE_USAGE_TOKENS output
+        # tokens, the same as the cluster reports; an empty list is a failure, not a free answer.
+        drawn = sum(1 for p in pictures if isinstance(p, dict) and (p.get("b64_json") or p.get("url")))
+        if not drawn:
+            await ticket.finish(status_code=502, error="no_image")
+            raise ApiError(502, "generation_failed", "Rasm chizilmadi. Qayta urinib ko'ring.", "server_error")
+        usage = (ticket.est_prompt, IMAGE_USAGE_TOKENS * drawn)
     estimated = usage is None or ticket.attribution.get("provider") == "cluster"
     if usage is None:  # rare: without usage, estimate from the text length
         text = json.dumps(data.get("choices", ""), ensure_ascii=False)

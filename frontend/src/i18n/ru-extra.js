@@ -1884,6 +1884,8 @@ export default {
   "OR manzili": "Адрес OR",
   "OR API kaliti": "API-ключ OR",
   "OR ulushi (%)": "Доля OR (%)",
+  "Rasmlar ulushi (%)": "Доля изображений (%)",
+  "1K rasmlarning shuncha foizini OR chizadi; bo'sh tab yo'q yoki xato bo'lsa ham OR'ga o'tadi. 2K rasm va video o'zgarmaydi.": "Такую долю изображений 1K рисует OR; он же берёт их, когда нет свободной вкладки или при ошибке. 2K и видео не меняются.",
   "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.": "Страница была перезагружена, поэтому результат не получен. Если списание было, запрос виден на странице расходов.",
   "Taqsimlash": "Распределение",
   "Bo'sh tab yo'q": "Нет свободной вкладки",
