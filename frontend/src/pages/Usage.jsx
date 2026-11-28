@@ -111,7 +111,7 @@ export default function Usage() {
           <TokenTrend items={series} />
           <section className="panel">
             <div className="panel-head" style={{ marginBottom: 8 }}>
-              <div className="panel-head__t"><h3>{tr(grain === 'week' ? 'Haftalik xarajatlar' : t('usage.dailyCost'))}</h3><p>{rangeNote}</p></div>
+              <div className="panel-head__t"><h3>{grain === 'week' ? tr('Haftalik xarajatlar') : t('usage.dailyCost')}</h3><p>{rangeNote}</p></div>
             </div>
             {series.length > 0 ? <BarChart items={series} metric="cost" /> : <Loading rows={1} />}
           </section>

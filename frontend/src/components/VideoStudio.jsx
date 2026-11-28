@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { fmtSom } from '../format.js'
+import { IconVideo, IconSliders } from './icons.jsx'
 
 /**
  * Playground video tab: the same jobs as POST /v1/videos, through the portal session
@@ -127,6 +128,7 @@ export default function VideoStudio({ models, userId, onCharged }) {
   return (
     <div className="vs">
       <form className="vs-form" onSubmit={create}>
+        <div className="vs-head"><span className="vs-head__tile" aria-hidden="true"><IconSliders /></span><b>{tr('Video sozlamalari')}</b></div>
         <label className="pg-field">
           <span>{tr('Model')}</span>
           <select className="input" value={current?.id} onChange={(e) => setModel(e.target.value)}>
@@ -162,8 +164,9 @@ export default function VideoStudio({ models, userId, onCharged }) {
         <small className="dim">{tr('8 soniyalik klip, o‘rtacha 1 daqiqada tayyor bo‘ladi (Pro biroz uzoqroq). Narx bitta klip uchun; video chiqmasa pul yechilmaydi.')}</small>
       </form>
       <section className="vs-list" aria-label={tr('Videolar')}>
+        <div className="vs-head"><span className="vs-head__tile" aria-hidden="true"><IconVideo /></span><b>{tr('Videolar')}</b>{jobs.length > 0 && <small>{jobs.length}</small>}</div>
         {jobs.length === 0
-          ? <div className="vs-empty">{tr('Tasvir yozing — tayyor klip shu yerda paydo bo‘ladi.')}</div>
+          ? <div className="vs-empty"><span className="pg-hero" aria-hidden="true"><IconVideo /></span>{tr('Tasvir yozing — tayyor klip shu yerda paydo bo‘ladi.')}</div>
           : jobs.map((j) => <JobCard key={j.id} job={j} />)}
       </section>
     </div>

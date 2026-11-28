@@ -5,7 +5,10 @@ import { api, ApiError } from '../api.js'
 import { useAuth, useSite } from '../auth.js'
 import { apiOrigin } from '../site.js'
 import { CodeTabs, ErrorNote, Loading, Modal, PageHead, useLoad } from '../components/ui.jsx'
-import { IconCode, IconPlus, IconSend } from '../components/icons.jsx'
+import {
+  IconBook, IconBulb, IconChat, IconCheck, IconCode, IconCopy, IconDoc, IconGlobe, IconImage, IconLayers, IconPaperclip,
+  IconPlus, IconRefresh, IconSend, IconSettings, IconSliders, IconSparkles, IconVideo, IconX,
+} from '../components/icons.jsx'
 import { Markdown } from '../components/Markdown.jsx'
 import VideoStudio from '../components/VideoStudio.jsx'
 import ImageStudio from '../components/ImageStudio.jsx'
@@ -23,6 +26,16 @@ const DEFAULTS = { model: '', system: '', temperature: null, maxTokens: 1024, re
 const REASONING = [
   ['', 'Model odatiy'], ['none', 'O‘chiq'], ['low', 'Past'], ['medium', 'O‘rta'], ['high', 'Yuqori'],
 ]
+// Starter prompts: an icon, a short title and the text that goes into the composer.
+const STARTERS = [
+  [IconCode, 'Kod yozish', 'Python’da fayldagi so‘zlarni sanaydigan funksiya yoz.'],
+  [IconBook, 'Tushuntirish', 'REST va GraphQL farqini uch jumlada tushuntir.'],
+  [IconGlobe, 'Tarjima', 'Shu matnni ingliz tiliga tarjima qil: “Ertaga uchrashamiz.”'],
+  [IconBulb, 'G‘oyalar', 'Kichik onlayn do‘kon uchun beshta marketing g‘oyasini yoz.'],
+]
+// Text files the composer can attach; their text goes into the message (the playground takes text only).
+const ATTACH_ACCEPT = '.txt,.md,.csv,.json,.py,.js,.jsx,.ts,.tsx,.html,.css,.xml,.yaml,.yml,.sql,.log,.ini,.toml,.sh,text/*'
+const ATTACH_MAX = 30_000
 const GATEWAY_NOTE = '[gateway]'          // the cluster's own "still waiting" text; not the model's
 const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
@@ -86,8 +99,8 @@ function Receipt({ r }) {
   const secs = (ms) => (ms == null ? '—' : `${(ms / 1000).toFixed(1)} s`)
   return (
     <div className="pg-receipt print-in" aria-label={tr('Javob cheki')}>
-      <span><i>{tr('Kiruvchi')}</i>{fmtInt(r.prompt_tokens)}</span>
-      <span><i>{tr('Chiquvchi')}</i>{fmtInt(r.completion_tokens)}</span>
+      <span title={tr('Kiruvchi')}><i>{tr('Kiruvchi')}</i>{fmtInt(r.prompt_tokens)}</span>
+      <span title={tr('Chiquvchi')}><i>{tr('Chiquvchi')}</i>{fmtInt(r.completion_tokens)}</span>
       <span><i>{tr('Birinchi so‘z')}</i>{secs(r.ttfb_ms)}</span>
       <span><i>{tr('Jami vaqt')}</i>{secs(r.latency_ms)}</span>
       <span className="pg-receipt__cost"><i>{tr('Narxi')}</i>{fmtSom(r.cost)}</span>
@@ -117,36 +130,81 @@ function LiveMeter({ live }) {
   )
 }
 
-function Message({ m }) {
+function CopyAction({ text }) {
+  useLocaleRefresh()
+  const [done, setDone] = useState(false)
+  async function copy() {
+    try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1400) } catch { /* clipboard blocked */ }
+  }
+  return (
+    <button type="button" className="pg-act" onClick={copy} aria-label={tr(done ? 'Nusxa olindi' : 'Nusxa olish')} title={tr(done ? 'Nusxa olindi' : 'Nusxa olish')}>
+      {done ? <IconCheck /> : <IconCopy />}<span>{tr(done ? 'Nusxa olindi' : 'Nusxa olish')}</span>
+    </button>
+  )
+}
+
+function Message({ m, onRegenerate }) {
   useLocaleRefresh()
   const [showThink, setShowThink] = useState(false)
   if (m.role === 'user') {
-    return <div className="pg-msg pg-msg--user"><div className="pg-bubble">{m.content}</div></div>
+    return (
+      <div className="pg-msg pg-msg--user">
+        <div className="pg-bubble">
+          {m.attachment && <span className="pg-file pg-file--sent"><IconPaperclip /> {m.attachment.name}</span>}
+          {m.text ?? m.content}
+        </div>
+      </div>
+    )
   }
   return (
     <div className={`pg-msg pg-msg--ai ${m.error ? 'is-error' : ''}`}>
-      <div className="pg-msg__who">{m.model}</div>
-      {m.reasoning && (
-        <div className="pg-think">
-          <button type="button" className="pg-think__toggle" aria-expanded={showThink} onClick={() => setShowThink((v) => !v)}>
-            {tr(showThink ? 'Fikrlashni yashirish' : 'Fikrlashni ko‘rish')}
-          </button>
-          {showThink && <div className="pg-think__body">{m.reasoning}</div>}
-        </div>
-      )}
-      {m.content ? <div className="pg-answer"><Markdown>{m.content}</Markdown>{m.live && <span className="pg-caret" aria-hidden="true" />}</div>
-        : m.live ? null : !m.error && <div className="dim">{tr('(bo‘sh javob)')}</div>}
-      {m.live && <LiveMeter live={m.live} />}
-      {m.stopped && <div className="pg-flag">{tr('To‘xtatildi')}</div>}
-      {m.error && (
-        <div className="pg-error" role="alert">
-          {m.error}
-          {m.status === 402 && <> <Link to="/app/billing">{tr('Hisobni to‘ldirish')}</Link></>}
-        </div>
-      )}
-      {m.receipt && <Receipt r={m.receipt} />}
+      <div className="pg-msg__who"><span className="pg-avatar" aria-hidden="true"><IconSparkles /></span>{m.model}</div>
+      <div className="pg-msg__body">
+        {m.reasoning && (
+          <div className="pg-think">
+            <button type="button" className="pg-think__toggle" aria-expanded={showThink} onClick={() => setShowThink((v) => !v)}>
+              {tr(showThink ? 'Fikrlashni yashirish' : 'Fikrlashni ko‘rish')}
+            </button>
+            {showThink && <div className="pg-think__body">{m.reasoning}</div>}
+          </div>
+        )}
+        {m.content ? <div className="pg-answer"><Markdown>{m.content}</Markdown>{m.live && <span className="pg-caret" aria-hidden="true" />}</div>
+          : m.live ? null : !m.error && <div className="dim">{tr('(bo‘sh javob)')}</div>}
+        {m.live && <LiveMeter live={m.live} />}
+        {m.stopped && <div className="pg-flag">{tr('To‘xtatildi')}</div>}
+        {m.error && (
+          <div className="pg-error" role="alert">
+            {m.error}
+            {m.status === 402 && <> <Link to="/app/billing">{tr('Hisobni to‘ldirish')}</Link></>}
+          </div>
+        )}
+        {!m.live && (m.content || onRegenerate) && (
+          <div className="pg-actions">
+            {m.content && <CopyAction text={m.content} />}
+            {onRegenerate && (
+              <button type="button" className="pg-act" onClick={onRegenerate} title={tr('Qayta yaratish')}>
+                <IconRefresh /><span>{tr('Qayta yaratish')}</span>
+              </button>
+            )}
+          </div>
+        )}
+        {m.receipt && <Receipt r={m.receipt} />}
+      </div>
     </div>
   )
+}
+
+/** Capability badges for the model card in the settings. */
+function capBadges(m) {
+  const c = m?.capabilities || {}
+  const out = []
+  if (!m?.price_in_per_1m && !m?.price_out_per_1m) out.push(['ok', 'Bepul'])
+  if (c.vision) out.push(['sky', 'Rasmni ko\'radi'])
+  if (c.file_input) out.push(['sky', 'Fayl o\'qiydi'])
+  if (c.tool_calling) out.push(['violet', 'Agent rejimi'])
+  if (c.reasoning_levels?.length) out.push(['amber', 'Fikrlash darajasi'])
+  if ((m?.context_window || 0) >= 100_000) out.push(['', 'Uzun kontekst'])
+  return out
 }
 
 function codeTabs(origin, s, messages) {
@@ -170,6 +228,9 @@ export default function Playground() {
   const [s, setS] = useState({ ...DEFAULTS, ...(saved?.settings || {}) })
   const [msgs, setMsgs] = useState(() => (saved?.messages || []).filter((m) => !m.live))
   const [draft, setDraft] = useState('')
+  const [attachment, setAttachment] = useState(null)   // { name, text } — a text file folded into the next message
+  const [attachError, setAttachError] = useState('')
+  const fileRef = useRef(null)
   const [busy, setBusy] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const [wide] = useState(() => typeof window === 'undefined' || window.innerWidth > 900)
@@ -220,15 +281,47 @@ export default function Playground() {
     return null
   }
 
+  function pickFile(e) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result || '')
+      if (text.includes('\u0000')) { setAttachError(tr('Faqat matnli fayl biriktiriladi.')); return }
+      if (text.length > ATTACH_MAX) { setAttachError(tr('Fayl juda katta: {n} belgidan oshmasin.', { n: fmtInt(ATTACH_MAX) })); return }
+      setAttachment({ name: f.name, text })
+      setAttachError('')
+    }
+    reader.onerror = () => setAttachError(tr('Faylni o‘qib bo‘lmadi.'))
+    reader.readAsText(f)
+  }
+
   async function send(e) {
     e?.preventDefault()
     const text = draft.trim()
     if (!text || busy || !s.model) return
-    const userMsg = { role: 'user', content: text, id: crypto.randomUUID?.() || String(Date.now()) }
-    const before = [...msgs, userMsg]
-    const live = { t0: performance.now(), first: null, chars: 0 }
-    setMsgs([...before, { role: 'assistant', model: current?.display_name || s.model, content: '', reasoning: '', live, id: `${userMsg.id}-a` }])
+    const content = attachment ? `${text}\n\n\`\`\`${attachment.name}\n${attachment.text}\n\`\`\`` : text
+    const userMsg = { role: 'user', content, id: crypto.randomUUID?.() || String(Date.now()),
+      ...(attachment ? { text, attachment: { name: attachment.name } } : {}) }
     setDraft('')
+    setAttachment(null)
+    await run([...msgs, userMsg])
+  }
+
+  /** Asks again for the last user message, dropping the answer after it. */
+  function regenerate() {
+    if (busy) return
+    let i = msgs.length - 1
+    while (i >= 0 && msgs[i].role !== 'user') i--
+    if (i < 0) return
+    run(msgs.slice(0, i + 1))
+  }
+
+  async function run(before) {
+    const last = before[before.length - 1]
+    const live = { t0: performance.now(), first: null, chars: 0 }
+    setMsgs([...before, { role: 'assistant', model: current?.display_name || s.model, content: '', reasoning: '', live, id: `${last.id}-a${Date.now()}` }])
     setBusy(true)
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -297,6 +390,11 @@ export default function Playground() {
   }
 
   const low = balance != null && balance <= 0 && (current?.price_in_per_1m || 0) > 0
+  const spent = msgs.reduce((o, m) => (m.receipt
+    ? { tokens: o.tokens + (m.receipt.prompt_tokens || 0) + (m.receipt.completion_tokens || 0), cost: o.cost + (m.receipt.cost || 0) }
+    : o), { tokens: 0, cost: 0 })
+  const lastAi = msgs.length - 1
+  const tempOn = s.temperature != null
 
   return (
     <div className="page pg">
@@ -309,9 +407,9 @@ export default function Playground() {
       />
       {models.data && (videoItems.length > 0 || imageItems.length > 0) && (
         <div className="pg-modes" role="tablist" aria-label={tr('Playground turi')}>
-          {[['text', 'Matn'], ...(imageItems.length ? [['image', 'Rasm']] : []), ...(videoItems.length ? [['video', 'Video']] : [])].map(([v, label]) => (
+          {[['text', 'Matn', IconChat], ...(imageItems.length ? [['image', 'Rasm', IconImage]] : []), ...(videoItems.length ? [['video', 'Video', IconVideo]] : [])].map(([v, label, Icon]) => (
             <button key={v} type="button" role="tab" aria-selected={mode === v} className={mode === v ? 'is-on' : ''}
-              onClick={() => setMode(v)}>{tr(label)}</button>
+              onClick={() => setMode(v)}><Icon /> {tr(label)}</button>
           ))}
         </div>
       )}
@@ -325,53 +423,77 @@ export default function Playground() {
         <div className="pg-grid">
           <aside className="pg-bench">
             <details className="pg-bench__fold" open={wide}>
-              <summary>{tr('Sozlamalar')}</summary>
-              <label className="pg-field">
-                <span>{tr('Model')}</span>
-                <select className="input" value={s.model} onChange={set('model')} disabled={busy}>
+              <summary><span className="pg-tile" aria-hidden="true"><IconSliders /></span>{tr('Sozlamalar')}</summary>
+
+              <div className="pg-sec">
+                <div className="pg-sec__t"><IconLayers /> {tr('Model')}</div>
+                <select className="input" value={s.model} onChange={set('model')} disabled={busy} aria-label={tr('Model')}>
                   {items.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
                 </select>
                 {current && (
-                  <small className="pg-price">
-                    {tr('1M token')}: {fmtSom(current.price_in_per_1m)} / {fmtSom(current.price_out_per_1m)}
-                  </small>
+                  <div className="pg-model">
+                    <div className="pg-model__badges">
+                      {capBadges(current).map(([tone, label]) => <span key={label} className={`tag ${tone ? `tag--${tone}` : ''}`}>{tr(label)}</span>)}
+                    </div>
+                    <div className="pg-model__price">
+                      <div><span>{tr('Kiruvchi tokenlar')}</span><b>{fmtSom(current.price_in_per_1m)}</b></div>
+                      <div><span>{tr('Chiquvchi tokenlar')}</span><b>{fmtSom(current.price_out_per_1m)}</b></div>
+                    </div>
+                    <small className="pg-model__unit">{tr('Narx (1M token uchun)')}</small>
+                  </div>
                 )}
-              </label>
-              <label className="pg-field">
-                <span>{tr('Tizim ko‘rsatmasi')}</span>
-                <textarea className="input" rows={4} value={s.system} maxLength={8000} onChange={set('system')}
+              </div>
+
+              <div className="pg-sec">
+                <label className="pg-sec__t" htmlFor="pg-system"><IconDoc /> {tr('Tizim ko‘rsatmasi')}</label>
+                <textarea id="pg-system" className="input" rows={3} value={s.system} maxLength={8000} onChange={set('system')}
                   placeholder={tr('Masalan: qisqa va o‘zbek tilida javob ber.')} />
-              </label>
-              <div className="pg-field">
-                <span className="pg-field__row">
-                  {tr('Harorat')}
-                  <label className="pg-check">
-                    <input type="checkbox" checked={s.temperature == null}
-                      onChange={(e) => setS((v) => ({ ...v, temperature: e.target.checked ? null : 0.7 }))} />
-                    {tr('odatiy')}
-                  </label>
-                </span>
-                <div className="pg-range">
-                  <input type="range" min="0" max="2" step="0.1" value={s.temperature ?? 0.7} disabled={s.temperature == null}
-                    onChange={(e) => setS((v) => ({ ...v, temperature: Number(e.target.value) }))} aria-label={tr('Harorat')} />
-                  <output>{s.temperature == null ? '—' : Number(s.temperature).toFixed(1)}</output>
+              </div>
+
+              <div className="pg-sec">
+                <div className="pg-sec__t"><IconSliders /> {tr('Parametrlar')}</div>
+                <div className="pg-field">
+                  <span className="pg-field__row">
+                    {tr('Harorat')}
+                    <label className="pg-switch">
+                      <input type="checkbox" role="switch" checked={!tempOn}
+                        onChange={(e) => setS((v) => ({ ...v, temperature: e.target.checked ? null : 0.7 }))} />
+                      <span aria-hidden="true" />{tr('odatiy')}
+                    </label>
+                  </span>
+                  <div className="pg-range">
+                    <input type="range" min="0" max="2" step="0.1" value={s.temperature ?? 0.7} disabled={!tempOn}
+                      style={{ '--p': `${((s.temperature ?? 0.7) / 2) * 100}%` }}
+                      onChange={(e) => setS((v) => ({ ...v, temperature: Number(e.target.value) }))} aria-label={tr('Harorat')} />
+                    <output>{tempOn ? Number(s.temperature).toFixed(1) : '—'}</output>
+                  </div>
+                </div>
+                <div className="pg-field">
+                  <span className="pg-field__row">{tr('Javob uzunligi (token)')}</span>
+                  <div className="pg-range pg-range--num">
+                    <input type="range" min="64" max="4096" step="64" value={Math.min(4096, Math.max(64, s.maxTokens))}
+                      style={{ '--p': `${((Math.min(4096, Math.max(64, s.maxTokens)) - 64) / (4096 - 64)) * 100}%` }}
+                      onChange={(e) => setS((v) => ({ ...v, maxTokens: Number(e.target.value) }))} aria-label={tr('Javob uzunligi (token)')} />
+                    <input className="input" type="number" min="1" max="4096" value={s.maxTokens} aria-label={tr('Javob uzunligi (token)')}
+                      onChange={(e) => setS((v) => ({ ...v, maxTokens: Math.max(1, Math.min(4096, Number(e.target.value) || 1)) }))} />
+                  </div>
                 </div>
               </div>
-              <label className="pg-field">
-                <span>{tr('Javob uzunligi (token)')}</span>
-                <input className="input" type="number" min="1" max="4096" value={s.maxTokens}
-                  onChange={(e) => setS((v) => ({ ...v, maxTokens: Math.max(1, Math.min(4096, Number(e.target.value) || 1)) }))} />
-              </label>
-              <label className="pg-field">
-                <span>{tr('Fikrlash darajasi')}</span>
-                <select className="input" value={s.reasoning} onChange={set('reasoning')}>
-                  {REASONING.map(([v, label]) => <option key={v} value={v}>{tr(label)}</option>)}
-                </select>
-              </label>
-              <label className="pg-check pg-check--line">
-                <input type="checkbox" checked={s.stream} onChange={set('stream')} />
-                {tr('Javobni oqim bilan ko‘rsatish')}
-              </label>
+
+              <details className="pg-more">
+                <summary><IconSettings /> {tr('Qo‘shimcha sozlamalar')}</summary>
+                <label className="pg-field">
+                  <span>{tr('Fikrlash darajasi')}</span>
+                  <select className="input" value={s.reasoning} onChange={set('reasoning')}>
+                    {REASONING.map(([v, label]) => <option key={v} value={v}>{tr(label)}</option>)}
+                  </select>
+                </label>
+                <label className="pg-switch pg-switch--line">
+                  <input type="checkbox" role="switch" checked={s.stream} onChange={set('stream')} />
+                  <span aria-hidden="true" />{tr('Javobni oqim bilan ko‘rsatish')}
+                </label>
+              </details>
+
               <button type="button" className="btn btn--small pg-code-btn" onClick={() => setShowCode(true)} disabled={!s.model}>
                 <IconCode /> {tr('Kod sifatida olish')}
               </button>
@@ -380,32 +502,71 @@ export default function Playground() {
 
           <section className="pg-chat" aria-label={tr('Suhbat')}>
             <div className="pg-chat__bar">
-              <span className="pg-chat__model">{current?.display_name || s.model}</span>
+              <span className="pg-tile pg-tile--accent" aria-hidden="true"><IconSparkles /></span>
+              <div className="pg-chat__title">
+                <span className="pg-chat__model">{current?.display_name || s.model}</span>
+                <span className={`pg-status ${busy ? 'is-busy' : ''}`}><i aria-hidden="true" />{tr(busy ? 'Javob yozilmoqda' : 'Tayyor')}</span>
+              </div>
+              <div className="pg-chat__meter" aria-label={tr('Shu suhbat')}>
+                <span><i>{tr('token')}</i><b>{fmtInt(spent.tokens)}</b></span>
+                <span><i>{tr('Narxi')}</i><b>{fmtSom(spent.cost)}</b></span>
+              </div>
               <button type="button" className="btn btn--small btn--ghost" onClick={reset} disabled={!msgs.length && !busy}>
-                <IconPlus /> {tr('Yangi suhbat')}
+                <IconPlus /> <span className="pg-hide-sm">{tr('Yangi suhbat')}</span>
               </button>
             </div>
             <div className="pg-list" ref={listRef}>
               {msgs.length === 0 ? (
                 <div className="pg-empty">
+                  <span className="pg-hero" aria-hidden="true"><IconChat /></span>
+                  <h3>{tr('Nima haqida so‘raymiz?')}</h3>
                   <p>{tr('Birinchi savolingizni yozing. Javob, tokenlar va narx shu yerda chiqadi.')}</p>
                   <div className="pg-starters">
-                    {['Python’da fayldagi so‘zlarni sanaydigan funksiya yoz.', 'REST va GraphQL farqini uch jumlada tushuntir.', 'Shu matnni ingliz tiliga tarjima qil: “Ertaga uchrashamiz.”'].map((q) => (
-                      <button key={q} type="button" className="pg-starter" onClick={() => { setDraft(tr(q)); inputRef.current?.focus() }}>{tr(q)}</button>
+                    {STARTERS.map(([Icon, title, q]) => (
+                      <button key={q} type="button" className="pg-starter" onClick={() => { setDraft(tr(q)); inputRef.current?.focus() }}>
+                        <span className="pg-starter__ico" aria-hidden="true"><Icon /></span>
+                        <span><b>{tr(title)}</b><span>{tr(q)}</span></span>
+                      </button>
                     ))}
                   </div>
                 </div>
-              ) : msgs.map((m) => <Message key={m.id} m={m} />)}
+              ) : msgs.map((m, i) => (
+                <Message key={m.id} m={m} onRegenerate={i === lastAi && m.role === 'assistant' && !busy ? regenerate : null} />
+              ))}
             </div>
             <form className="pg-composer" onSubmit={send}>
               {low && <div className="pg-low">{tr('Hisobingizda mablag‘ yo‘q.')} <Link to="/app/billing">{tr('Hisobni to‘ldirish')}</Link></div>}
-              <textarea ref={inputRef} rows={2} value={draft} maxLength={32000} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey}
-                placeholder={tr('Xabar yozing…')} aria-label={tr('Xabar')} />
-              <div className="pg-composer__foot">
-                <small className="dim">{tr('Enter — yuborish, Shift+Enter — yangi qator')}</small>
-                {busy
-                  ? <button type="button" className="btn btn--small" onClick={stop}>{tr('To‘xtatish')}</button>
-                  : <button type="submit" className="btn btn--primary btn--small" disabled={!draft.trim() || !s.model}><IconSend /> {tr('Yuborish')}</button>}
+              <div className="pg-composer__box">
+                {(attachment || attachError) && (
+                  <div className="pg-composer__files">
+                    {attachment && (
+                      <span className="pg-file">
+                        <IconPaperclip /> {attachment.name}
+                        <button type="button" aria-label={tr('Olib tashlash')} onClick={() => setAttachment(null)}><IconX /></button>
+                      </span>
+                    )}
+                    {attachError && <span className="pg-error" role="alert">{attachError}</span>}
+                  </div>
+                )}
+                <textarea ref={inputRef} rows={2} value={draft} maxLength={32000} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey}
+                  placeholder={tr('Xabar yozing…')} aria-label={tr('Xabar')} />
+                <div className="pg-composer__foot">
+                  <button type="button" className="pg-tool" onClick={() => fileRef.current?.click()} disabled={busy}
+                    title={tr('Matnli fayl biriktirish')} aria-label={tr('Matnli fayl biriktirish')}>
+                    <IconPaperclip />
+                  </button>
+                  <input ref={fileRef} type="file" accept={ATTACH_ACCEPT} hidden onChange={pickFile} />
+                  <label className="pg-chip-select" title={tr('Model')}>
+                    <IconLayers />
+                    <select value={s.model} onChange={set('model')} disabled={busy} aria-label={tr('Model')}>
+                      {items.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
+                    </select>
+                  </label>
+                  <small className="dim pg-hide-sm">{tr('Enter — yuborish, Shift+Enter — yangi qator')}</small>
+                  {busy
+                    ? <button type="button" className="btn btn--small pg-send" onClick={stop}>{tr('To‘xtatish')}</button>
+                    : <button type="submit" className="btn btn--primary btn--small pg-send" disabled={!draft.trim() || !s.model}><IconSend /> {tr('Yuborish')}</button>}
+                </div>
               </div>
             </form>
           </section>

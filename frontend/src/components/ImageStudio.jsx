@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { removeImage, startImage, useImageItems } from '../imageStore.js'
 import { fmtSom } from '../format.js'
+import { IconImage, IconSliders } from './icons.jsx'
 
 /**
  * Playground image tab: POST /portal/playground/images (the same pipeline and billing as
@@ -69,6 +70,7 @@ export default function ImageStudio({ models, userId, onCharged }) {
   return (
     <div className="vs">
       <form className="vs-form" onSubmit={create}>
+        <div className="vs-head"><span className="vs-head__tile" aria-hidden="true"><IconSliders /></span><b>{tr('Rasm sozlamalari')}</b></div>
         <label className="pg-field">
           <span>{tr('Model')}</span>
           <select className="input" value={current?.id} onChange={(e) => setModel(e.target.value)}>
@@ -110,8 +112,9 @@ export default function ImageStudio({ models, userId, onCharged }) {
         <small className="dim">{tr('Rasm odatda 15–30 soniyada tayyor bo‘ladi. 1K — taxminan 1024 px, 2K — 2048 px. Narx bitta rasm uchun; rasm chiqmasa pul yechilmaydi.')}</small>
       </form>
       <section className="vs-list" aria-label={tr('Rasmlar')}>
+        <div className="vs-head"><span className="vs-head__tile" aria-hidden="true"><IconImage /></span><b>{tr('Rasmlar')}</b>{items.length > 0 && <small>{items.length}</small>}</div>
         {items.length === 0
-          ? <div className="vs-empty">{tr('Tasvir yozing — tayyor rasm shu yerda paydo bo‘ladi.')}</div>
+          ? <div className="vs-empty"><span className="pg-hero" aria-hidden="true"><IconImage /></span>{tr('Tasvir yozing — tayyor rasm shu yerda paydo bo‘ladi.')}</div>
           : items.map((i) => (
             <article key={i.id} className={`vs-card vs-card--${i.status}`}>
               {i.status === 'done' && i.src

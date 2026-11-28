@@ -91,7 +91,7 @@ export default function Dashboard() {
           <div className="stat-grid stat-grid--3">
             {freeMode
               ? <StatCard tone="accent" icon={<IconWallet />} label={t('dash.usageLabel')} value={t('common.free')} note={t('dash.freeNote')} />
-              : <StatCard icon={<IconWallet />} label={t('dash.balance')} value={fmtSom(s.balance, { unit: false })} unit={t('common.som')}
+              : <StatCard tone="accent" icon={<IconWallet />} label={t('dash.balance')} value={fmtSom(s.balance, { unit: false })} unit={t('common.som')}
                           note={s.held > 0 ? `${t('dash.held')}: ${fmtSom(s.held)}` : t('dash.balanceNote')} />}
             <StatCard tone="sky" icon={<IconKey />} label={t('dash.activeKeys')} value={fmtInt(s.active_keys)}
                       note={<Link to="/app/keys">{t('shell.keys')}</Link>} />
