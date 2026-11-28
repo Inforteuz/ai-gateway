@@ -487,6 +487,22 @@ def test_chatgpt_probe_detects_logged_out_page(monkeypatch, logged_out, want):
     assert asyncio.run(adapter.check_session(object())) == want
 
 
+# --- Qwen: a logged-out (guest) page must not take requests (instance #12, 2026-11-28) --------------------------
+@pytest.mark.parametrize("logged_out,want", [(True, (False, "login_required")), (False, (True, "ok"))])
+def test_qwen_probe_detects_logged_out_page(monkeypatch, logged_out, want):
+    from cluster.adapters import qwen_adapter as qa
+    from cluster.adapters import base_adapter as ba
+
+    async def fake_eval(ws, js, timeout=20.0):
+        if "/c/guest" in js and "sign up" in js:
+            return logged_out
+        return {"hasInput": True, "needsLogin": False, "url": "https://chat.qwen.ai/"}
+    monkeypatch.setattr(qa.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(ba.cdp, "evaluate", fake_eval)
+    monkeypatch.setattr(ba.BaseAIAdapter, "detect_challenge", lambda self, ws: asyncio.sleep(0, result=False))
+    assert asyncio.run(qa.QwenAdapter().check_session(object())) == want
+
+
 # --- Qwen: temporary chat, falling back to a regular new chat if it is not confirmed ------------------------------
 @pytest.mark.parametrize("state,want_fallback", [
     ({"on": True, "hasInput": True, "msgs": 0}, False),

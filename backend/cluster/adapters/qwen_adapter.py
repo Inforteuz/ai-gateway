@@ -57,6 +57,25 @@ class QwenAdapter(BaseAIAdapter):
     IMAGE_DONE_RELIABLE = True
     _IMAGE_MODE_JS = "!!document.querySelector('textarea[placeholder=\"Describe the image you want to generate.\"]')"
 
+    # Logged out (cookie lost, account signed out): chat.qwen.ai still opens with a working input
+    # field in guest mode and shows "Log in" / "Sign up" in the header. Measured 2026-11-28 on
+    # instance #12: the generic check passed, requests were dispatched there and hung on the
+    # guest page (image generation needs an account). Logged-in tabs show no such buttons.
+    _LOGGED_OUT_JS = """(() => location.pathname.startsWith('/c/guest') || [...document.querySelectorAll('button, a')].some(b => {
+        const t = (b.innerText || '').trim().toLowerCase();
+        return ['log in', 'sign in', 'sign up', 'войти', 'регистрация'].includes(t) && !!(b.offsetWidth || b.offsetHeight);
+    }))()"""
+
+    async def check_session(self, ws, timeout: float = 5.0, recover: bool = True) -> tuple[bool, str]:
+        """The generic check + Qwen's logged-out (guest) state, so no request goes to that tab."""
+        try:
+            logged_out = await cdp.evaluate(ws, self._LOGGED_OUT_JS, timeout=timeout)
+        except Exception as e:
+            return False, f"probe_failed:{type(e).__name__}"
+        if logged_out is True:
+            return False, "login_required"
+        return await super().check_session(ws, timeout=timeout, recover=recover)
+
     def __init__(self):
         super().__init__("qwen")
     def set_send_preference(self, preference):
