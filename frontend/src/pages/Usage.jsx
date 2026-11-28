@@ -4,29 +4,45 @@ import { translateText as tr, useLang as useLocaleRefresh } from '../i18n/index.
 import { useEffect, useState } from 'react'
 import { api, qs } from '../api.js'
 import BarChart from '../components/BarChart.jsx'
+import DonutShare from '../components/DonutShare.jsx'
 import FreeQuota from '../components/FreeQuota.jsx'
-import ModelBreakdown from '../components/ModelBreakdown.jsx'
-import { useAuth } from '../auth.js'
+import TokenTrend from '../components/TokenTrend.jsx'
 import { ErrorNote, Loading, PageHead, Pager, StatCard, useLoad } from '../components/ui.jsx'
-import { IconClock, IconCoins, IconLayers, IconSearch } from '../components/icons.jsx'
+import { IconCalendar, IconChart, IconClock, IconCoins, IconLayers, IconSearch } from '../components/icons.jsx'
 import { levelShort } from '../reasoning.jsx'
 import { useT } from '../i18n/index.jsx'
 import { fmtDateTime, fmtInt, fmtSom } from '../format.js'
 
 const LIMIT = 25
+const RANGES = [7, 30, 90]
+
+/** Days folded into 7-day buckets, counted back from today; the bucket keeps its first date. */
+function byWeek(days) {
+  const out = []
+  for (let end = days.length; end > 0; end -= 7) {
+    const chunk = days.slice(Math.max(0, end - 7), end)
+    out.unshift(chunk.reduce((o, d) => ({
+      date: o.date, requests: o.requests + (d.requests || 0), cost: o.cost + (d.cost || 0),
+      prompt_tokens: o.prompt_tokens + (d.prompt_tokens || 0), completion_tokens: o.completion_tokens + (d.completion_tokens || 0),
+    }), { date: chunk[0].date, requests: 0, cost: 0, prompt_tokens: 0, completion_tokens: 0 }))
+  }
+  return out
+}
 
 export default function Usage() {
   useLocaleRefresh()
-  const { freeMode } = useAuth()
   const t = useT()
   const [offset, setOffset] = useState(0)
   const [keyId, setKeyId] = useState('')
   const [failed, setFailed] = useState(false)
   const [q, setQ] = useState('')
   const [query, setQuery] = useState('')
+  const [range, setRange] = useState(30)
+  const [grain, setGrain] = useState('day')
   useEffect(() => { const id = setTimeout(() => { setQuery(q); setOffset(0) }, 300); return () => clearTimeout(id) }, [q])
   const keys = useLoad(() => api.get('/portal/keys'), [])
-  const daily = useLoad(() => api.get('/portal/usage/daily' + qs({ days: 30, key_id: keyId })), [keyId], { refreshMs: 15_000 })
+  const daily = useLoad(() => api.get('/portal/usage/daily' + qs({ days: range, key_id: keyId })), [keyId, range], { refreshMs: 15_000 })
+  const byModel = useLoad(() => api.get('/portal/usage/models' + qs({ days: range, key_id: keyId })), [keyId, range], { refreshMs: 15_000 })
   const sum = useLoad(() => api.get('/portal/account/summary'), [], { refreshMs: 15_000 })
   const { data, error, loading, reload } = useLoad(
     () => api.get('/portal/usage' + qs({ limit: LIMIT, offset, key_id: keyId, failed, q: query })),
@@ -37,6 +53,9 @@ export default function Usage() {
   const monthTokens = days.reduce((s, d) => s + (d.prompt_tokens || 0) + (d.completion_tokens || 0), 0)
   const monthIn = days.reduce((s, d) => s + (d.prompt_tokens || 0), 0)
   const monthOut = days.reduce((s, d) => s + (d.completion_tokens || 0), 0)
+  const monthReq = days.reduce((s, d) => s + (d.requests || 0), 0)
+  const series = grain === 'week' ? byWeek(days) : days
+  const rangeNote = tr('so‘nggi {n} kun', { n: range })
 
   const rows = data?.items || []
   const lat = rows.filter((r) => r.latency_ms).map((r) => r.latency_ms)
@@ -51,29 +70,53 @@ export default function Usage() {
       />
       <ErrorNote error={error} retry={reload} />
 
-      <div className="usage-top">
-        <div className="usage-stats">
-        <StatCard icon={<IconCoins />} label={t('usage.totalCost')} value={fmtSom(monthCost, { unit: false })} unit={t('common.som')} note={t('usage.last30')} />
-        <StatCard icon={<IconLayers />} label={t('usage.totalTokens')} value={fmtInt(monthTokens)}
-                  note={t('req.tokensInOut', { in: fmtInt(monthIn), out: fmtInt(monthOut) })} />
-        <StatCard icon={<IconClock />} label={t('usage.avgLatency')} value={avgLat != null ? t('common.seconds', { n: avgLat.toFixed(1) }) : '—'} note={t('usage.onThisPage')} />
-        </div>
-        <section className="panel usage-chart">
-          <div className="panel-head" style={{ marginBottom: 8 }}>
-            <div className="panel-head__t"><h3>{t('usage.dailyCost')}</h3></div>
+      <div className="toolbar">
+        <div className="toolbar__field">
+          <IconCalendar /> <span>{tr('Vaqt oralig‘i')}</span>
+          <div className="seg" role="group" aria-label={tr('Vaqt oralig‘i')}>
+            {RANGES.map((n) => <button key={n} type="button" aria-pressed={range === n} className={range === n ? 'is-on' : ''} onClick={() => setRange(n)}>{tr('{n} kun', { n })}</button>)}
           </div>
-          {days.length > 0 ? <BarChart items={days.slice(-7)} metric="cost" compact /> : <Loading rows={1} />}
-        </section>
+        </div>
+        <div className="toolbar__field">
+          <span>{tr('Bo‘linish')}</span>
+          <div className="seg" role="group" aria-label={tr('Bo‘linish')}>
+            {[['day', 'Kun'], ['week', 'Hafta']].map(([v, l]) => <button key={v} type="button" aria-pressed={grain === v} className={grain === v ? 'is-on' : ''} onClick={() => setGrain(v)}>{tr(l)}</button>)}
+          </div>
+        </div>
+        <div className="toolbar__field toolbar__push">
+          <select className="input" value={keyId} onChange={(e) => { setKeyId(e.target.value); setOffset(0) }} aria-label={t('usage.keyFilter')}>
+            <option value="">{t('usage.allKeys')}</option>
+            {(keys.data?.items || []).map((k) => <option key={k.id} value={k.id}>{tr(k.name)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="stat-grid block">
+        <StatCard tone="amber" icon={<IconCoins />} label={t('usage.totalCost')} value={fmtSom(monthCost, { unit: false })} unit={t('common.som')} note={rangeNote} />
+        <StatCard tone="violet" icon={<IconChart />} label={tr('So‘rovlar')} value={fmtInt(monthReq)} note={rangeNote} />
+        <StatCard tone="rose" icon={<IconLayers />} label={t('usage.totalTokens')} value={fmtInt(monthTokens)}
+                  note={t('req.tokensInOut', { in: fmtInt(monthIn), out: fmtInt(monthOut) })} />
+        <StatCard tone="sky" icon={<IconClock />} label={t('usage.avgLatency')} value={avgLat != null ? t('common.seconds', { n: avgLat.toFixed(1) }) : '—'} note={t('usage.onThisPage')} />
       </div>
 
       <FreeQuota quota={sum.data?.free_daily} style={{ marginTop: 18 }} />
 
-      <section className="panel block">
-        <div className="panel-head" style={{ marginBottom: 8 }}>
-          <div className="panel-head__t"><h3>{t('usage.byModel')}</h3></div>
+      {byModel.data
+        ? <div className="block"><DonutShare title={t('dash.byModel')} hint={rangeNote}
+                      rows={(byModel.data.items || []).map((m) => ({ ...m, label: m.model }))} /></div>
+        : <div className="block"><Loading rows={3} /></div>}
+
+      {daily.data && (
+        <div className="dash-charts dash-charts--even block">
+          <TokenTrend items={series} />
+          <section className="panel">
+            <div className="panel-head" style={{ marginBottom: 8 }}>
+              <div className="panel-head__t"><h3>{tr(grain === 'week' ? 'Haftalik xarajatlar' : t('usage.dailyCost'))}</h3><p>{rangeNote}</p></div>
+            </div>
+            {series.length > 0 ? <BarChart items={series} metric="cost" /> : <Loading rows={1} />}
+          </section>
         </div>
-        <ModelBreakdown days={30} freeMode={freeMode} keyId={keyId} />
-      </section>
+      )}
 
       <UsageAnalytics keyId={keyId} onKeyChange={value => { setKeyId(value); setOffset(0) }} />
 
@@ -82,10 +125,6 @@ export default function Usage() {
           <IconSearch />
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('usage.searchPh')} aria-label={t('usage.searchLabel')} />
         </label>
-        <select className="input" style={{ width: 'auto' }} value={keyId} onChange={(e) => { setKeyId(e.target.value); setOffset(0) }} aria-label={t('usage.keyFilter')}>
-          <option value="">{t('usage.allKeys')}</option>
-          {(keys.data?.items || []).map((k) => <option key={k.id} value={k.id}>{tr(k.name)}</option>)}
-        </select>
         <label className="check"><input type="checkbox" checked={failed} onChange={(e) => { setFailed(e.target.checked); setOffset(0) }} /> {t('usage.onlyErrors')}</label>
       </div>
 

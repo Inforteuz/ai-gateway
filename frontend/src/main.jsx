@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './styles.css'
+import './console.css'
 import { initTheme } from './theme.js'
 import { captureReferral } from './referral.js'
 

@@ -117,8 +117,9 @@ export function PageHead({ eyebrow, title, lead, action, crumbs }) {
 export function StatCard({ icon, label, value, unit, trend, trendDir, note, tone }) {
   useLocaleRefresh()
   return (
-    <div className="metric">
-      <span className="label"><span className={`ico-chip ico-chip--sm ${tone ? `ico-chip--${tone}` : ''}`}>{tr(icon)}</span>{tr(label)}</span>
+    <div className={`metric ${tone ? `metric--${tone}` : ''}`}>
+      {icon && <span className="metric-ico" aria-hidden="true">{tr(icon)}</span>}
+      <span className="label">{tr(label)}</span>
       <b>{tr(value)}{unit && <small>{tr(unit)}</small>}</b>
       {(trend || note) && (
         <span className="trend">

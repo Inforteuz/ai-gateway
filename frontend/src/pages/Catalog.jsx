@@ -39,6 +39,15 @@ function hintOf(m) {
 }
 
 
+// Tabs by what the model makes. Upstream origin is deliberately not a filter.
+const KINDS = [
+  ['', 'Barchasi'],
+  ['text', 'Matn'],
+  ['image', 'Rasm'],
+  ['video', 'Video'],
+]
+const kindOf = (m) => (isVideoModel(m) ? 'video' : isMediaModel(m) || isImageOnlyModel(m) ? 'image' : 'text')
+
 const SORTS = [
   ['default', 'Tavsiya etilgan'],
   ['cheap', 'Avval arzoni'],
@@ -56,6 +65,7 @@ export default function Catalog() {
   const [q, setQ] = useState('')
   const [tag, setTag] = useState('')
   const [sort, setSort] = useState('default')
+  const [kind, setKind] = useState('')
 
   const tags = useMemo(() => [...new Set(all.map((m) => hintOf(m).tag).filter(Boolean))], [all])
 
@@ -63,6 +73,7 @@ export default function Catalog() {
     const needle = q.trim().toLowerCase()
     let out = all.filter((m) => {
       const h = hintOf(m)
+      if (kind && kindOf(m) !== kind) return false
       if (tag && h.tag !== tag) return false
       if (!needle) return true
       return [m.display_name, m.id, m.description, m.description_ru, m.description_en, h.hint].filter(Boolean).some((t) => t.toLowerCase().includes(needle))
@@ -70,7 +81,7 @@ export default function Catalog() {
     if (sort === 'cheap') out = [...out].sort((a, b) => (a.price_in_per_1m + a.price_out_per_1m) - (b.price_in_per_1m + b.price_out_per_1m))
     if (sort === 'fast') out = [...out].sort((a, b) => (a.measured?.typical_latency_ms ?? 1e9) - (b.measured?.typical_latency_ms ?? 1e9))
     return out
-  }, [all, q, tag, sort])
+  }, [all, q, tag, sort, kind])
 
   return (
     <>
@@ -89,6 +100,16 @@ export default function Catalog() {
       />
       <ErrorNote error={error} retry={reload} />
       {loading && !data && <Loading rows={4} />}
+
+      {all.length > 0 && (
+        <div className="cat-tabs" role="group" aria-label={tr("Model turi")}>
+          {KINDS.map(([v, l]) => {
+            const n = v ? all.filter((m) => kindOf(m) === v).length : all.length
+            if (v && !n) return null
+            return <button key={v || 'all'} type="button" aria-pressed={kind === v} className={kind === v ? 'is-on' : ''} onClick={() => setKind(v)}>{tr(l)} <i>{n}</i></button>
+          })}
+        </div>
+      )}
 
       {all.length > 0 && (
         <div className="filter-bar">
