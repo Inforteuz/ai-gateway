@@ -221,6 +221,7 @@ export default function Landing() {
           <div className="point-list">
             {FEATURES.map((f) => (
               <article key={f.icon} className="point">
+                <span className="point__ico"><Icon name={f.icon} /></span>
                 <h3>{t(`landing.feat.${f.id}.title`)}</h3>
                 <p>{t(`landing.feat.${f.id}.text`, { bonus })}</p>
               </article>

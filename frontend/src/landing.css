@@ -1,0 +1,90 @@
+/* ============================================================================
+   Landing layer — depth pass matching the panel: tinted icon tiles, card
+   surfaces, a faint grid behind the hero and a glowing call to action.
+   Selectors here are used only on the landing page.
+   ============================================================================ */
+
+/* hero: faint grid fading out from the top-right, a stronger green glow */
+.hero-stage { position: relative; isolation: isolate; }
+.hero-stage::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--fg) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--fg) 6%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(70% 70% at 75% 25%, #000 0%, transparent 75%);
+  mask-image: radial-gradient(70% 70% at 75% 25%, #000 0%, transparent 75%);
+}
+.hero-mock-glow {
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 35%, transparent), transparent) !important;
+  opacity: 0.9;
+}
+.hero-mock { box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.55), 0 0 0 1px color-mix(in srgb, var(--fg) 8%, transparent) !important; }
+
+/* stats: one row of cards with a hairline accent on top */
+.stats { gap: 14px !important; background: none !important; border: 0 !important; }
+.stat {
+  position: relative; overflow: hidden; border-radius: 16px !important;
+  border: 1px solid var(--border) !important; background: var(--bg-elev) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 30px -18px rgba(15, 23, 42, 0.35);
+}
+.stat::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent); opacity: 0.7;
+}
+.stat b { color: var(--fg); }
+.stat:first-child b { color: var(--primary); }
+
+/* feature and audience points become cards with icon tiles */
+.point-list { gap: 16px !important; }
+.point {
+  border: 1px solid var(--border) !important; border-radius: 16px; padding: 22px !important;
+  background: var(--bg-elev); gap: 10px !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 30px -20px rgba(15, 23, 42, 0.35);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.point:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)) !important; }
+.point-list--audience .point { border-top: 1px solid var(--border) !important; }
+.point__ico {
+  --tone: var(--primary);
+  width: 44px !important; height: 44px !important; border-radius: 12px; margin-bottom: 4px;
+  display: inline-grid !important; place-items: center;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--tone) 22%, transparent), color-mix(in srgb, var(--tone) 7%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 24%, transparent);
+  color: var(--tone);
+}
+.point__ico svg { width: 21px !important; height: 21px !important; }
+.point:nth-child(6n + 2) .point__ico { --tone: var(--sky); }
+.point:nth-child(6n + 3) .point__ico { --tone: var(--violet); }
+.point:nth-child(6n + 4) .point__ico { --tone: var(--amber); }
+.point:nth-child(6n + 5) .point__ico { --tone: var(--rose); }
+.point:nth-child(6n + 6) .point__ico { --tone: var(--sky); }
+.point h3 { font-size: 1.05rem !important; }
+
+/* call to action: green glow and the same faint grid */
+.cta {
+  position: relative; overflow: hidden; isolation: isolate;
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border)) !important;
+  background:
+    radial-gradient(60% 120% at 100% 0%, color-mix(in srgb, var(--primary) 22%, transparent) 0%, transparent 60%),
+    radial-gradient(50% 100% at 0% 100%, color-mix(in srgb, var(--primary) 10%, transparent) 0%, transparent 60%),
+    var(--bg-elev) !important;
+  box-shadow: 0 30px 80px -40px color-mix(in srgb, var(--primary) 45%, transparent) !important;
+}
+.cta::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--fg) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--fg) 5%, transparent) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 70%);
+  mask-image: linear-gradient(90deg, transparent, #000 70%);
+}
+
+@media (max-width: 900px) {
+  .point-list { grid-template-columns: minmax(0, 1fr) !important; }
+}
+@media (min-width: 640px) and (max-width: 900px) {
+  .point-list { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (prefers-reduced-motion: reduce) { .point { transition: none; } }

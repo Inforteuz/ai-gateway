@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './styles.css'
 import './console.css'
+import './landing.css'
 import { initTheme } from './theme.js'
 import { captureReferral } from './referral.js'
 
