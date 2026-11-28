@@ -12,7 +12,7 @@ function ToolHealth() {
   const rows = data?.per_model || []
   return <section className="panel block">
     <div className="panel-head"><h2>{tr('Vosita protokoli')}</h2></div>
-    <p className="hint">{tr('Klaster ishga tushganidan beri. Kesh javoblari model tezligidan alohida hisoblanadi.')}</p>
+    <p className="hint">{tr('BK ishga tushganidan beri. Kesh javoblari model tezligidan alohida hisoblanadi.')}</p>
     <ErrorNote error={error} retry={reload} />
     {data && <div className="table-wrap"><table className="table">
       <thead><tr>{['Model', 'So‘rovlar', 'Qayta so‘rashlar', 'Chaqiruv tiklandi', 'Yakuniy javob', 'Chaqiruv qaytmadi', 'Qayta so‘rov p95', 'Javob keshi'].map(label => <th key={label}>{tr(label)}</th>)}</tr></thead>
@@ -114,7 +114,7 @@ export default function Monitoring() {
           {s.providers && <section className="panel block">
             <div className="panel-head"><h2>{tr("Taqsimot")}</h2><span className="dim small">{tr("Faol / navbatda")}</span></div>
             <div className="metric-grid">{Object.entries(s.providers).map(([provider, counts]) =>
-              <div key={provider} className="metric"><span className="label">{tr(({ local: "Mahalliy modellar", cluster: "Brauzer klasteri", external: "Tashqi API" })[provider] || provider)}</span>
+              <div key={provider} className="metric"><span className="label">{tr(({ local: "Mahalliy modellar", cluster: "BK", external: "Tashqi API" })[provider] || provider)}</span>
                 <b>{counts.active}<small> / {counts.queued}</small></b></div>)}</div>
           </section>}
           <div className="block panel">

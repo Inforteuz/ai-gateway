@@ -113,7 +113,7 @@ function AddModel({ models, onClose, onDone }) {
       <div className="seg" role="group" aria-label={tr("Manba")}>
         <button type="button" className={provider === 'local' ? 'is-on' : ''} onClick={() => { setProvider('local'); setPick('') }}>{tr("Mahalliy (ishxona)")}</button>
         <button type="button" className={provider === 'external' ? 'is-on' : ''} onClick={() => { setProvider('external'); setPick('') }}>{tr("Tashqi provayder")}</button>
-        <button type="button" className={provider === 'cluster' ? 'is-on' : ''} onClick={() => { setProvider('cluster'); setPick('') }}>AI Cluster</button>
+        <button type="button" className={provider === 'cluster' ? 'is-on' : ''} onClick={() => { setProvider('cluster'); setPick('') }}>BK</button>
       </div>
       <ErrorNote error={source.error} />
       {!source.data && !source.error && <Loading rows={2} />}

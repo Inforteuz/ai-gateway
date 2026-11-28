@@ -97,7 +97,7 @@ export default {
   'shell.admin': 'Administrator',
   'shell.adminStats': 'Statistika',
   'shell.adminMonitoring': 'Monitoring',
-  'shell.adminInstances': 'Brauzer instansiyalari',
+  'shell.adminInstances': 'Instansiyalar',
   'shell.adminUsers': 'Foydalanuvchilar',
   'shell.adminTopups': "To'ldirish so'rovlari",
   'shell.adminReferrals': 'Referallar',

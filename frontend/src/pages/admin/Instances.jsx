@@ -5,13 +5,13 @@ import { Empty, ErrorNote, Loading, Modal, useLoad, useToast } from '../../compo
 import { fmtAgo, fmtDateTime } from '../../format.js'
 
 // Cluster browser instances: status and control without opening VNC.
-// No action restarts Chrome — login cookies are preserved.
+// No action restarts instansiya — login cookies are preserved.
 
 const STATE = {
   ok: { label: 'Ishlayapti', tone: 'is-ok', dot: 'dot--on' },
   resting: { label: 'Dam olyapti', tone: 'is-cool', dot: 'dot--off' },
   login: { label: 'Login kerak', tone: 'is-cool', dot: 'dot--off' },
-  captcha: { label: 'Bot tekshiruvi — VNC orqali yeching', tone: 'is-cool', dot: 'dot--off' },
+  captcha: { label: 'Bot tekshiruvi — ekran orqali yeching', tone: 'is-cool', dot: 'dot--off' },
   crashed: { label: 'Sahifa qulagan', tone: 'is-cool', dot: 'dot--off' },
   no_tab: { label: 'Provayder tabi topilmadi', tone: 'is-cool', dot: 'dot--off' },
   down: { label: 'Brauzer javob bermayapti', tone: 'is-cool', dot: 'dot--off' },
@@ -22,8 +22,8 @@ const ACTIONS = {
   reload: 'Sahifani qayta yuklash',
   cleanup: 'Chatlarni tozalash',
   cleanup_dry: 'Tozalash (quruq sinov)',
-  vnc_open: 'VNC ochildi',
-  vnc_session: 'VNC sessiyasi',
+  vnc_open: 'Ekran ochildi',
+  vnc_session: 'Ekran sessiyasi',
   recover_memory: 'Tabni tiklash (xotira)',
   memory_recovered: 'Avto: tab tiklandi (xotira)',
   memory_recover_unverified: 'Avto: tab tiklandi, sessiya tasdiqlanmadi',
@@ -98,7 +98,7 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
   const [plan, setPlan] = useState(null)
   const [confirmRecover, setConfirmRecover] = useState(false)
   const mem = it.memory
-  const restartsChrome = mem?.method === 'restart'
+  const restartsinstansiya = mem?.method === 'restart'
   const st = STATE[it.state] || { label: it.state, tone: '', dot: 'dot--off' }
   const tab = it.tabs?.[0]
   const cleanup = it.tabs?.find((t) => t.cleanup?.supported)?.cleanup
@@ -163,7 +163,7 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
       {(it.last_error || mem?.blocked) && (
         <div className="inst-card__alert">
           {mem?.blocked && (
-            <div title={tr("VNC orqali tekshiring; sessiya joyida bo'lsa, \"RAM bo'shatish\" blokni olib tashlaydi.")}> {tr("Avto-tiklash to'xtatilgan:")} {tr(BLOCK_REASON[mem.blocked.reason] || mem.blocked.reason)} ({fmtAgo(mem.blocked.ts)})
+            <div title={tr("ekran orqali tekshiring; sessiya joyida bo'lsa, \"RAM bo'shatish\" blokni olib tashlaydi.")}> {tr("Avto-tiklash to'xtatilgan:")} {tr(BLOCK_REASON[mem.blocked.reason] || mem.blocked.reason)} ({fmtAgo(mem.blocked.ts)})
             </div>
           )}
           {it.last_error && <div className="inst-clip" title={tr(it.last_error)}>{tr("· Oxirgi xato: {v0}", { v0: it.last_error })}</div>}
@@ -184,12 +184,12 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
         )}
         {tab && (
           <button type="button" className="btn btn--small" disabled={busy} onClick={() => setConfirmRecover(true)}
-                  title={restartsChrome ? tr("Chrome'ni qayta ishga tushirish — login saqlanadi")
-                                        : tr("Tabni yangi renderer'da qayta ochish — Chrome qayta ishga tushmaydi")}>
+                  title={restartsinstansiya ? tr("Instansiyani qayta ishga tushirish — login saqlanadi")
+                                        : tr("Tabni yangi renderer'da qayta ochish — instansiya qayta ishga tushmaydi")}>
             {tr(pending === 'recover-memory' ? tr("Boshlanmoqda…") : tr("RAM bo'shatish"))}
           </button>
         )}
-        <button type="button" className="btn btn--small btn--primary inst-card__vnc" disabled={!vncEnabled} onClick={openVnc}> {tr("VNC'ni ochish")} </button>
+        <button type="button" className="btn btn--small btn--primary inst-card__vnc" disabled={!vncEnabled} onClick={openVnc}> {tr("Ekranni ochish")} </button>
       </div>
       {confirmRecover && (
         <Modal title={`#${it.instance}: tabni tiklash`} onClose={() => setConfirmRecover(false)}
@@ -198,9 +198,9 @@ function InstanceCard({ it, vncEnabled, threshold, onDone }) {
             <button type="button" className="btn btn--primary"
                     onClick={() => { setConfirmRecover(false); run('recover-memory') }}> {tr("Tiklash")} </button>
           </>}>
-          {restartsChrome
-            ? <p>{tr("Bu instansiyada tabni qayta ochish xotirani bo'shatmaydi, shuning uchun")} <b>{tr("Chrome qayta ishga tushiriladi")}</b> {tr("(faqat shu instansiya). Login diskda saqlanadi va restartdan omon qoladi; oldin cookie zaxirasi olinadi.")}</p>
-            : <p>{tr("Provayder tabi yopilib, sayt yangi tabda (yangi renderer jarayonida) qayta ochiladi — renderer to'plagan xotira bo'shaydi. Chrome qayta ishga tushirilmaydi, login cookie'lariga tegilmaydi.")}</p>}
+          {restartsinstansiya
+            ? <p>{tr("Bu instansiyada tabni qayta ochish xotirani bo'shatmaydi, shuning uchun")} <b>{tr("instansiya qayta ishga tushiriladi")}</b> {tr("(faqat shu instansiya). Login diskda saqlanadi va restartdan omon qoladi; oldin cookie zaxirasi olinadi.")}</p>
+            : <p>{tr("Provayder tabi yopilib, sayt yangi tabda (yangi renderer jarayonida) qayta ochiladi — renderer to'plagan xotira bo'shaydi. instansiya qayta ishga tushirilmaydi, login cookie'lariga tegilmaydi.")}</p>}
           <ul className="small" style={{ marginTop: 8 }}>
             <li>{tr("Tiklashdan oldin va keyin sessiya tekshiriladi; sessiya yo'qolsa — Telegram'ga xabar ketadi va avto-tiklash shu instansiyada to'xtatiladi.")}</li>
             <li>{tr("Jonli so'rov tugashi kutiladi (30 soniyagacha); tiklash odatda 15–40 soniya oladi va bu vaqtda instansiya so'rov qabul qilmaydi.")}</li>
@@ -244,15 +244,15 @@ export default function Instances() {
     <>
       <div className="page-head">
         <div>
-          <h1>{tr("Brauzer instansiyalari")}</h1>
-          <p>{tr("Har instansiya holati va VNC'ga kirmasdan boshqarish. Amallar Chrome'ni qayta ishga tushirmaydi — loginlar saqlanadi. Sahifa 10 soniyada yangilanadi.")}</p>
+          <h1>{tr("Instansiyalar")}</h1>
+          <p>{tr("Har instansiya holati va ekranga kirmasdan boshqarish. Amallar instansiyani qayta ishga tushirmaydi — loginlar saqlanadi. Sahifa 10 soniyada yangilanadi.")}</p>
         </div>
         <button type="button" className="btn btn--small" onClick={reload}>{tr("Yangilash")}</button>
       </div>
       <ErrorNote error={error} retry={reload} />
       {!data && !error && <Loading rows={3} />}
       {data && !data.vnc_enabled && (
-        <div className="alert alert--warn" style={{ marginBottom: 16 }}>{tr("VNC sozlanmagan: serverda")} <code>SF_VNC_PASSWORD</code> {tr("berilmagan.")}</div>
+        <div className="alert alert--warn" style={{ marginBottom: 16 }}>{tr("Ekran sozlanmagan: serverda")} {tr("ekran paroli")} {tr("berilmagan.")}</div>
       )}
       {sys?.swap_total_mb > 0 && (
         <div className={`alert ${sys.swap_percent >= 80 ? 'alert--warn' : ''}`} style={{ marginBottom: 16 }}>
@@ -264,7 +264,7 @@ export default function Instances() {
             : <span className="dim"> {tr("Avto-tiklash o'chiq.")}</span>)}
         </div>
       )}
-      {data && items.length === 0 && <Empty title={tr("Instansiya yo'q")}>{tr("Klasterda CDP porti sozlanmagan.")}</Empty>}
+      {data && items.length === 0 && <Empty title={tr("Instansiya yo'q")}>{tr("BK'da CDP porti sozlanmagan.")}</Empty>}
       {items.length > 0 && (
         <div className="inst-grid">
           {items.map((it) => <InstanceCard key={it.port} it={it} vncEnabled={!!data.vnc_enabled} threshold={guard?.threshold_mb} onDone={reload} />)}

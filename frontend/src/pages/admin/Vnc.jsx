@@ -7,7 +7,7 @@ import { useSite } from '../../auth.js'
 
 // Screen of a single instance (noVNC). The connection goes through the backend: a one-time
 // ticket + the admin session; the backend supplies the VNC password, it never reaches the browser.
-// All Chromes share one virtual display — when a ticket is issued, this instance's
+// All instansiyas share one virtual display — when a ticket is issued, this instance's
 // window is brought to the front.
 
 const STATUS = {
@@ -68,7 +68,7 @@ export default function Vnc() {
 
   useEffect(() => {
     const prev = document.title
-    document.title = `VNC #${n} — ${site.brand_name}`
+    document.title = `Ekran #${n} — ${site.brand_name}`
     return () => { document.title = prev }
   }, [n, site.brand_name])
 

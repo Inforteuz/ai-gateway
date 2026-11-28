@@ -239,7 +239,7 @@ export default function Settings() {
           <div className="panel">
             <div className="panel-head"><h2>{tr('Kalitlar puli')}</h2></div>
             <p className="muted small" style={{ marginBottom: 10 }}>{tr("Bir nechta API kalitini bitta OpenAI-mos manzil orqali ulaydigan xizmat. \"pool\" provayderli modellar shu yerga yuboriladi.")}</p>
-            <label className="field">{tr('Pool manzili')}<input className="input" value={f.poolBase} onChange={set('poolBase')} placeholder="http://gemini-pool:8088/v1" /></label>
+            <label className="field">{tr('Pool manzili')}<input className="input" value={f.poolBase} onChange={set('poolBase')} placeholder="http://gp:8088/v1" /></label>
             <label className="field" style={{ marginTop: 12 }}>{tr('Pool tokeni (Bearer)')} <PasswordInput autoComplete="off" value={f.poolKey} onChange={set('poolKey')} placeholder={f.poolSet ? tr("Saqlangan (o'zgartirish uchun yangisini kiriting)") : 'pool-token'} /></label>
             <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr('Yuklama zaxirasi (pool modeli)')} <input className="input" value={f.poolSpill} onChange={set('poolSpill')} placeholder="gemini-zaxira" />
               <span className="hint">{tr("Brauzer modelida bo'sh tab qolmasa, so'rov navbatda kutmasdan shu modelga ketadi. Narx so'ralgan modelniki. Bo'sh qoldirilsa o'chadi.")}</span>
@@ -248,21 +248,21 @@ export default function Settings() {
           </div>
 
           <div className="panel">
-            <div className="panel-head"><h2>OmniRoute</h2></div>
-            <p className="muted small" style={{ marginBottom: 10 }}>{tr("Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OmniRoute bilan navbatma-navbat bo'linadi. Akkauntlar OmniRoute'ning o'z panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.")}</p>
-            <label className="field">{tr('OmniRoute manzili')}<input className="input" value={f.omniBase} onChange={set('omniBase')} placeholder="http://front-tunnel:20128/v1" /></label>
-            <label className="field" style={{ marginTop: 12 }}>{tr('OmniRoute API kaliti')} <PasswordInput autoComplete="off" value={f.omniKey} onChange={set('omniKey')} placeholder={f.omniSet ? tr("Saqlangan (o'zgartirish uchun yangisini kiriting)") : 'sk-...'} /></label>
-            <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr("OmniRoute ulushi (%)")} <input className="input" type="number" min="0" max="100" value={f.omniShare} onChange={set('omniShare')} />
-              <span className="hint">{tr("50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.")}</span>
+            <div className="panel-head"><h2>OR</h2></div>
+            <p className="muted small" style={{ marginBottom: 10 }}>{tr("Ikkinchi manba: brauzer modellariga kelgan chat so'rovlari OR bilan navbatma-navbat bo'linadi. Akkauntlar OR panelida qo'shiladi; katalogda model bo'lib ko'rinmaydi.")}</p>
+            <label className="field">{tr('OR manzili')}<input className="input" value={f.omniBase} onChange={set('omniBase')} placeholder="http://or:20128/v1" /></label>
+            <label className="field" style={{ marginTop: 12 }}>{tr('OR API kaliti')} <PasswordInput autoComplete="off" value={f.omniKey} onChange={set('omniKey')} placeholder={f.omniSet ? tr("Saqlangan (o'zgartirish uchun yangisini kiriting)") : 'sk-...'} /></label>
+            <label className="field" style={{ marginTop: 12, maxWidth: 320 }}>{tr("OR ulushi (%)")} <input className="input" type="number" min="0" max="100" value={f.omniShare} onChange={set('omniShare')} />
+              <span className="hint">{tr("50 — so'rovlar teng bo'linadi, 0 — OR faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.")}</span>
             </label>
-            <label className="check" style={{ marginTop: 12 }}><input type="checkbox" checked={f.omniCoverLocal} onChange={set('omniCoverLocal')} /> {tr("GPU server ishlamasa, mahalliy modellar OmniRoute orqali javob bersin")}</label>
+            <label className="check" style={{ marginTop: 12 }}><input type="checkbox" checked={f.omniCoverLocal} onChange={set('omniCoverLocal')} /> {tr("GPU server ishlamasa, mahalliy modellar OR orqali javob bersin")}</label>
             <span className="hint">{tr("Mahalliy modellar odatda matnni serverdan chiqarmaydi. Yoqilganda GPU server o'chiq paytda so'rov tashqi provayderga ketadi; javobda X-SF-Data-Processing: third_party bo'ladi.")}</span>
             {f.omniSet && <div style={{ marginTop: 12 }}><button type="button" className="btn btn--small btn--danger" onClick={clearOmniKey}>{tr("Kalitni o'chirish")}</button></div>}
           </div>
 
           <div className="panel panel--glow">
             <div className="panel-head">
-              <h2>{tr("AI Cluster (qo'shimcha modellar)")}</h2>
+              <h2>{tr("BK (qo'shimcha modellar)")}</h2>
               <span className="tag tag--ok">{tr("YANGI")}</span>
             </div>
             <p className="muted small" style={{ marginBottom: 10 }}> {tr("Qo'shimcha model manbaasini bitta OpenAI-mos shlyuz orqali ulaydi. Cluster xizmatini alohida ishga tushiring (")}<code>python -m cluster.server</code>{tr(") va ulanish ma'lumotlarini kiriting.")} </p>
@@ -276,7 +276,7 @@ export default function Settings() {
             <label className="check" style={{ marginTop: 14 }}>
               <input type="checkbox" checked={f.fastOn} onChange={set('fastOn')} /> {tr("Oddiy xabarlar uchun tezkor yo'l")} </label>
             <span className="hint" style={{ display: 'block', marginTop: 4 }}> {tr("Veb-chat modellariga (3.1, 3.5, 4.0) kelgan salomlashish, \"ishlayapsanmi\", \"sen kimsan\", \"rahmat\" kabi qisqa xabarlar shu GPU modelida 1–3 soniyada javob oladi (uzun tarix va tool'lar yuborilmaydi). \"ok\", \"ha\", \"davom et\" kabi buyruqlar bunga kirmaydi. Narx — so'ralgan modelniki.")} </span>
-            <label className="field" style={{ marginTop: 8, maxWidth: 260 }}>{tr("Tezkor yo'l modeli (Ollama nomi)")} <input className="input" value={f.fastModel} onChange={set('fastModel')} placeholder={tr("qwen3:14b")} />
+            <label className="field" style={{ marginTop: 8, maxWidth: 260 }}>{tr("Tezkor yo'l modeli (T1 nomi)")} <input className="input" value={f.fastModel} onChange={set('fastModel')} placeholder={tr("qwen3:14b")} />
             </label>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
               <button type="button" className="btn btn--small" onClick={checkCluster}>{tr("Holatni ko'rish")}</button>

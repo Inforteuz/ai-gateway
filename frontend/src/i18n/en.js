@@ -97,7 +97,7 @@ export default {
   'shell.admin': 'Administrator',
   'shell.adminStats': 'Statistics',
   'shell.adminMonitoring': 'Monitoring',
-  'shell.adminInstances': 'Browser instances',
+  'shell.adminInstances': 'Instances',
   'shell.adminUsers': 'Users',
   'shell.adminTopups': 'Top-up requests',
   'shell.adminReferrals': 'Referrals',
