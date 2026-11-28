@@ -387,6 +387,9 @@ label.field { display: grid; gap: 6px; font-size: 0.86rem; font-weight: 500; col
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-subtle); margin-right: 8px; vertical-align: 1px; }
 .dot--on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-wash); }
 .dot--off { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-wash); }
+.dot--warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-wash, transparent); }
+.tier-line { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
+.tier-line .status-line { white-space: nowrap; }
 
 /* ---------- table ---------- */
 .table-wrap { overflow-x: auto; }

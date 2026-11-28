@@ -47,8 +47,10 @@ export default function Dashboard() {
         action={<span className="date-pill"><IconCalendar /> {fmtDateLong()}</span>}
       />
 
-      {model.data?.items?.some((item) => item.state === 'down') && (
+      {model.data?.items?.some((item) => item.state === 'down') ? (
         <div className="alert alert--warn" style={{ marginBottom: 20 }}><span>{t('dash.someModelsOffline')} <Link to="/status">{t('dash.statusPage')}</Link></span></div>
+      ) : model.data?.items?.some((item) => item.state === 'fallback') && (
+        <div className="alert" style={{ marginBottom: 20 }}><span>{tr("Ayrim modellar zaxira rejimida ishlayapti: javoblar keladi, lekin biroz sekinroq bo'lishi mumkin.")} <Link to="/status">{t('dash.statusPage')}</Link></span></div>
       )}
       <ErrorNote error={sum.error} retry={sum.reload} />
       {!s && !sum.error && <Loading />}

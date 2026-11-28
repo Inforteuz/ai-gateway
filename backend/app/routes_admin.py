@@ -11,6 +11,7 @@ from . import audit, captcha, security, topup_telegram, topups
 from .billing import BillingError, TASHKENT, credit, month_start_ts
 from .common import ApiError, create_user, csrf_guard, get_db, require_admin
 from .db import Database, now
+from . import tiers
 from .routes_account import (daily_series, key_out, keys_with_spend, model_out, page_args, topup_out, upstream_online,
                              usage_out)
 
@@ -845,4 +846,5 @@ async def stats(request: Request, days: int = 30, db: Database = Depends(get_db)
             "LEFT JOIN models m ON m.id = COALESCE(NULLIF(l.attribution::json->>'route_model', ''), l.model)"),
         "by_client": share("COALESCE(NULLIF(l.attribution::json->>'client', ''), '')"),
         "model_online": await upstream_online(request),
+        "tiers": await tiers.snapshot(request.app),
     }

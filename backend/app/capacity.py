@@ -112,6 +112,13 @@ async def omni_balance_target(db, settings, model, body) -> dict | None:
     return dict(row) if row else None
 
 
+def cover_state(settings) -> dict:
+    """What still answers when a tier fails: OmniRoute covers browser models (fallback/stand-in)
+    whenever it is configured, and local models only with `omni_cover_local` = 1."""
+    omni = omni_ready(settings) and bool((settings.get("omni_spill_model") or "").strip())
+    return {"browser": omni, "local": omni and str(settings.get("omni_cover_local", "1")).strip() == "1"}
+
+
 def omni_covers_local(db, model) -> str | None:
     """OmniRoute's row for a local model whose GPU host failed (owner's call 2026-11-28).
 

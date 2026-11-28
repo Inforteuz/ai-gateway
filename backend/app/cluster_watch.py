@@ -291,6 +291,8 @@ def public_status(db: Database, local_state: str | None = None) -> dict:
       - cluster models from the `model_health` table (written by cluster_watch);
       - local models from the ollama gateway state (`local_state`).
     """
+    from . import capacity
+    cover = capacity.cover_state(db.get_settings())
     states = {r["upstream"]: r for r in db.all(
         "SELECT upstream, state, since FROM model_health")}
     models = db.all(
@@ -310,6 +312,8 @@ def public_status(db: Database, local_state: str | None = None) -> dict:
                 # showing "up" would mislead clients (once every 3.1/3.5 request returned
                 # 502/503 while the catalog said health=up).
                 state, since = "down", faulty[m["id"]]
+            if state == "down" and cover["browser"]:
+                state = "fallback"          # still answers, through the background layer
         elif m["provider"] == "external":
             # Ollama/Chrome health says nothing about independent HTTP providers.
             state = "down" if m["id"] in faulty else "unknown"
@@ -317,13 +321,19 @@ def public_status(db: Database, local_state: str | None = None) -> dict:
         else:
             # Local models run through ollama: if the gateway goes down, they all do
             state = "up" if local_state == "up" else ("down" if local_state else "unknown")
+            if state == "down" and cover["local"]:
+                state = "fallback"          # the GPU host is down; OmniRoute answers (owner's choice)
             since = None
         items.append({"model": m["id"], "state": state, "since": since,
                       "local": m["provider"] == "local"})
 
     down = [{"model": x["model"], "since": x["since"]}
             for x in items if x["state"] == "down"]
-    return {"items": items, "degraded": down, "ok": not down}
+    fallback = [x["model"] for x in items if x["state"] == "fallback"]
+    serving = any(x["state"] in ("up", "fallback", "unknown") for x in items)
+    # Public level only: which part of the system failed is never named here (see tiers.py for admins)
+    level = "up" if not down and not fallback else ("degraded" if serving else "down")
+    return {"items": items, "degraded": down, "fallback": fallback, "ok": not down and not fallback, "level": level}
 
 
 async def loop(app, interval: float = 60.0) -> None:

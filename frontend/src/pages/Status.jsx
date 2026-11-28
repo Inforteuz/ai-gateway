@@ -32,16 +32,19 @@ export default function Status() {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible) }
   }, [refresh])
   // Model states: down first, then unknown, then up.
-  const STATE_ORDER = { down: 0, unknown: 1, up: 2 }
+  const STATE_ORDER = { down: 0, fallback: 1, unknown: 2, up: 3 }
   const names = Object.fromEntries((catalog.data?.items || []).map((x) => [x.id, x.display_name]))
   const models = [...(m?.items || [])].sort(
     (a, b) => (STATE_ORDER[a.state] ?? 3) - (STATE_ORDER[b.state] ?? 3) || a.model.localeCompare(b.model))
   const downModels = models.filter((x) => x.state === 'down')
+  const fallbackModels = models.filter((x) => x.state === 'fallback')
   const heading = !c
     ? tr("Tekshirilmoqda...")
     : downModels.length > 0
       ? tr("Ba'zi modellar ishlamayapti")
-      : c.model_online ? tr("Hamma narsa ishlayapti") : tr("Model hozir ulanmagan")
+      : fallbackModels.length > 0
+        ? tr("Ayrim modellar zaxira rejimida")
+        : c.model_online ? tr("Hamma narsa ishlayapti") : tr("Model hozir ulanmagan")
 
   const cls = (d) => (d.uptime == null ? '' : d.uptime >= 99.5 ? 'is-ok' : d.uptime >= 95 ? 'is-warn' : 'is-bad')
   return (
@@ -52,7 +55,9 @@ export default function Status() {
           <p className="muted" style={{ maxWidth: '38rem' }}>
             {tr(downModels.length > 0
               ? tr("{v0} ta model hozir javob bermayapti. Qolgan modellar odatdagidek ishlaydi; javob kelmagan so'rov uchun pul yechilmaydi.", { v0: (downModels.length) })
-              : c.model_online
+              : fallbackModels.length > 0
+                ? tr("{v0} ta model zaxira orqali javob bermoqda: so'rovlar qabul qilinadi, javob biroz sekinroq bo'lishi mumkin.", { v0: (fallbackModels.length) })
+                : c.model_online
                 ? tr("Barcha modellar so'rovlarga javob bermoqda{v0}.", { v0: (c.since ? `, ${fmtDuration(Date.now() / 1000 - c.since)}dan beri uzilishsiz` : '') })
                 : tr("{v0}. So'rovlar qabul qilinmaydi va pul yechilmaydi. Ulanish tiklanishi bilan avtomatik ishlay boshlaydi.", { v0: (c.label) }))}
           </p>
@@ -88,9 +93,12 @@ export default function Status() {
                   {x.state === 'down' && x.since && (
                     <span className="dim small">{fmtDuration(Date.now() / 1000 - x.since)}{tr("dan beri")}</span>
                   )}
+                  {x.state === 'fallback' && x.local && (
+                    <span className="dim small">{tr("vaqtincha tashqi provayder orqali")}</span>
+                  )}
                   <span className={`tag ${x.state === 'up' ? 'tag--ok' : x.state === 'down' ? 'tag--bad' : 'tag--warn'}`}>
                     <i className="req-dot" aria-hidden="true" />
-                    {tr(x.state === 'up' ? tr("Ishlayapti") : x.state === 'down' ? tr("Javob bermayapti") : tr("Noma'lum"))}
+                    {tr(x.state === 'up' ? tr("Ishlayapti") : x.state === 'down' ? tr("Javob bermayapti") : x.state === 'fallback' ? tr("Zaxira rejimida") : tr("Noma'lum"))}
                   </span>
                 </span>
               </div>

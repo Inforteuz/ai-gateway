@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from . import attribution, security
@@ -190,12 +191,17 @@ async def upstream_online(request: Request) -> bool:
     return (await monitor.current(request.app))["state"] == "up"
 
 
+PUBLIC_LEVEL_TEXT = {"up": "Ishlayapti", "degraded": "Ayrim modellar zaxira rejimida ishlayapti", "down": "Model xizmati javob bermayapti"}
+
+
 @router.get("/status")
 async def status(request: Request, db: Database = Depends(get_db)):
     h = await monitor.current(request.app)
     t = now()
-    online = h["state"] == "up"
-    return {"model_online": online, "state": "up" if online else "down", "label": monitor.PUBLIC_STATE_TEXT.get(h["state"], "Noma'lum"),
+    from . import cluster_watch
+    level = (await run_in_threadpool(cluster_watch.public_status, db, h["state"]))["level"]
+    online = level != "down"
+    return {"model_online": online, "state": level, "label": PUBLIC_LEVEL_TEXT[level],
             "since": h.get("since") or None, "uptime_30d": monitor.uptime_pct(db, max(t - 30 * 86400, monitor.public_since(db))),
             "models": [r["id"] for r in db.all("SELECT id FROM models WHERE enabled=1 AND listed=1")]}
 

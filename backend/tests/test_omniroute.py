@@ -5,6 +5,7 @@ Never a catalog model. Browser-model chat requests are shared with it by `omni_s
 pool it takes the overflow. Same public model, same price.
 """
 import json
+import time
 
 import httpx
 import pytest
@@ -199,3 +200,50 @@ def test_admin_reads_and_sets_local_cover(env):
     assert r.status_code == 200, r.text
     assert str(env.client.get("/portal/admin/settings").json()["omni_cover_local"]) == "0"
     assert env.client.put("/portal/admin/settings", json={"omni_cover_local": "yes"}, headers={"X-SF-CSRF": "1"}).status_code == 422
+
+
+# --- Status: public level and per-model fallback; tiers for admins only (owner's call 2026-11-28) -----------------
+from app import cluster_watch, monitor, tiers as tiers_mod
+
+
+def _gpu_down(env):
+    monitor.record(env.app, "ollama_down", None, "HTTP 502", int(time.time()))
+
+
+def test_local_models_show_fallback_when_gpu_down_and_covered(env):
+    _env(env)
+    add_model(env, "sable-1.0", provider="local")
+    st = cluster_watch.public_status(env.db, "ollama_down")
+    item = next(x for x in st["items"] if x["model"] == "sable-1.0")
+    assert item["state"] == "fallback" and st["level"] == "degraded" and "sable-1.0" in st["fallback"]
+    assert not any(d["model"] == "sable-1.0" for d in st["degraded"])     # not reported as down
+
+
+def test_local_models_show_down_without_cover(env):
+    _env(env)
+    env.db.set_setting("omni_cover_local", "0")
+    add_model(env, "sable-1.0", provider="local")
+    st = cluster_watch.public_status(env.db, "ollama_down")
+    assert next(x for x in st["items"] if x["model"] == "sable-1.0")["state"] == "down"
+
+
+def test_public_status_names_no_tiers(env):
+    _env(env)
+    add_model(env, "sable-1.0", provider="local")
+    _gpu_down(env)
+    r = env.client.get("/portal/status").json()
+    assert r["state"] == "degraded" and r["model_online"] is True
+    assert "zaxira" in r["label"].lower()
+    text = json.dumps(r).lower()
+    assert "tier" not in text and "omni" not in text and "gpu" not in text   # architecture stays off public pages
+
+
+def test_admin_stats_show_three_tiers(env):
+    _env(env)
+    tiers_mod._omni_probe.update(at=0.0, ok=None)
+    _gpu_down(env)
+    login_admin(env)
+    t = env.client.get("/portal/admin/stats?days=7").json()["tiers"]
+    assert t["tier1"]["state"] == "down"
+    assert set(t) == {"tier1", "tier2", "tier3"}
+    assert t["tier3"]["omniroute"] in ("up", "down") and t["tier3"]["covers_local"] is True

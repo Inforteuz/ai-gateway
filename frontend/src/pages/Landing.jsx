@@ -159,7 +159,7 @@ export default function Landing() {
               </div>
               {status && (
                 <div style={{ marginTop: 2 }}>
-                  <Status online={status.model_online} />
+                  <Status online={status.model_online} state={status.state} />
                 </div>
               )}
             </div>

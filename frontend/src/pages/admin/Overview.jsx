@@ -5,7 +5,7 @@ import { api } from '../../api.js'
 import BarChart from '../../components/BarChart.jsx'
 import DonutShare from '../../components/DonutShare.jsx'
 import TokenTrend from '../../components/TokenTrend.jsx'
-import { ErrorNote, Loading, Status, useLoad } from '../../components/ui.jsx'
+import { ErrorNote, Loading, Status, TierStatus, useLoad } from '../../components/ui.jsx'
 import { fmtInt, fmtSom } from '../../format.js'
 
 export default function Overview() {
@@ -16,7 +16,7 @@ export default function Overview() {
   return (
     <>
       <div className="page-head">
-        <div><h1>{tr("Statistika")}</h1>{d && <p><Status online={d.model_online} /></p>}</div>
+        <div><h1>{tr("Statistika")}</h1>{d && <p>{d.tiers ? <TierStatus tiers={d.tiers} /> : <Status online={d.model_online} />}</p>}</div>
         <div className="seg" role="group" aria-label={tr("Davr")}>
           {[7, 30, 90].map((n) => <button key={n} className={days === n ? 'is-on' : ''} onClick={() => setDays(n)}>{tr(n)} {tr("kun")}</button>)}
         </div>
