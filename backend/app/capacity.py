@@ -112,6 +112,21 @@ async def omni_balance_target(db, settings, model, body) -> dict | None:
     return dict(row) if row else None
 
 
+def omni_covers_local(db, model) -> str | None:
+    """OmniRoute's row for a local model whose GPU host failed (owner's call 2026-11-28).
+
+    Local models are "private": their text never leaves our hardware, so the usual fallback rule
+    (routing.compatible) refuses every third-party stand-in. The owner chose availability over that
+    for outages of the GPU box: with `omni_cover_local` = 1 the request is answered by OmniRoute
+    instead of failing. The response says so (X-Fallback-Model, X-SF-Data-Processing: third_party).
+    """
+    if (model or {}).get("provider") != "local":
+        return None
+    if str(db.get_settings().get("omni_cover_local", "1")).strip() != "1":
+        return None
+    return omni_stand_in(db, model)
+
+
 def omni_stand_in(db, model) -> str | None:
     """OmniRoute's hidden row for a request that failed and has no fallback of its own."""
     if (model or {}).get("provider") == "omni":

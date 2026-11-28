@@ -1884,5 +1884,7 @@ export default {
   "OmniRoute manzili": "OmniRoute manzili",
   "OmniRoute API kaliti": "OmniRoute API kaliti",
   "OmniRoute ulushi (%)": "OmniRoute ulushi (%)",
+  "GPU server ishlamasa, mahalliy modellar OmniRoute orqali javob bersin": "GPU server ishlamasa, mahalliy modellar OmniRoute orqali javob bersin",
+  "Mahalliy modellar odatda matnni serverdan chiqarmaydi. Yoqilganda GPU server o'chiq paytda so'rov tashqi provayderga ketadi; javobda X-SF-Data-Processing: third_party bo'ladi.": "Mahalliy modellar odatda matnni serverdan chiqarmaydi. Yoqilganda GPU server o'chiq paytda so'rov tashqi provayderga ketadi; javobda X-SF-Data-Processing: third_party bo'ladi.",
   "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.": "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.",
 }

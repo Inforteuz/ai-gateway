@@ -438,14 +438,23 @@ async def proxy(request: Request, endpoint: str):
     try:
         response = await _execute(request, endpoint, ticket, body, model, max_out, stream)
     except ApiError as exc:
-        if not model.get("fallback_to") and endpoint == "chat/completions":
+        covers_private = False
+        if endpoint == "chat/completions" and exc.status in (502, 503, 504):
+            # A local (private) model whose GPU host failed: OmniRoute answers instead (owner's choice,
+            # `omni_cover_local`). This replaces its own fallback, which the privacy rule refuses anyway.
+            omni = await run_in_threadpool(capacity.omni_covers_local, state.db, model)
+            if omni:
+                model, covers_private = {**model, "fallback_to": omni}, True
+        if not covers_private and not model.get("fallback_to") and endpoint == "chat/completions":
             # No fallback of its own: OmniRoute, the background layer, gets the one retry (when configured)
             omni = await run_in_threadpool(capacity.omni_stand_in, state.db, model)
             if omni:
                 model = {**model, "fallback_to": omni}
         candidate = await run_in_threadpool(state.db.one, "SELECT * FROM models WHERE id=? AND enabled=1", (model.get("fallback_to"),))
         candidate = dict(candidate) if candidate else None
-        stand_in = _stand_in_for(model, exc, candidate, endpoint, ticket.attribution.get("provider"))
+        # covers_private: the privacy check (routing.compatible) is the very rule the owner lifted here
+        stand_in = _stand_in_for(model, exc, None if covers_private else candidate, endpoint,
+                                 ticket.attribution.get("provider"))
         if not stand_in:
             raise
         log.info("fallback: %s -> %s after %s (%s)", model["id"], stand_in, exc.code, request_id)
@@ -466,6 +475,8 @@ async def proxy(request: Request, endpoint: str):
                                   max_out2, stream2)
         response.headers["X-Fallback-Model"] = stand_in
         response.headers["X-SF-Routed-Model"] = stand_in
+        if covers_private:
+            response.headers["X-SF-Data-Processing"] = "third_party"
         response.headers["X-SF-Route-Reason"] = ticket2.attribution["route_reason"]
     if ticket.attribution.get("route_reason") in ("input_size", "tool_speed", "local_speed") and "X-Fallback-Model" not in response.headers:
         response.headers["X-SF-Routed-Model"] = model["id"]
@@ -557,6 +568,9 @@ async def _prepare(request: Request, endpoint: str, key: dict, request_id: str, 
                        en=f"The model `{public_id}` does not exist. Available models: {names}.")
     model = dict(model)
     model["public_id"] = public_id
+    if force_model and model["provider"] == "omni" and price_source:
+        # OmniRoute's hidden row stands in under the requested name, as on the balance and spill paths
+        model["public_id"] = price_source.get("public_id") or price_source["id"]
     if body.get("web_search") is not None and model["provider"] != "cluster":
         raise ApiError(400, "unsupported_search", "Web search requires a browser-backed model.", en="Web search requires a browser-backed model.")
     # Media-only models: video rows answer only /v1/videos, the image-pro row only image generation.

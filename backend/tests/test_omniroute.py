@@ -148,3 +148,54 @@ def test_attachments_never_go_to_omniroute(env):
         {"role": "user", "content": [{"type": "text", "text": "what is this"},
                                      {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}]}]})
     assert calls["omni"] == 0 and calls["cluster"] == 1, r.text
+
+
+# --- Local (private) models when the GPU host fails (owner's call 2026-11-28) -----------------------------------
+def _local(env, key, model="sable-1.0"):
+    return env.client.post("/v1/chat/completions", headers=bearer(key),
+                           json={"model": model, "messages": [{"role": "user", "content": "salom"}]})
+
+
+def test_failed_local_model_answers_from_omniroute(env):
+    calls, key = _env(env)
+    add_model(env, "sable-1.0", provider="local", fallback="slow-agent")   # its own fallback is a browser model
+    env.up["mode"] = "500"                                               # the GPU host is down
+    r = _local(env, key)
+    assert r.status_code == 200, r.text
+    assert r.json()["choices"][0]["message"]["content"] == "from-omni" and r.json()["model"] == "sable-1.0"
+    assert r.headers["x-fallback-model"] == "omni-zaxira"
+    assert r.headers["x-sf-data-processing"] == "third_party"            # the client is told the text left
+    assert calls["omni"] == 1 and calls["cluster"] == 0                  # OmniRoute replaces the own fallback
+
+
+def test_local_cover_can_be_turned_off(env):
+    calls, key = _env(env)
+    env.db.set_setting("omni_cover_local", "0")
+    add_model(env, "sable-1.0", provider="local", fallback="slow-agent")
+    env.up["mode"] = "500"
+    r = _local(env, key)
+    assert r.status_code == 502 and calls["omni"] == 0 and calls["cluster"] == 0   # privacy kept: the error passes
+
+
+def test_working_local_model_never_touches_omniroute(env):
+    calls, key = _env(env, share="100")
+    add_model(env, "sable-1.0", provider="local")
+    r = _local(env, key)
+    assert r.status_code == 200 and calls["omni"] == 0 and "x-sf-data-processing" not in r.headers
+
+
+def test_local_cover_needs_omniroute_configured(env):
+    calls, key = _env(env, omni=False)
+    add_model(env, "sable-1.0", provider="local")
+    env.up["mode"] = "500"
+    assert _local(env, key).status_code == 502 and calls["omni"] == 0
+
+
+def test_admin_reads_and_sets_local_cover(env):
+    _env(env)
+    login_admin(env)
+    assert str(env.client.get("/portal/admin/settings").json()["omni_cover_local"]) == "1"
+    r = env.client.put("/portal/admin/settings", json={"omni_cover_local": "0"}, headers={"X-SF-CSRF": "1"})
+    assert r.status_code == 200, r.text
+    assert str(env.client.get("/portal/admin/settings").json()["omni_cover_local"]) == "0"
+    assert env.client.put("/portal/admin/settings", json={"omni_cover_local": "yes"}, headers={"X-SF-CSRF": "1"}).status_code == 422

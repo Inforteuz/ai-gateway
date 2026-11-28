@@ -1884,5 +1884,7 @@ export default {
   "OmniRoute manzili": "OmniRoute URL",
   "OmniRoute API kaliti": "OmniRoute API key",
   "OmniRoute ulushi (%)": "OmniRoute share (%)",
+  "GPU server ishlamasa, mahalliy modellar OmniRoute orqali javob bersin": "If the GPU server is down, local models answer through OmniRoute",
+  "Mahalliy modellar odatda matnni serverdan chiqarmaydi. Yoqilganda GPU server o'chiq paytda so'rov tashqi provayderga ketadi; javobda X-SF-Data-Processing: third_party bo'ladi.": "Local models normally keep text on our hardware. When enabled, requests go to an external provider while the GPU server is down; the response carries X-SF-Data-Processing: third_party.",
   "50 — so'rovlar teng bo'linadi, 0 — OmniRoute faqat xato va bo'sh tab qolmaganda ishlaydi. Narx so'ralgan modelniki.": "50 splits requests evenly, 0 uses OmniRoute only on errors or when no tab is free. The price is the requested model's.",
 }
