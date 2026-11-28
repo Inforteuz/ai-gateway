@@ -440,3 +440,13 @@ def test_hidden_rows_cannot_be_asked_for_by_name(env):
                             json={"model": hidden, "messages": [{"role": "user", "content": "hi"}]})
         assert r.status_code == 404, hidden
     assert calls["omni"] == 0 and calls["pool"] == 0
+
+
+def test_failed_picture_skips_a_text_fallback_and_draws_on_or(env):
+    calls, key = _img_env(env, share="0", cluster_status=502)
+    add_model(env, "deepseek-zaxira", upstream="deepseek", provider="cluster", listed=0, price_in=0, price_out=0)
+    with env.db.tx() as c:
+        c.execute("UPDATE models SET fallback_to='deepseek-zaxira' WHERE id='sable-3.1'")
+    r = _draw(env, key)
+    assert r.status_code == 200, r.text
+    assert r.headers.get("x-fallback-model") == "omni-rasm" and calls["omni"] == 1

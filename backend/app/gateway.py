@@ -450,8 +450,9 @@ async def proxy(request: Request, endpoint: str):
             omni = await run_in_threadpool(capacity.omni_stand_in, state.db, model)
             if omni:
                 model = {**model, "fallback_to": omni}
-        if not model.get("fallback_to") and endpoint in routing.IMAGE_ENDPOINTS:
-            # A browser picture that failed: OR's picture row draws it instead
+        if endpoint in routing.IMAGE_ENDPOINTS:
+            # A browser picture that failed: OR's picture row draws it instead. This replaces the
+            # model's own fallback, which is a text model (e.g. deepseek-zaxira) that cannot draw.
             omni = await run_in_threadpool(capacity.omni_image_stand_in, state.db, model)
             if omni:
                 model = {**model, "fallback_to": omni}
