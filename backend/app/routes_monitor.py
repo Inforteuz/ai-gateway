@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from . import admission, branding, monitor
 from .billing import MICRO, TASHKENT
 from .common import ApiError, csrf_guard, get_db, require_admin
-from . import cluster_watch
+from . import cluster_watch, or_status
 from .db import Database, now
 from .failures import CATEGORY_LABELS, error_label
 from .routes_account import page_args
@@ -63,6 +63,12 @@ def status_block(app, h: dict) -> dict:
 
 
 # --- public status page --------------------------------------------------------------------------------------------
+@admin_router.get("/or-status")
+async def or_status_view(request: Request):
+    """Tier 3 accounts as the background router reports them, plus our own traffic to it."""
+    return await or_status.snapshot(request.app)
+
+
 @public_router.get("/status/models")
 async def status_models(request: Request):
     """Current state of each public model (for the banner and the status page)."""

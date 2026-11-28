@@ -602,6 +602,8 @@ class SettingsIn(BaseModel):
     omni_share: str | None = Field(default=None, max_length=3, pattern=r"^(100|[1-9]?[0-9])$")
     omni_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
     omni_cover_local: str | None = Field(default=None, pattern=r"^[01]$")
+    omni_manage_key: str | None = Field(default=None, max_length=300)   # OR key with `manage` scope, status only
+    clear_omni_manage_key: bool = False
     pool_spill_model: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9._:-]*$")
     # --- Sign-in via Google and Telegram ---
     site_base_url: str | None = Field(default=None, max_length=200, pattern=r"^(https?://[^\s]+)?$")
@@ -638,7 +640,7 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
     cfg = request.app.state.config
     text_keys = ("registration_open", "free_mode", "payment_info", "default_reasoning_effort", "alert_telegram_token", "alert_telegram_chat_id",
                  "last_daily_report", "external_base_url", "external_api_key", "refiner_model",
-                 "cluster_base_url", "cluster_api_key", "pool_base_url", "pool_api_key", "omni_base_url", "omni_api_key",
+                 "cluster_base_url", "cluster_api_key", "pool_base_url", "pool_api_key", "omni_base_url", "omni_api_key", "omni_manage_key",
                  "site_base_url", "google_client_id", "google_client_secret",
                  "telegram_login_token", "telegram_login_bot", "telegram_login_enabled",
                  "telegram_login_enabled", "telegram_login_bot",
@@ -657,6 +659,7 @@ def get_settings(request: Request, db: Database = Depends(get_db)):
             "pool_api_key_set": bool(s.get("pool_api_key")),             # the token itself is never returned
             "omni_base_url": s.get("omni_base_url", ""),
             "omni_api_key_set": bool(s.get("omni_api_key")),             # never returned either
+            "omni_manage_key_set": bool(s.get("omni_manage_key")),       # nor this one
             "omni_share": s.get("omni_share", "50"),
             "omni_spill_model": s.get("omni_spill_model", "omni-zaxira"),
             "omni_cover_local": s.get("omni_cover_local", "1"),
@@ -714,6 +717,12 @@ def put_settings(body: SettingsIn, request: Request, db: Database = Depends(get_
         changes["pool_api_key"] = ""
     if changes.pop("clear_omni_api_key", False):
         changes["omni_api_key"] = ""
+    if changes.pop("clear_omni_manage_key", False):
+        changes["omni_manage_key"] = ""
+    elif "omni_manage_key" in changes:
+        changes["omni_manage_key"] = changes["omni_manage_key"].strip()
+        if not changes["omni_manage_key"]:
+            changes.pop("omni_manage_key")   # an empty field must not erase the stored key
     if changes.pop("clear_google_client_secret", False):
         changes["google_client_secret"] = ""
     if changes.pop("clear_recaptcha_secret", False):

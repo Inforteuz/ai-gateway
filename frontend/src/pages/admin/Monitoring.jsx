@@ -7,6 +7,49 @@ import { fmtAgo, fmtDateTime, fmtDuration, fmtInt, fmtPct } from '../../format.j
 
 const LIMIT = 15
 
+// Tier 3 (OR) accounts and our traffic to it. Short labels only (no architecture names in the UI).
+const OR_STATE = { up: ['tag--ok', 'ishlayapti'], limited: ['tag--warn', 'limitda'], failing: ['tag--bad', 'xato'], off: ['', "o'chiq"] }
+const OR_REASON = { balance: 'Taqsimlash', capacity: "Bo'sh tab yo'q", upstream_failure: "Xato o'rnida", provider_capacity: 'Navbat' }
+function OrStatus() {
+  const { data, error, reload } = useLoad(() => api.get('/portal/admin/or-status'), [], { refreshMs: 30_000 })
+  const t = data?.traffic
+  return (
+    <section className="panel" style={{ marginBottom: 18 }}>
+      <div className="panel-head"><h2>Tier 3 · OR</h2>
+        {t && <span className="dim small">{tr("24 soat")}: {fmtInt(t.requests)} {tr("so'rov")}{t.requests ? ` · ${fmtPct((100 * t.ok) / t.requests)} OK · ${(t.avg_ms / 1000).toFixed(1)} s` : ''}</span>}
+      </div>
+      <ErrorNote error={error} retry={reload} />
+      {!data && !error && <Loading rows={2} />}
+      {t && Object.keys(t.by_reason).length > 0 && (
+        <p className="dim small" style={{ marginBottom: 10 }}>
+          {Object.entries(t.by_reason).map(([k, v]) => `${tr(OR_REASON[k] || k)}: ${fmtInt(v.requests)}`).join(' · ')}
+        </p>
+      )}
+      {data && !data.configured && <p className="muted small">{tr("OR sozlanmagan.")}</p>}
+      {data?.configured && !data.manage_key_set && (
+        <p className="muted small">{tr("Akkauntlar holatini ko'rish uchun Sozlamalar → OR bo'limiga boshqaruv kalitini kiriting.")}</p>
+      )}
+      {data?.error && <p className="pg-error" role="alert">OR: {tr(data.error)}</p>}
+      {data?.providers?.length > 0 && (
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th>{tr("Manba")}</th><th>{tr("Akkaunt")}</th><th>{tr("Holat")}</th><th>{tr("Oxirgi xato")}</th></tr></thead>
+          <tbody>{data.providers.map((p) => {
+            const [cls, label] = OR_STATE[p.state] || OR_STATE.off
+            return (
+              <tr key={p.provider}>
+                <td><code>{p.provider}</code></td>
+                <td>{p.active}/{p.accounts}{p.limited > 0 && <span className="dim small"> · {p.limited} {tr("limitda")}</span>}</td>
+                <td><span className={`tag ${cls}`}>{tr(label)}</span></td>
+                <td className="dim small">{p.last_error ? <>{p.last_error} <span className="dim">({fmtAgo(p.last_error_at)})</span></> : '—'}</td>
+              </tr>
+            )
+          })}</tbody>
+        </table></div>
+      )}
+    </section>
+  )
+}
+
 function ToolHealth() {
   const { data, error, reload } = useLoad(() => api.get('/portal/admin/cluster/metrics'), [], { refreshMs: 30_000 })
   const rows = data?.per_model || []
@@ -171,6 +214,7 @@ export default function Monitoring() {
           </div>
 
           <p className="hint">{tr('Model tezligi: ma’lum kesh javoblari chiqarib tashlangan. Eski yozuvlarda kesh belgisi bo‘lmasligi mumkin.')}</p>
+          <OrStatus />
           <ToolHealth />
 
           <Failures days={days} />

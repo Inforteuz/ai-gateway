@@ -106,6 +106,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "omni_api_key": "",              # an OmniRoute API key (write-only, never returned)
     "omni_spill_model": "omni-zaxira",   # hidden OmniRoute row (shared traffic, overflow, failures); "" = off
     "omni_share": "50",              # % of browser-model chat requests OmniRoute answers (round-robin); 0 = none
+    "omni_manage_key": "",           # OR key with `manage` scope: admin status only (write-only, never returned)
     "omni_cover_local": "1",         # 1 = a failed local (private) model answers from OmniRoute; 0 = the error passes
     "pool_spill_model": "gemini-zaxira",   # pool model that takes requests when the browser model has no free tab; "" = off
     "refiner_model": "",  # verifier model (name at the external provider)

@@ -247,3 +247,81 @@ def test_admin_stats_show_three_tiers(env):
     assert t["tier1"]["state"] == "down"
     assert set(t) == {"tier1", "tier2", "tier3"}
     assert t["tier3"]["or"] in ("up", "down") and "omniroute" not in json.dumps(t).lower() and t["tier3"]["covers_local"] is True
+
+
+# --- Admin: Tier 3 (OR) account status through a separate manage-scope key ---------------------------------------
+from app import or_status
+
+
+def _or_admin(env, *, providers_status=200, connections=None):
+    or_status._cache.update(at=0.0, key=None, data=None)
+    seen = {"auth": None}
+    adm = FastAPI()
+
+    @adm.get("/api/providers")
+    async def providers(request: Request):
+        seen["auth"] = request.headers.get("authorization")
+        if providers_status != 200:
+            return JSONResponse({"error": {"message": "nope"}}, status_code=providers_status)
+        return {"connections": connections or [], "total": len(connections or [])}
+
+    env.app.state.ext_http = httpx.AsyncClient(transport=httpx.ASGITransport(app=adm), base_url="http://front-tunnel")
+    return seen
+
+
+def test_or_status_needs_its_own_manage_key(env):
+    _env(env)
+    login_admin(env)
+    r = env.client.get("/portal/admin/or-status").json()
+    assert r["configured"] is True and r["manage_key_set"] is False and r["providers"] == []
+
+
+def test_or_status_summarizes_accounts_without_secrets(env):
+    _env(env)
+    env.db.set_setting("omni_manage_key", "mgmt-key")
+    future = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 600))
+    seen = _or_admin(env, connections=[
+        {"provider": "grok-cli", "isActive": True, "testStatus": "active", "accessToken": "eyJsecretsecretsecret123", "email": "a@b.c"},
+        {"provider": "grok-cli", "isActive": True, "testStatus": "active", "rateLimitedUntil": future},
+        {"provider": "trae", "isActive": False, "testStatus": "error", "lastError": "boom sk-abcdefgh123456 failed",
+         "lastErrorAt": "2026-11-28T13:44:53Z"},
+    ])
+    login_admin(env)
+    r = env.client.get("/portal/admin/or-status").json()
+    assert seen["auth"] == "Bearer mgmt-key"                              # the manage key, not the traffic key
+    rows = {p["provider"]: p for p in r["providers"]}
+    assert rows["grok-cli"]["accounts"] == 2 and rows["grok-cli"]["active"] == 2 and rows["grok-cli"]["limited"] == 1
+    assert rows["grok-cli"]["state"] == "up" and rows["trae"]["state"] == "off"
+    assert "sk-abcdefgh123456" not in rows["trae"]["last_error"] and "boom" in rows["trae"]["last_error"]
+    text = json.dumps(r)
+    assert "eyJsecret" not in text and "a@b.c" not in text and "mgmt-key" not in text
+
+
+def test_or_status_reports_a_key_without_manage_scope(env):
+    _env(env)
+    env.db.set_setting("omni_manage_key", "weak-key")
+    _or_admin(env, providers_status=403)
+    login_admin(env)
+    assert env.client.get("/portal/admin/or-status").json()["error"] == "kalitda manage huquqi yo'q"
+
+
+def test_manage_key_is_write_only(env):
+    _env(env)
+    login_admin(env)
+    h = {"X-SF-CSRF": "1"}
+    assert env.client.put("/portal/admin/settings", json={"omni_manage_key": " mk-123 "}, headers=h).status_code == 200
+    s = env.client.get("/portal/admin/settings").json()
+    assert s["omni_manage_key_set"] is True and "mk-123" not in json.dumps(s)
+    env.client.put("/portal/admin/settings", json={"omni_manage_key": ""}, headers=h)          # empty keeps it
+    assert env.client.get("/portal/admin/settings").json()["omni_manage_key_set"] is True
+    env.client.put("/portal/admin/settings", json={"clear_omni_manage_key": True}, headers=h)
+    assert env.client.get("/portal/admin/settings").json()["omni_manage_key_set"] is False
+
+
+def test_or_status_counts_our_traffic(env):
+    calls, key = _env(env, share="50")
+    for _ in range(2):
+        _ask(env, key)
+    login_admin(env)
+    t = env.client.get("/portal/admin/or-status").json()["traffic"]
+    assert t["requests"] == 1 and t["ok"] == 1 and t["by_reason"]["balance"]["requests"] == 1
