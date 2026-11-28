@@ -1,14 +1,14 @@
 import { translateText as tr, useLang as useLocaleRefresh, modelDescription } from '../i18n/index.jsx'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, ApiError } from '../api.js'
+import { removeImage, startImage, useImageItems } from '../imageStore.js'
 import { fmtSom } from '../format.js'
 
 /**
  * Playground image tab: POST /portal/playground/images (the same pipeline and billing as
  * /v1/images/generations, through the session and the hidden playground key). With an uploaded
- * picture the request becomes an edit (/v1/images/edits, img2img). Results are kept in memory
- * only — base64 images are too big for localStorage.
+ * picture the request becomes an edit (/v1/images/edits, img2img). The request and the results
+ * live in imageStore.js, so leaving the page neither drops a picture being drawn nor the finished ones.
  */
 const MAX_IMAGE = 10 * 1024 * 1024
 // One picture is billed as 1000 output tokens (the cluster's image usage)
@@ -28,14 +28,14 @@ const resolution = (m) => m?.capabilities?.image_resolution || ''
 const canEdit = (m) => Boolean(m?.capabilities?.image_editing)
 const imagePrice = (m) => (m ? (m.price_out_per_1m * IMAGE_TOKENS) / 1_000_000 : 0)
 
-export default function ImageStudio({ models, onCharged }) {
+export default function ImageStudio({ models, userId, onCharged }) {
   useLocaleRefresh()
   const [model, setModel] = useState(models[0]?.id || '')
   const [prompt, setPrompt] = useState('')
   const [size, setSize] = useState('1024x1024')
   const [source, setSource] = useState(null)      // { dataUrl, name } — the picture to change (img2img)
   const [error, setError] = useState('')
-  const [items, setItems] = useState([])     // { id, prompt, model, status, src?, error?, cost?, started, edited }
+  const items = useImageItems(userId, onCharged)   // { id, prompt, model, status, src?, error?, cost?, started, edited }
   const fileRef = useRef(null)
   const busy = items.some((i) => i.status === 'running')
   const current = models.find((m) => m.id === model) || models[0]
@@ -54,43 +54,14 @@ export default function ImageStudio({ models, onCharged }) {
     reader.readAsDataURL(f)
   }
 
-  async function create(e) {
+  function create(e) {
     e.preventDefault()
     const text = prompt.trim()
     if (!text || busy || !current) return
-    const id = crypto.randomUUID?.() || String(Date.now())
-    setItems((list) => [{ id, prompt: text, model: current.display_name || current.id, status: 'running',
-      started: Date.now(), edited: editing }, ...list])
+    const body = { model: current.id, prompt: text, size }
+    if (editing) body.image = source.dataUrl
     setPrompt('')
-    const patch = (p) => setItems((list) => list.map((i) => (i.id === id ? { ...i, ...p } : i)))
-    try {
-      const body = { model: current.id, prompt: text, size }
-      if (editing) body.image = source.dataUrl
-      const res = await fetch('/portal/playground/images', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-SF-CSRF': '1' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        const err = new ApiError(res.status, data?.error?.code || 'error', data?.error?.message || `HTTP ${res.status}`)
-        patch({ status: 'failed', error: err.message, code: res.status })
-        return
-      }
-      const img = data?.data?.[0]
-      patch({ status: 'done', src: img ? `data:${img.mime_type || 'image/png'};base64,${img.b64_json}` : null })
-      const rid = res.headers.get('X-Request-Id')
-      if (rid) {
-        for (let k = 0; k < 6; k++) {
-          const r = await api.get(`/portal/playground/receipt/${rid}`).catch(() => null)
-          if (r?.ready) { patch({ cost: r.cost }); break }
-          await new Promise((ok) => setTimeout(ok, 500 + k * 300))
-        }
-      }
-      onCharged?.()
-    } catch {
-      patch({ status: 'failed', error: tr('Tarmoq xatosi. Qayta urinib ko‘ring.') })
-    }
+    startImage({ userId, body, modelName: current.display_name || current.id, edited: editing })
   }
 
   if (!models.length) return <div className="vs-empty">{tr('Hozircha rasm modeli yo‘q.')}</div>
@@ -147,8 +118,10 @@ export default function ImageStudio({ models, onCharged }) {
                 ? <img className="is-image" src={i.src} alt={i.prompt} />
                 : <div className="vs-stage is-square">
                     {i.status === 'failed'
-                      ? <p className="vs-error" role="alert">{i.error} {tr('Pul yechilmadi.')}
-                          {i.code === 402 && <> <Link to="/app/billing">{tr('Hisobni to‘ldirish')}</Link></>}</p>
+                      ? (i.interrupted
+                          ? <p className="vs-error" role="alert">{tr('Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.')}</p>
+                          : <p className="vs-error" role="alert">{i.network ? tr('Tarmoq xatosi. Qayta urinib ko‘ring.') : i.error} {tr('Pul yechilmadi.')}
+                              {i.code === 402 && <> <Link to="/app/billing">{tr('Hisobni to‘ldirish')}</Link></>}</p>)
                       : <div className="vs-rendering" role="status"><span className="vs-bar" aria-hidden="true" />
                           <span>{tr('Chizilmoqda')} <Elapsed since={i.started} /></span></div>}
                   </div>}
@@ -156,7 +129,10 @@ export default function ImageStudio({ models, onCharged }) {
                 <p className="vs-prompt">{i.prompt}</p>
                 <div className="vs-row">
                   <span>{i.model}{i.cost != null && <> · {fmtSom(i.cost)}</>}</span>
-                  {i.src && <a href={i.src} download={`image-${i.id.slice(0, 8)}.${i.src.startsWith('data:image/jpeg') ? 'jpg' : 'png'}`}>{tr('Yuklab olish')}</a>}
+                  <span className="vs-actions">
+                    {i.src && <a href={i.src} download={`image-${i.id.slice(0, 8)}.${i.src.startsWith('data:image/jpeg') ? 'jpg' : 'png'}`}>{tr('Yuklab olish')}</a>}
+                    {i.status !== 'running' && <button type="button" className="link-btn" onClick={() => removeImage(i.id)}>{tr("O'chirish")}</button>}
+                  </span>
                 </div>
               </div>
             </article>

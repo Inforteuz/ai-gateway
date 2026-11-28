@@ -1884,6 +1884,7 @@ export default {
   "OR manzili": "Адрес OR",
   "OR API kaliti": "API-ключ OR",
   "OR ulushi (%)": "Доля OR (%)",
+  "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.": "Страница была перезагружена, поэтому результат не получен. Если списание было, запрос виден на странице расходов.",
   "Taqsimlash": "Распределение",
   "Bo'sh tab yo'q": "Нет свободной вкладки",
   "Xato o'rnida": "При ошибке",

@@ -1884,6 +1884,7 @@ export default {
   "OR manzili": "OR manzili",
   "OR API kaliti": "OR API kaliti",
   "OR ulushi (%)": "OR ulushi (%)",
+  "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.": "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.",
   "Taqsimlash": "Taqsimlash",
   "Bo'sh tab yo'q": "Bo'sh tab yo'q",
   "Xato o'rnida": "Xato o'rnida",

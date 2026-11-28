@@ -1884,6 +1884,7 @@ export default {
   "OR manzili": "OR URL",
   "OR API kaliti": "OR API key",
   "OR ulushi (%)": "OR share (%)",
+  "Sahifa yangilangani uchun natija olinmadi. Pul yechilgan bo‘lsa, rasm Sarf sahifasida ko‘rinadi.": "The page was reloaded, so the result was not received. If you were charged, the request appears on the Usage page.",
   "Taqsimlash": "Load sharing",
   "Bo'sh tab yo'q": "No free tab",
   "Xato o'rnida": "On failure",

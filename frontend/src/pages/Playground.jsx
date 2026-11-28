@@ -319,7 +319,7 @@ export default function Playground() {
         <VideoStudio models={videoItems} userId={user?.id}
           onCharged={() => api.get('/portal/account/summary').then((r) => setBalance(r.balance)).catch(() => {})} />
       ) : mode === 'image' ? (
-        <ImageStudio models={imageItems}
+        <ImageStudio models={imageItems} userId={user?.id}
           onCharged={() => api.get('/portal/account/summary').then((r) => setBalance(r.balance)).catch(() => {})} />
       ) : (
         <div className="pg-grid">
