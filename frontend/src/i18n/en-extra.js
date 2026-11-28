@@ -1885,8 +1885,6 @@ export default {
   "OmniRoute API kaliti": "OmniRoute API key",
   "OmniRoute ulushi (%)": "OmniRoute share (%)",
   "Qisman ishlayapti: ayrim modellar zaxira rejimida": "Partly working: some models run in fallback mode",
-  "GPU server": "GPU server",
-  "brauzer klasteri": "browser cluster",
   "qisman": "partial",
   "sozlanmagan": "not configured",
   "noma'lum": "unknown",

@@ -360,16 +360,18 @@ export function TierStatus({ tiers }) {
   if (!tiers) return null
   const dot = (s) => (s === 'up' ? 'dot--on' : s === 'partial' || s === 'unknown' ? 'dot--warn' : 'dot--off')
   const rows = [
-    ['Tier 1', tiers.tier1?.state, tr('GPU server')],
-    ['Tier 2', tiers.tier2?.state, tiers.tier2?.total ? `${tr('brauzer klasteri')} ${tiers.tier2.up}/${tiers.tier2.total}` : tr('brauzer klasteri')],
-    ['Tier 3', tiers.tier3?.state, `OmniRoute${tiers.tier3?.gemini_pool ? ' + Gemini' : ''}`],
+    // Short codes only: the page can end up on a screenshot (owner's call). GPU, BK = browser cluster,
+    // OR = the background router, GP = the key pool.
+    ['Tier 1', tiers.tier1?.state, 'GPU'],
+    ['Tier 2', tiers.tier2?.state, tiers.tier2?.total ? `BK ${tiers.tier2.up}/${tiers.tier2.total}` : 'BK'],
+    ['Tier 3', tiers.tier3?.state, `OR${tiers.tier3?.gp ? ' + GP' : ''}`],
   ]
   return (
     <span className="tier-line">
       {rows.map(([name, s, what]) => (
         <span className="status-line" key={name} title={what}>
           <span className={`dot ${dot(s)}`} />
-          <b>{name}</b>&nbsp;{tr(TIER_TEXT[s] || TIER_TEXT.unknown)} <span className="dim small">· {what}</span>
+          <b>{name}</b>&nbsp;{tr(TIER_TEXT[s] || TIER_TEXT.unknown)}&nbsp;<span className="dim small">· {what}</span>
         </span>
       ))}
     </span>

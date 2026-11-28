@@ -56,6 +56,7 @@ async def snapshot(app) -> dict:
     pool = bool((settings.get("pool_api_key") or "").strip())
     tier3_state = "up" if omni or (omni is None and pool) else ("partial" if pool else ("off" if omni is None else "down"))
     cover = capacity.cover_state(settings)
-    tier3 = {"state": tier3_state, "omniroute": {None: "off", True: "up", False: "down"}[omni], "gemini_pool": pool,
+    # Short keys for the same reason as the labels: OR = background router, GP = key pool
+    tier3 = {"state": tier3_state, "or": {None: "off", True: "up", False: "down"}[omni], "gp": pool,
              "covers_local": cover["local"], "share": settings.get("omni_share", "0")}
     return {"tier1": tier1, "tier2": tier2, "tier3": tier3}

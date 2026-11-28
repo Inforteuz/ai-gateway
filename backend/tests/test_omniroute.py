@@ -246,4 +246,4 @@ def test_admin_stats_show_three_tiers(env):
     t = env.client.get("/portal/admin/stats?days=7").json()["tiers"]
     assert t["tier1"]["state"] == "down"
     assert set(t) == {"tier1", "tier2", "tier3"}
-    assert t["tier3"]["omniroute"] in ("up", "down") and t["tier3"]["covers_local"] is True
+    assert t["tier3"]["or"] in ("up", "down") and "omniroute" not in json.dumps(t).lower() and t["tier3"]["covers_local"] is True

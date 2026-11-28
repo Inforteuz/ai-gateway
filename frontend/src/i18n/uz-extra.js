@@ -1885,8 +1885,6 @@ export default {
   "OmniRoute API kaliti": "OmniRoute API kaliti",
   "OmniRoute ulushi (%)": "OmniRoute ulushi (%)",
   "Qisman ishlayapti: ayrim modellar zaxira rejimida": "Qisman ishlayapti: ayrim modellar zaxira rejimida",
-  "GPU server": "GPU server",
-  "brauzer klasteri": "brauzer klasteri",
   "qisman": "qisman",
   "sozlanmagan": "sozlanmagan",
   "noma'lum": "noma'lum",
